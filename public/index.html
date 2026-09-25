@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Isaac IA Juniors — Assistant de Isaac</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Écran de démarrage -->
+<div id="boot">
+  <div class="boot-core"></div>
+  <div class="boot-lines" id="bootLines"></div>
+</div>
+
+<!-- Fond HUD -->
+<div class="grid-bg"></div>
+<div class="scanline"></div>
+
+<!-- Barre supérieure -->
+<header class="hud-top">
+  <div class="hud-left">
+    <span class="dot online" id="serverDot"></span> <span id="serverStatus">SYSTÈMES EN LIGNE</span>
+  </div>
+  <div class="hud-title">Isaac IA Juniors</div>
+  <div class="hud-right" id="clock">--:--</div>
+</header>
+
+<!-- Réacteur -->
+<main class="stage">
+  <div class="reactor-wrap">
+    <div class="ring ring-outer"></div>
+    <div class="ring ring-mid"></div>
+    <div class="ring ring-inner"></div>
+    <div class="ring ring-dashed"></div>
+    <div class="ticks" id="ticks"></div>
+    <button id="reactor" class="core" title="Cliquer pour parler à Isaac IA Juniors">
+      <div class="core-glow"></div>
+      <div class="core-center"></div>
+    </button>
+  </div>
+  <div id="status" class="status">Initialisation...</div>
+</main>
+
+<!-- Journal de conversation -->
+<section class="log-panel">
+  <div class="log-head">
+    <span>JOURNAL DE COMMUNICATION</span>
+    <label class="wake-toggle">
+      <input type="checkbox" id="wakeMode">
+      <span>Mode veille « Isaac »</span>
+    </label>
+  </div>
+  <div id="log" class="log"></div>
+  <form id="cmdForm" class="cmd-bar">
+    <button type="button" id="micBtn" class="mic-btn" title="Parler">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+        <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/>
+        <path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V22h2v-2.06A9 9 0 0 0 21 11h-2z"/>
+      </svg>
+    </button>
+    <input id="cmdInput" type="text" placeholder="Écrivez un ordre... ex : « ouvre youtube », « quelle heure est-il », « cherche élevage de poulets »" autocomplete="off">
+    <button type="submit" class="send-btn" title="Envoyer">➤</button>
+  </form>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

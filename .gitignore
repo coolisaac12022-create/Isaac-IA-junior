@@ -1,0 +1,10 @@
+# Notes personnelles — jamais publiées
+notes.txt
+
+# Dépendances éventuelles
+node_modules/
+
+# Fichiers temporaires Windows
+Thumbs.db
+desktop.ini
+*.log
