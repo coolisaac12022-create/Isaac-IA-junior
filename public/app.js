@@ -164,6 +164,13 @@ async function processCommand(text) {
   else if (/^(merci)/.test(t)) local = 'Avec plaisir, Isaac. C est mon rôle auprès de mon créateur.';
   else if (/au revoir|bonne nuit|à plus/.test(t)) local = 'Au revoir, Isaac. Je reste en veille pour vous.';
   else if (/^(ça va|ca va|comment vas tu|comment ça va)/.test(t)) local = 'Tous mes circuits fonctionnent à plein régime, Isaac. Et vous, mon créateur, comment allez-vous ?';
+  else if (/\b(quelle heure|il est quelle heure|l heure)\b/.test(t)) {
+    const n = new Date();
+    local = `Il est ${n.getHours()} heures ${String(n.getMinutes()).padStart(2, '0')}, Isaac.`;
+  }
+  else if (/\b(date|quel jour)\b/.test(t)) {
+    local = "Nous sommes le " + new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ', Isaac.';
+  }
 
   try {
     let reply;
@@ -177,6 +184,10 @@ async function processCommand(text) {
       });
       const data = await res.json();
       reply = data.reply || "Je n'ai pas de réponse, Isaac.";
+      // Le serveur peut demander l'ouverture d'une page dans ce navigateur
+      if (data.open) {
+        try { window.open(data.open, '_blank'); } catch (e) { addMsg('Isaac IA Juniors', 'Votre navigateur a bloqué la nouvelle fenêtre, Isaac. Autorisez les pop-ups pour ce site.'); }
+      }
     }
     addMsg('Isaac IA Juniors', reply);
     await speak(reply);
@@ -186,7 +197,7 @@ async function processCommand(text) {
       : 'Impossible de contacter mon serveur, Isaac. Vérifiez que la fenêtre noire ISAAC-IJ.bat est toujours ouverte, puis rechargez cette page (F5).';
     addMsg('Isaac IA Juniors', msg);
     await speak(location.protocol === 'file:'
-      ? 'Isaac, ouvrez-moi avec le fichier Isaac IA Juniors point bat, pas en double-cliquant sur la page.'
+      ? 'Isaac, ouvrez-moi avec le fichier ISAAC-IJ point bat, pas en double-cliquant sur la page.'
       : msg);
   }
   processing = false;

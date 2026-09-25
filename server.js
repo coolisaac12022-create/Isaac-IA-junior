@@ -11,9 +11,12 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 
-const PORT = 3777;
+const PORT = parseInt(process.env.PORT || '3777', 10);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const NOTES_FILE = path.join(__dirname, 'notes.txt');
+// Mode local = sur le PC d'Isaac (Windows) : contrôle total possible.
+// Mode web (hébergé type Bonto) : plus de contrôle du PC, mais dialogue + sites.
+const IS_LOCAL = process.platform === 'win32';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -38,6 +41,7 @@ function normalize(text) {
 }
 
 function run(cmd) {
+  if (!IS_LOCAL) { console.log('[remote] commande PC ignorée:', cmd); return; }
   exec(cmd, { windowsHide: true }, (err) => {
     if (err) console.error('[exec]', err.message);
   });
@@ -220,51 +224,50 @@ async function handleCommand(rawText) {
   // --- Météo ---
   if (/meteo|quel temps/.test(text)) {
     let city = "M'Bengue";
-    const m = text.match(/meteo (?:a|au|de|du|des)?\s*(.+)/);
-    if (m && m[1]) city = m[1].trim();
+    const m = text.match(/meteo\s+(?:au|a|de|du|des|dans)\s+(.+)/) || text.match(/meteo\s+(\S.*)/);
+    if (m && m[1] && m[1].trim().length > 1) city = m[1].trim();
     const w = await getWeather(city);
     if (w) return { reply: `Météo à ${city} : ${w}, Isaac.`, source: 'system' };
-    openURL('https://www.google.com/search?q=' + encodeURIComponent('météo ' + city));
-    return { reply: `Je n'arrive pas à contacter le satellite météo, Isaac. J'ouvre la météo pour ${city} dans votre navigateur.`, source: 'system' };
+    return { reply: `Je n'arrive pas à contacter le satellite météo, Isaac. J'ouvre la météo pour ${city} dans votre navigateur.`, source: 'system',
+             open: 'https://www.google.com/search?q=' + encodeURIComponent('météo ' + city) };
   }
 
   // --- Cherche sur Google ---
   let m = text.match(/^(?:cherche|recherche|cherche moi|recherche moi|trouve|google)\s+(.+)/);
   if (m) {
-    openURL('https://www.google.com/search?q=' + encodeURIComponent(m[1]));
-    return { reply: `Je lance la recherche pour « ${m[1]} », Isaac.`, source: 'system' };
+    return { reply: `Je lance la recherche pour « ${m[1]} », Isaac.`, source: 'system',
+             open: 'https://www.google.com/search?q=' + encodeURIComponent(m[1]) };
   }
 
   // --- Joue sur YouTube ---
   m = text.match(/^(?:joue|jouer|lance la video|mets|met|ecoute)\s+(.+)/);
   if (m) {
-    openURL('https://www.youtube.com/results?search_query=' + encodeURIComponent(m[1]));
-    return { reply: `Je cherche « ${m[1]} » sur YouTube, Isaac. Bon visionnage.`, source: 'system' };
+    return { reply: `Je cherche « ${m[1]} » sur YouTube, Isaac. Bon visionnage.`, source: 'system',
+             open: 'https://www.youtube.com/results?search_query=' + encodeURIComponent(m[1]) };
   }
 
-  // --- Ouvrir un site ---
+  // --- Ouvrir un site ou une application ---
   m = text.match(/^(?:ouvre|ouvrir|lance|lancer|va sur|allez sur|vas sur)\s+(.+)/);
   if (m) {
     const target = m[1].trim();
     for (const [key, url] of Object.entries(SITES)) {
       if (target === key || target.includes(key)) {
-        openURL(url);
-        return { reply: `J'ouvre ${key}, Isaac.`, source: 'system' };
+        return { reply: `J'ouvre ${key}, Isaac.`, source: 'system', open: url };
       }
     }
     for (const [key, cmd] of Object.entries(APPS)) {
       if (target === key || target.includes(key)) {
+        if (!IS_LOCAL) return { reply: `« ${key} » est une application de votre PC, Isaac : je ne peux la lancer que lorsque je tourne en local sur votre machine (ISAAC-IJ.bat). En version web, je peux ouvrir des sites, discuter, donner la météo et bien plus.`, source: 'system' };
         run(cmd);
         return { reply: `J'ouvre ${key}, Isaac.`, source: 'system' };
       }
     }
     // Peut-être un nom de domaine direct
     if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(target.replace(/\s/g, ''))) {
-      openURL('https://' + target.replace(/\s/g, ''));
-      return { reply: `J'ouvre le site ${target}, Isaac.`, source: 'system' };
+      return { reply: `J'ouvre le site ${target}, Isaac.`, source: 'system', open: 'https://' + target.replace(/\s/g, '') };
     }
-    openURL('https://www.google.com/search?q=' + encodeURIComponent(target));
-    return { reply: `Je ne connais pas « ${target} » directement, alors je le recherche sur Google, Isaac.`, source: 'system' };
+    return { reply: `Je ne connais pas « ${target} » directement, alors je le recherche sur Google, Isaac.`, source: 'system',
+             open: 'https://www.google.com/search?q=' + encodeURIComponent(target) };
   }
 
   // --- Blague ---
@@ -275,9 +278,14 @@ async function handleCommand(rawText) {
   // --- Notes ---
   m = text.match(/^(?:prends une note|note que|note|ecris|retiens)\s+(.+)/);
   if (m) {
+    if (!IS_LOCAL) return { reply: `En version web je ne peux pas enregistrer de note durable, Isaac (le serveur est éphémère). Lancez-moi en local avec ISAAC-IJ.bat pour que vos notes soient gardées sur votre PC.`, source: 'system' };
     const line = `[${new Date().toLocaleString('fr-FR')}] ${m[1]}\n`;
-    fs.appendFileSync(NOTES_FILE, line, 'utf8');
-    return { reply: `C'est noté, Isaac : « ${m[1]} ».`, source: 'system' };
+    try {
+      fs.appendFileSync(NOTES_FILE, line, 'utf8');
+      return { reply: `C'est noté, Isaac : « ${m[1]} ».`, source: 'system' };
+    } catch (e) {
+      return { reply: `Je n'arrive pas à écrire sur le disque, Isaac : ${e.message}`, source: 'system' };
+    }
   }
   if (/lis mes notes|mes notes|affiche mes notes/.test(text)) {
     if (fs.existsSync(NOTES_FILE)) {
@@ -287,22 +295,27 @@ async function handleCommand(rawText) {
     return { reply: "Vous n'avez aucune note pour le moment, Isaac.", source: 'system' };
   }
 
-  // --- Verrouiller la session ---
+  // --- Commandes de contrôle du PC (locales uniquement) ---
+  const REMOTE_PC = "Ce contrôle de votre PC exige que je tourne en local sur votre machine, Isaac (via ISAAC-IJ.bat). En version web, je ne peux ni verrouiller ni éteindre votre ordinateur — mais je peux toujours ouvrir des sites, discuter et vous renseigner.";
   if (/verrouille|verrouiller la session|verrouille le pc|verrouille l ordinateur/.test(text)) {
+    if (!IS_LOCAL) return { reply: REMOTE_PC, source: 'system' };
     run('rundll32.exe user32.dll,LockWorkStation');
     return { reply: 'Je verrouille votre session, Isaac. À tout de suite.', source: 'system' };
   }
 
   // --- Éteindre / annuler ---
   if (/annule l extinction|annuler l extinction|annule extinction/.test(text)) {
+    if (!IS_LOCAL) return { reply: REMOTE_PC, source: 'system' };
     run('shutdown /a');
     return { reply: 'Extinction annulée, Isaac. Tous les systèmes restent en ligne.', source: 'system' };
   }
   if (/eteins le pc|eteins l ordinateur|eteindre le pc|eteindre l ordinateur|arrete l ordinateur/.test(text)) {
+    if (!IS_LOCAL) return { reply: REMOTE_PC, source: 'system' };
     run('shutdown /s /t 60');
     return { reply: "J'ai programmé l'extinction dans 60 secondes, Isaac. Dites « annule l'extinction » pour interrompre la séquence.", source: 'system' };
   }
   if (/redemarre le pc|redemarre l ordinateur/.test(text)) {
+    if (!IS_LOCAL) return { reply: REMOTE_PC, source: 'system' };
     run('shutdown /r /t 60');
     return { reply: "Redémarrage programmé dans 60 secondes, Isaac. Dites « annule l'extinction » pour annuler.", source: 'system' };
   }
