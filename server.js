@@ -349,21 +349,77 @@ const APPS = {
   'dossiers': 'explorer',
   'gestionnaire des taches': 'taskmgr',
   'gestionnaire de taches': 'taskmgr',
-  'terminal': 'start cmd',
+  'terminal': 'start wt || start cmd',
+  'windows terminal': 'start wt || start cmd',
   'cmd': 'start cmd',
   'invite de commande': 'start cmd',
   'paint': 'mspaint',
   'peinture': 'mspaint',
   'word': 'start winword',
   'excel': 'start excel',
+  'powerpoint': 'start powerpnt',
+  'outlook': 'start outlook',
+  'vs code': 'code',
+  'vscode': 'code',
+  'visual studio code': 'code',
+  'visual studio': 'start devenv || code',
+  'chrome': 'start chrome',
+  'google chrome': 'start chrome',
+  'edge': 'start msedge',
+  'microsoft edge': 'start msedge',
+  'firefox': 'start firefox',
+  'opera': 'start opera',
+  'brave': 'start brave',
+  'lecteur video': 'start msp-9w141g455301 || start wmplayer',
+  'lecteur musical': 'start msp-c542a55a71ba || start wmplayer',
+  'films et tv': 'start msp-9w141g455301 || start wmplayer',
+  'lecteur': 'start msp-9w141g455301 || start wmplayer',
+  'musique': 'start msp-c542a55a71ba || start wmplayer',
+  'wmplayer': 'start wmplayer',
+  'vlc': 'start vlc',
+  'spotify': 'start spotify:',
+  'discord': 'start discord:',
+  'teams': 'start teams:',
+  'skype': 'start skype:',
+  'onedrive': 'start onedrive',
+  'notion': 'start notion:',
+  'photos': 'start ms-photos',
+  'camera': 'start microsoft.windows.camera:',
+  'appareil photo': 'start microsoft.windows.camera:',
+  'horloge': 'start ms-clock',
+  'alarme': 'start ms-clock',
+  'minuteur': 'start ms-clock',
+  'volume': 'start ms-settings:apps-volume',
+  'son': 'start ms-settings:sound',
+  'clavier': 'start ms-settings:typing',
+  'imprimante': 'start ms-settings:printers',
+  'ecran': 'start ms-settings:display',
+  'recherche windows': 'start ms-search:',
+  'localisation': 'start ms-settings:location',
+  'compte microsoft': 'start ms-settings:emailandaccounts',
+  'stockage': 'start ms-settings:datausage',
+  'applications': 'start ms-settings:appsfeatures',
+  'windows update': 'start ms-settings:windowsupdate',
+  'mise a jour': 'start ms-settings:windowsupdate',
   'parametres': 'start ms-settings:',
   'bluetooth': 'start ms-settings:bluetooth',
   'wifi': 'start ms-settings:network-wifi',
   'reseau': 'start ms-settings:network',
   'notifications': 'start ms-settings:notifications',
   'applications installees': 'start ms-settings:appsfeatures',
-  'spotify': 'start spotify:',
+  'capture d ecran': 'start snippingtool',
+  'capture': 'start snippingtool',
+  'tache planifiee': 'start taskschd.msc',
+  'panneau de configuration': 'start control',
+  'observateur d evenements': 'start eventvwr.msc',
+  'programme': 'start shell:AppsFolder',
+  'logiciels': 'start shell:AppsFolder',
   'telechargements': 'explorer shell:Downloads',
+  'documents': 'explorer shell:Personal',
+  'images': 'explorer shell:My Pictures',
+  'musiques': 'explorer shell:My Music',
+  'videos': 'explorer shell:My Video',
+  'corbeille': 'explorer shell:RecycleBinFolder',
   'bureau': 'explorer shell:Desktop'
 };
 
@@ -382,7 +438,7 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (/^(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac : ouvrir des applications et des sites (YouTube, WhatsApp, calculatrice...), chercher sur Google, jouer une vidéo, donner l'heure, la date et la météo, prendre des notes, capturer votre écran, ouvrir Bluetooth ou Wi-Fi, éteindre le PC. Et surtout : j'ai une mémoire — dites « retiens que... » pour graver un fait, « que sais-tu de moi » pour la lire, « oublie tout » pour l'effacer, et je réponds à vos questions comme une vraie IA, en réfléchissant et non en recopiant.",
+      reply: "Voici ce que je peux faire, Isaac : ouvrir plus de 60 applications de votre PC — « ouvre vscode », « ouvre chrome », « ouvre word », « ouvre le gestionnaire des taches », « ouvre la corbeille », « ouvre spotify », « ouvre discord » — et des sites comme YouTube, WhatsApp ou Gmail (« ouvre gmail »). Je peux aussi chercher sur Google, jouer une vidéo, donner l'heure, la date et la météo, prendre des notes, capturer votre écran, régler le son, le Wi-Fi ou Bluetooth, éteindre le PC. Et surtout : j'ai une mémoire — dites « retiens que... » pour graver un fait, « que sais-tu de moi » pour la lire, « oublie tout » pour l'effacer, et je réponds à vos questions comme une vraie IA, en réfléchissant et non en recopiant.",
       source: 'local'
     };
   }
@@ -419,6 +475,12 @@ async function handleCommand(rawText) {
   // --- Joue sur YouTube ---
   m = text.match(/^(?:joue|jouer|lance la video|mets|met|ecoute)\s+(.+)/);
   if (m) {
+    let query = m[1].trim().replace(/^(?:de la|des|du|un peu de|de|la|le)\s+/, '').trim() || m[1].trim();
+    // Demande générale de musique → les hits du moment plutôt qu'une recherche littérale
+    if (/^(?:musique|musiques|chansons?|hits?|tube|tubes|playlist|radio)$/.test(query)) {
+      return { reply: "Je vous ouvre les plus grands tubes du moment sur YouTube, Isaac. Installez-vous bien.", source: 'system',
+               open: 'https://www.youtube.com/results?search_query=' + encodeURIComponent('top hits 2026 best music playlist') };
+    }
     return { reply: `Je cherche « ${m[1]} » sur YouTube, Isaac. Bon visionnage.`, source: 'system',
              open: 'https://www.youtube.com/results?search_query=' + encodeURIComponent(m[1]) };
   }
@@ -427,16 +489,20 @@ async function handleCommand(rawText) {
   m = text.match(/^(?:ouvre|ouvrir|lance|lancer|va sur|allez sur|vas sur)\s+(.+)/);
   if (m) {
     const target = m[1].trim();
-    for (const [key, url] of Object.entries(SITES)) {
-      if (target === key || target.includes(key)) {
+    // Les articles ("le/la/l'/les/my...") sont ignorés ; les noms les plus longs d'abord
+    const strip = s => s.replace(/['’]/g, ' ').replace(/^(?:le|la|les|l|un|une|mon|ma|mes|du|de|des|my|the)\s+/g, '').trim();
+    const wordMatch = (key, s) => new RegExp(`(^|[^a-z])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z]|$)`).test(s);
+    const entries = list => list.sort((a, b) => b[0].length - a[0].length);
+    for (const [key, url] of entries(Object.entries(SITES))) {
+      if (wordMatch(key, target) || wordMatch(key, strip(target))) {
         return { reply: `J'ouvre ${key}, Isaac.`, source: 'system', open: url };
       }
     }
-    for (const [key, cmd] of Object.entries(APPS)) {
-      if (target === key || target.includes(key)) {
+    for (const [key, cmd] of entries(Object.entries(APPS))) {
+      if (wordMatch(key, target) || wordMatch(key, strip(target))) {
         if (!IS_LOCAL) return { reply: `« ${key} » est une application de votre PC, Isaac : je ne peux la lancer que lorsque je tourne en local sur votre machine (ISAAC-IJ.bat). En version web, je peux ouvrir des sites, discuter, donner la météo et bien plus.`, source: 'system' };
         run(cmd);
-        return { reply: `J'ouvre ${key}, Isaac.`, source: 'system' };
+        return { reply: `J'ouvre ${key}, Isaac. Si rien n'apparait, le logiciel n'est peut-etre pas installe sur votre PC.`, source: 'system' };
       }
     }
     // Peut-être un nom de domaine direct

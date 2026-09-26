@@ -9,7 +9,7 @@ Isaac IA Juniors est un assistant vocal en français, inspiré de JARVIS (Iron M
 - 🎙️ **Commande vocale 100% gratuite** — reconnaissance vocale française via la Web Speech API (Chrome / Edge)
 - 🔊 **Voix de réponse** — synthèse vocale française intégrée
 - 🧠 **Cerveau IA gratuit** — Pollinations.ai, avec secours automatique DuckDuckGo puis Wikipédia (aucune clé API, aucun abonnement)
-- 💻 **Contrôle du PC** — ouvre YouTube, WhatsApp, le bloc-notes, la calculatrice..., lance des recherches Google, joue des vidéos YouTube
+- 💻 **Contrôle du PC** — plus de 60 applications à la voix (VS Code, Chrome, Word, Excel, VLC, Spotify, Discord, gestionnaire des tâches, corbeille, dossiers...), sites (YouTube, Gmail, WhatsApp...), recherches Google, vidéos YouTube
 - 🌤️ **Météo en direct** — via wttr.in (réglée sur M'Bengue par défaut)
 - 📝 **Prise de notes vocale** — « note que ... » / « lis mes notes »
 - 🕐 **L'heure, la date, le calcul mental, des blagues**
@@ -54,10 +54,13 @@ public/app.js       — voix, écoute, wake word, logique client
 
 | Dis... | Il fait... |
 |---|---|
-| « Ouvre YouTube » | Lance le site |
+| « Ouvre YouTube » / « Ouvre Gmail » | Lance le site |
+| « Ouvre VS Code », « Ouvre Chrome », « Ouvre Word » | Lance le logiciel du PC |
+| « Ouvre la corbeille », « Ouvre Mes documents » | Ouvre les dossiers Windows |
 | « Cherche élevage de poulets » | Recherche Google |
 | « Quelle heure est-il ? » | Donne l'heure à voix haute |
 | « Météo » | Météo de M'Bengue en direct |
+| « Retiens que mon budget est zéro » | Grave le fait dans sa mémoire |
 | « Note que rappeler le fournisseur » | Enregistre dans notes.txt |
 | « Qui t'a créé ? » | « C'est vous, Isaac, mon créateur ! » |
 | « Éteins le PC » | Extinction dans 60 s (annulable) |
