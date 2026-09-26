@@ -21,26 +21,15 @@ if errorlevel 1 (
 )
 echo   [OK] Node.js detecte.
 
-REM --- 2. Detecter Edge ou Chrome et le memoriser ---
-set "BROWSER="
-if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" set "BROWSER=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
-if not defined BROWSER if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" set "BROWSER=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
-if not defined BROWSER if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "BROWSER=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
-if not defined BROWSER if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "BROWSER=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
-if not defined BROWSER set "BROWSER=msedge"
-echo   [OK] Navigateur configure : %BROWSER%
-setx ISAAC_BROWSER "%BROWSER%" >nul
-
-REM --- 3. Raccourci dans le dossier Demarrage de Windows (auto-start) ---
-powershell -NoProfile -Command "$ws=New-Object -ComObject WScript.Shell; $s=[Environment]::GetFolderPath('Startup'); $lnk=$ws.CreateShortcut($s+'\Isaac IA Juniors.lnk'); $lnk.TargetPath='wscript.exe'; $lnk.Arguments='\"%PROJ%isaac-launch.vbs\"'; $lnk.WorkingDirectory='%PROJ%'; $lnk.Description='Isaac IA Juniors - demarrage automatique'; $lnk.IconLocation='shell32.dll,137'; $lnk.Save()" >nul 2>&1
+REM --- 2. Detecter le navigateur + creer les raccourcis (via PowerShell) ---
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJ%install-step.ps1"
 if errorlevel 1 (
-  echo   [!] Raccourci Demarrage non cree (PowerShell refuse).
-) else (
-  echo   [OK] Demarrage automatique avec Windows : installe
+  echo   [ERREUR] L'installation PowerShell a echoue.
+  echo.
+  pause
+  exit /b 1
 )
-
-REM --- 4. Raccourci sur le Bureau ---
-powershell -NoProfile -Command "$ws=New-Object -ComObject WScript.Shell; $d=[Environment]::GetFolderPath('Desktop'); $lnk=$ws.CreateShortcut($d+'\Isaac IA Juniors.lnk'); $lnk.TargetPath='wscript.exe'; $lnk.Arguments='\"%PROJ%isaac-launch.vbs\"'; $lnk.WorkingDirectory='%PROJ%'; $lnk.Description='Reveiller Isaac IA Juniors'; $lnk.IconLocation='shell32.dll,137'; $lnk.Save()" >nul 2>&1
+echo   [OK] Navigateur enregistre + demarrage auto avec Windows installe
 echo   [OK] Raccourci Bureau : "Isaac IA Juniors"
 
 echo.
