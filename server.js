@@ -164,28 +164,29 @@ async function askGitHubModels(messages) {
   return null;
 }
 
-async function askGemini(messages) {
+const GEMINI_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest'];
+async function askGemini(messages, attempt = 0) {
   const { gemini } = loadKeys();
-  if (!gemini) return null;
+  if (!gemini || attempt >= GEMINI_MODELS.length) return null;
   const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n');
   const contents = messages.filter(m => m.role !== 'system').map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }]
   }));
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(gemini);
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODELS[attempt] + ':generateContent?key=' + encodeURIComponent(gemini);
   const res = await httpsRequestJSON(url, { method: 'POST' }, {
     systemInstruction: system ? { parts: [{ text: system }] } : undefined,
     contents
-  }, 20000);
+  }, 25000);
   if (res && res.status === 200) {
     try {
       const data = JSON.parse(res.data);
-      const t = data.candidates && data.candidates[0] && data.candidates[0].content &&
-        data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
-      if (t && t.trim().length > 1) return t.trim().replace(/\s*\n+\s*/g, ' ').slice(0, 700);
+      const parts = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+      const text = Array.isArray(parts) ? parts.map(p => p.text || '').join(' ').trim() : '';
+      if (text.length > 1) return text.replace(/\s*\n+\s*/g, ' ').slice(0, 700);
     } catch (e) {}
   }
-  return null;
+  return askGemini(messages, attempt + 1);
 }
 
 // Requête HTTPS générique avec en-têtes + corps JSON
