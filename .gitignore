@@ -1,6 +1,12 @@
 # Notes personnelles — jamais publiées
 notes.txt
 
+# Mémoire personnelle d'Isaac — jamais publiée
+isaac-memory.json
+
+# Clés gratuites éventuelles — JAMAIS publiées
+isaac-keys.json
+
 # Dépendances éventuelles
 node_modules/
 

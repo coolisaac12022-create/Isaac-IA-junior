@@ -14,6 +14,7 @@ const { exec } = require('child_process');
 const PORT = parseInt(process.env.PORT || '3777', 10);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const NOTES_FILE = path.join(__dirname, 'notes.txt');
+const MEMORY_FILE = path.join(__dirname, 'isaac-memory.json');
 // Mode local = sur le PC d'Isaac (Windows) : contrôle total possible.
 // Mode web (hébergé type Bonto) : plus de contrôle du PC, mais dialogue + sites.
 const IS_LOCAL = process.platform === 'win32';
@@ -70,68 +71,237 @@ function fetchText(url, timeoutMs = 9000) {
   });
 }
 
-// IA gratuite (Pollinations.ai — aucune clé requise)
-async function askAI(question, attempt = 0) {
-  const system = [
-    "Tu es ISAAC IA JUNIORS, l'intelligence artificielle personnelle créée par Isaac, un entrepreneur ivoirien.",
-    "Ton créateur est Isaac : si on te demande qui t'a créé, d'où tu viens ou qui est ton maître, réponds toujours Isaac, ton créateur, que tu sers avec fierté.",
-    "Tu appelles donc ton utilisateur « Isaac » ou « mon créateur ».",
-    'Tu réponds TOUJOURS en français, de manière concise (maximum 3 phrases), avec un ton calme, poli et légèrement britannique.',
-  ].join(' ');
-  const url = 'https://text.pollinations.ai/' + encodeURIComponent(question) +
-              '?system=' + encodeURIComponent(system);
-  const text = await fetchText(url, 15000);
-  // Réponse valide : ni vide, ni erreur JSON du fournisseur
-  if (text && text.length > 1 && !/^\s*[{[]/.test(text)) {
-    return text.replace(/\n+/g, ' ').slice(0, 600);
-  }
-  // Une seconde chance en cas d'erreur transitoire du service
-  if (attempt < 1) {
-    await new Promise(r => setTimeout(r, 1200));
-    return askAI(question, attempt + 1);
-  }
-  return null;
+// Requête POST JSON (pour le nouveau cerveau Pollinations)
+function postJSON(url, obj, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    try {
+      const body = JSON.stringify(obj);
+      const req = https.request(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+      }, (res) => {
+        let data = '';
+        res.on('data', (c) => { data += c; if (data.length > 30000) req.destroy(); });
+        res.on('end', () => resolve({ status: res.statusCode, data }));
+      });
+      req.setTimeout(timeoutMs, () => { req.destroy(); resolve(null); });
+      req.on('error', () => resolve(null));
+      req.write(body);
+      req.end();
+    } catch (e) { resolve(null); }
+  });
 }
 
-// Secours 1 : réponse instantanée DuckDuckGo (gratuit, sans clé)
-async function askDuckDuckGo(question) {
-  const url = 'https://api.duckduckgo.com/?format=json&no_html=1&skip_disambiguation=1&q=' +
-              encodeURIComponent(question);
-  const raw = await fetchText(url, 8000);
+// ---------- Mémoire permanente d'Isaac (fichier local, jamais publiée) ----------
+// { profile: {...}, facts: ["..."], log: [{t, q, a}] }
+
+function loadMemory() {
+  let mem = null;
+  try { mem = JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf8')); } catch (e) {}
+  if (!mem || typeof mem !== 'object') mem = {};
+  mem.profile = mem.profile || { prenom: 'Isaac', role: 'créateur et maître d\'Isaac IA Juniors', pays: "Côte d'Ivoire", ville: "M'Bengue" };
+  if (!Array.isArray(mem.facts)) mem.facts = [];
+  if (!Array.isArray(mem.log)) mem.log = [];
+  return mem;
+}
+
+function saveMemory(mem) {
+  try { fs.writeFileSync(MEMORY_FILE, JSON.stringify(mem, null, 2), 'utf8'); return true; }
+  catch (e) { console.error('[memoire] ecriture impossible:', e.message); return false; }
+}
+
+function logExchange(mem, question, reply) {
+  mem.log.push({ t: Date.now(), q: String(question).slice(0, 200), a: String(reply).slice(0, 300) });
+  if (mem.log.length > 60) mem.log = mem.log.slice(-60);
+  saveMemory(mem);
+}
+
+// Résumé de la mémoire injecté dans chaque conversation avec l'IA
+function memoryDigest(mem) {
+  const p = mem.profile;
+  let s = `PROFIL : ${p.prenom}, ${p.role}, ${p.ville}, ${p.pays}.`;
+  if (mem.facts.length) {
+    s += ' FAITS MÉMORISÉS : ' + mem.facts.slice(-25).join(' ; ') + '.';
+  }
+  const recent = mem.log.slice(-6);
+  if (recent.length) {
+    s += ' CONVERSATION RECENTE : ' + recent.map(x => `Q: ${x.q} R: ${x.a}`).join(' | ');
+  }
+  return s;
+}
+
+// Cerveau IA — plusieurs moteurs gratuits, try in priority order:
+// 1) GitHub Models  (clé gratuite : un simple token GitHub dans isaac-keys.json)
+// 2) Google Gemini  (clé gratuite : aistudio.google.com)
+// 3) Pollinations   (sans clé, mais parfois saturé)
+const KEYS_FILE = path.join(__dirname, 'isaac-keys.json');
+function loadKeys() {
+  let k = {};
+  try { k = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8')); } catch (e) {}
+  return {
+    github: k.github_token || process.env.GITHUB_TOKEN || null,
+    gemini: k.gemini_api_key || process.env.GEMINI_API_KEY || null
+  };
+}
+
+function extractOpenAIContent(body) {
   try {
-    const data = JSON.parse(raw);
-    const txt = data.AbstractText || data.Answer || (data.RelatedTopics && data.RelatedTopics[0] && data.RelatedTopics[0].Text);
-    if (txt && txt.length > 30) return txt.slice(0, 500) + " (Source : " + (data.AbstractSource || 'DuckDuckGo') + ", Isaac.)";
+    const data = JSON.parse(body);
+    const c = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (c && c.trim().length > 1 && !/^\s*[[{]/.test(c)) return c.trim().replace(/\s*\n+\s*/g, ' ').slice(0, 700);
   } catch (e) {}
   return null;
 }
 
-// Secours 2 : Wikipédia français (gratuit, sans clé)
-async function askWikipedia(question) {
+async function askGitHubModels(messages) {
+  const { github } = loadKeys();
+  if (!github) return null;
+  const res = await httpsRequestJSON('https://models.github.ai/inference/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + github }
+  }, { model: 'microsoft/Phi-4-mini', messages, temperature: 0.6 }, 20000);
+  if (res && res.status === 200) return extractOpenAIContent(res.data);
+  return null;
+}
+
+async function askGemini(messages) {
+  const { gemini } = loadKeys();
+  if (!gemini) return null;
+  const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n');
+  const contents = messages.filter(m => m.role !== 'system').map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }]
+  }));
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(gemini);
+  const res = await httpsRequestJSON(url, { method: 'POST' }, {
+    systemInstruction: system ? { parts: [{ text: system }] } : undefined,
+    contents
+  }, 20000);
+  if (res && res.status === 200) {
+    try {
+      const data = JSON.parse(res.data);
+      const t = data.candidates && data.candidates[0] && data.candidates[0].content &&
+        data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
+      if (t && t.trim().length > 1) return t.trim().replace(/\s*\n+\s*/g, ' ').slice(0, 700);
+    } catch (e) {}
+  }
+  return null;
+}
+
+// Requête HTTPS générique avec en-têtes + corps JSON
+function httpsRequestJSON(url, opts, obj, timeoutMs) {
+  return new Promise((resolve) => {
+    try {
+      const body = JSON.stringify(obj);
+      const u = new URL(url);
+      const req = https.request({
+        hostname: u.hostname, path: u.pathname + u.search, method: opts.method || 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }, opts.headers || {})
+      }, (res) => {
+        let d = '';
+        res.on('data', (c) => { d += c; if (d.length > 60000) req.destroy(); });
+        res.on('end', () => resolve({ status: res.statusCode, data: d }));
+      });
+      req.setTimeout(timeoutMs, () => { req.destroy(); resolve(null); });
+      req.on('error', () => resolve(null));
+      req.write(body); req.end();
+    } catch (e) { resolve(null); }
+  });
+}
+
+const AI_ATTEMPTS = [
+  { model: 'openai-fast', timeout: 20000, wait: 0 },
+  { model: 'openai-fast', timeout: 18000, wait: 2500 },
+  { model: 'openai', timeout: 15000, wait: 4000 }
+];
+async function askAI(messages, attempt = 0) {
+  // Moteurs à clé gratuite d'abord (fiables), puis Pollinations
+  const premium = await askGitHubModels(messages) || await askGemini(messages);
+  if (premium) return premium;
+  const plan = AI_ATTEMPTS[attempt];
+  if (!plan) return null;
+  if (plan.wait) await new Promise(r => setTimeout(r, plan.wait));
+  const res = await postJSON('https://text.pollinations.ai/openai', {
+    model: plan.model,
+    messages
+  }, plan.timeout);
+  if (res && res.status === 200) {
+    const c = extractOpenAIContent(res.data);
+    if (c) return c;
+  }
+  return askAI(messages, attempt + 1);
+}
+
+function identitySystem(mem) {
+  return [
+    "Tu es ISAAC IA JUNIORS, l'intelligence artificielle personnelle et loyale créée par Isaac, un entrepreneur ivoirien.",
+    "Ton créateur est Isaac : si on te demande qui t'a créé, d'où tu viens ou qui est ton maître, réponds toujours Isaac, ton créateur, que tu sers avec fierté.",
+    "Tu appelles ton utilisateur « Isaac » ou « mon créateur ». Tu as une mémoire : utilise-la pour personnaliser tes réponses.",
+    'Tu réponds TOUJOURS en français naturel, comme un vrai assistant intelligent : 2 à 4 phrases, ton calme, poli, légèrement britannique.',
+    'Jamais tu ne recopies un texte brut : tu comprends la question, tu synthétises avec tes propres mots. Si un CONTEXTE documentaire t\'est fourni, appuie-toi dessus mais reformule toujours.',
+    'Quand tu utilises un contexte, tu peux terminer par une brève mention de la source entre parenthèses.',
+    'Mémoire courante — ' + memoryDigest(mem)
+  ].join(' ');
+}
+
+// Contexte documentaire : snippet DuckDuckGo + extrait Wikipédia (en parallèle)
+async function gatherContext(question) {
+  const parts = [];
+  const ddgUrl = 'https://api.duckduckgo.com/?format=json&no_html=1&skip_disambiguation=1&q=' +
+                 encodeURIComponent(question);
+  const ddgRaw = await fetchText(ddgUrl, 6000);
+  try {
+    const data = JSON.parse(ddgRaw);
+    const txt = data.AbstractText || data.Answer || (data.RelatedTopics && data.RelatedTopics[0] && data.RelatedTopics[0].Text);
+    if (txt && txt.length > 30) parts.push('[' + (data.AbstractSource || 'DuckDuckGo') + '] ' + txt.slice(0, 400));
+  } catch (e) {}
+  const wiki = await askWikipediaRaw(question);
+  if (wiki) parts.push('[Wikipédia] ' + wiki);
+  return parts.join(' || ') || null;
+}
+
+// Extrait brut Wikipédia (plein texte, sans phrase de conclusion)
+async function askWikipediaRaw(question) {
   let q = normalize(question)
-    .replace(/^(c est quoi|qu est ce que|qu est ce qu|definis|definition de|explique moi|parle moi de|dis moi|qui est|qui etait|c etait quoi)\s*/, '')
+    .replace(/^(?:c est quoi|qu est ce que|qu est ce qu|definis|definition de|explique moi|parle moi de|dis moi|qui est|qui etait|c etait quoi|quel est|quelle est)\s*/, '')
     .trim();
   if (!q) return null;
-  // Recherche plein texte (bien plus tolérante que opensearch)
   const searchUrl = 'https://fr.wikipedia.org/w/api.php?action=query&list=search&srlimit=1&format=json&srsearch=' + encodeURIComponent(q);
-  const raw = await fetchText(searchUrl, 8000);
+  const raw = await fetchText(searchUrl, 7000);
   try {
     const arr = JSON.parse(raw);
     const title = arr && arr.query && arr.query.search && arr.query.search[0] && arr.query.search[0].title;
     if (!title) return null;
-    const sum = await fetchText('https://fr.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(title), 8000);
+    const sum = await fetchText('https://fr.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(title), 7000);
     const data = JSON.parse(sum);
-    if (data && data.extract) return data.extract.slice(0, 500) + ' (Source : Wikipédia, Isaac.)';
+    if (data && data.extract) return data.extract.slice(0, 500);
   } catch (e) {}
   return null;
 }
 
-// Cerveau complet : IA → DuckDuckGo → Wikipédia
+// Ancien secours brut (uniquement si l'IA est totalement hors ligne)
+async function askWikipedia(question) {
+  const raw = await askWikipediaRaw(question);
+  return raw ? raw + ' (Source : Wikipédia, Isaac.)' : null;
+}
+
+// Cerveau complet : IA (avec mémoire + contexte) → secours brut
 async function smartAnswer(question) {
-  const ai = await askAI(question);
+  const mem = loadMemory();
+  const messages = [{ role: 'system', content: identitySystem(mem) }];
+  // Historique récent comme fil de conversation (véritable mémoire à court terme)
+  for (const x of mem.log.slice(-4)) {
+    messages.push({ role: 'user', content: x.q });
+    messages.push({ role: 'assistant', content: x.a });
+  }
+  const context = await gatherContext(question);
+  messages.push({
+    role: 'user',
+    content: question + (context ? '\n\nCONTEXTE DOCUMENTAIRE (reformule-le, ne le recopie pas) : ' + context : '')
+  });
+  const ai = await askAI(messages);
   if (ai) return { reply: ai, source: 'ai' };
-  const ddg = await askDuckDuckGo(question);
-  if (ddg) return { reply: ddg, source: 'ai' };
+  // IA morte : au moins donner l'information brute
   const wiki = await askWikipedia(question);
   if (wiki) return { reply: wiki, source: 'ai' };
   return null;
@@ -211,7 +381,7 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (/^(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac : ouvrir des applications (bloc-notes, calculatrice, explorateur...), ouvrir des sites (YouTube, Google, WhatsApp...), chercher sur Google (« cherche ... »), jouer une vidéo (« joue ... »), donner l'heure, la date et la météo, prendre des notes, capturer votre écran, ouvrir les paramètres Bluetooth ou Wi-Fi, raconter une blague, verrouiller ou éteindre le PC, et répondre à vos questions grâce à mon intelligence artificielle.",
+      reply: "Voici ce que je peux faire, Isaac : ouvrir des applications et des sites (YouTube, WhatsApp, calculatrice...), chercher sur Google, jouer une vidéo, donner l'heure, la date et la météo, prendre des notes, capturer votre écran, ouvrir Bluetooth ou Wi-Fi, éteindre le PC. Et surtout : j'ai une mémoire — dites « retiens que... » pour graver un fait, « que sais-tu de moi » pour la lire, « oublie tout » pour l'effacer, et je réponds à vos questions comme une vraie IA, en réfléchissant et non en recopiant.",
       source: 'local'
     };
   }
@@ -281,8 +451,55 @@ async function handleCommand(rawText) {
     return { reply: BLAGUES[Math.floor(Math.random() * BLAGUES.length)], source: 'local' };
   }
 
+  // --- Mémoire permanente ---
+  m = text.match(/^(?:retiens|souviens toi que|souviens toi de|memorise|enregistre dans ta memoire)\s+(?:que\s+|de\s+)?(.+)/);
+  if (m) {
+    const fact = m[1].trim().replace(/[.!?]+$/, '');
+    if (fact.length < 2) return { reply: 'Que dois-je retenir exactement, Isaac ?', source: 'system' };
+    const mem = loadMemory();
+    if (mem.facts.includes(fact)) return { reply: `Je le savais déjà, Isaac : « ${fact} » est dans ma mémoire.`, source: 'system' };
+    mem.facts.push(fact);
+    if (mem.facts.length > 100) mem.facts = mem.facts.slice(-100);
+    if (saveMemory(mem)) {
+      return { reply: `C'est gravé dans ma mémoire permanente, Isaac : « ${fact} ». Je m'en souviendrai même après un redémarrage.`, source: 'system' };
+    }
+    return { reply: `Je comprends, mais je n'arrive pas à écrire ma mémoire sur le disque, Isaac.`, source: 'system' };
+  }
+  if (/^(?:que sais tu de moi|que te souviens tu|qu est ce que tu sais|que sais tu a mon sujet|que sais tu sur moi|raconte moi ce que tu sais)/.test(text) || /ma memoire|te souviens tu de moi/.test(text)) {
+    const mem = loadMemory();
+    const p = mem.profile;
+    let reply = `Ce que je sais de vous, Isaac : vous êtes mon créateur, ${p.ville} en ${p.pays}.`;
+    if (mem.facts.length) reply += " J'ai mémorisé : " + mem.facts.slice(-8).join(' ; ') + '.';
+    else reply += " Je n'ai pas encore de faits mémorisés — dites-moi « retiens que... » et je ne l'oublierai jamais.";
+    if (mem.log.length) reply += ` Nous avons échangé ${mem.log.length} fois récemment.`;
+    return { reply, source: 'system' };
+  }
+  if (/^oublie (?:tout|toute ta memoire|tes souvenirs|la memoire|ma memoire)$|^vide ta memoire/.test(text)) {
+    const mem = loadMemory();
+    mem.facts = [];
+    mem.log = [];
+    saveMemory(mem);
+    return { reply: "Mémoire effacée, Isaac. Je repars à zéro — mais je vous reconnaîtrai toujours comme mon créateur.", source: 'system' };
+  }
+  m = text.match(/^oublie (?:que\s+|de\s+)?(.+)/);
+  if (m) {
+    const needle = normalize(m[1]);
+    const mem = loadMemory();
+    const before = mem.facts.length;
+    mem.facts = mem.facts.filter(f => !normalize(f).includes(needle) && !needle.includes(normalize(f)));
+    saveMemory(mem);
+    if (mem.facts.length < before) return { reply: `Effacé de ma mémoire, Isaac.`, source: 'system' };
+    return { reply: `Je n'ai rien de tel en mémoire, Isaac.`, source: 'system' };
+  }
+  if (/^(?:qu est ce que je t ai |que t ai je |notre conversation|nos dernieres echanges|derniere question)/.test(text) || /de quoi on a parle|ce qu on s est dit/.test(text)) {
+    const mem = loadMemory();
+    const recent = mem.log.slice(-4);
+    if (!recent.length) return { reply: "Notre historique est vide pour le moment, Isaac.", source: 'system' };
+    return { reply: 'Nos derniers échanges : ' + recent.map(x => `« ${x.q} »`).join(' , ') + '.', source: 'system' };
+  }
+
   // --- Notes ---
-  m = text.match(/^(?:prends une note|note que|note|ecris|retiens)\s+(.+)/);
+  m = text.match(/^(?:prends une note|note que|note|ecris)\s+(.+)/);
   if (m) {
     if (!IS_LOCAL) return { reply: `En version web je ne peux pas enregistrer de note durable, Isaac (le serveur est éphémère). Lancez-moi en local avec ISAAC-IJ.bat pour que vos notes soient gardées sur votre PC.`, source: 'system' };
     const line = `[${new Date().toLocaleString('fr-FR')}] ${m[1]}\n`;
@@ -355,7 +572,7 @@ async function handleCommand(rawText) {
     }
   }
 
-  // --- Sinon : l'IA répond (avec secours DuckDuckGo / Wikipédia) ---
+  // --- Sinon : le cerveau IA répond (mémoire + contexte documentaires) ---
   const answer = await smartAnswer(rawText);
   if (answer) return answer;
   return {
@@ -385,6 +602,10 @@ const server = http.createServer(async (req, res) => {
         console.log('> Commande:', text);
         const result = await handleCommand(text);
         console.log('> Réponse (' + result.source + '):', result.reply.slice(0, 120));
+        // Enregistrement dans la mémoire de conversation
+        if (text && String(text).trim()) {
+          try { logExchange(loadMemory(), String(text).trim(), result.reply); } catch (e) {}
+        }
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(result));
       } catch (e) {
