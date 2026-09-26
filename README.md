@@ -25,14 +25,29 @@ Isaac IA Juniors est un assistant vocal en français, inspiré de JARVIS (Iron M
 
 Alternative : `node server.js` dans le dossier, puis ouvrir http://localhost:3777 dans Chrome ou Edge.
 
+## 🖥️ Mode système — Isaac intégré à Windows (recommandé)
+
+Une seule installation à faire : double-cliquer sur **`INSTALL-ISAAC.bat`**.
+
+Ce que ça installe :
+- **Démarrage automatique** — à chaque allumage du PC, Isaac se réveille seul (cerveau caché + fenêtre d'application, sans onglets ni barre d'adresse)
+- **Raccourci Bureau** « Isaac IA Juniors » pour le réveiller à tout moment
+- **Veille permanente** — clique une fois dans la fenêtre puis dis simplement « Isaac, ... » ; il écoute en continu, comme un système
+- **Capture d'écran vocale** — « Isaac, capture l'écran » enregistre l'image dans ton dossier Images
+- **Réglages Windows à la voix** — « ouvre bluetooth », « ouvre wifi », « ouvre les notifications »...
+
+Pour désinstaller : supprime le raccourci « Isaac IA Juniors » dans `shell:startup` (Win+R) et sur le Bureau.
+
 ## 📁 Structure
 
 ```
-server.js          — serveur Node (aucune dépendance npm), commandes système + IA
-ISAAC-IJ.bat       — lanceur Windows (double-clic)
-public/index.html  — interface (réacteur animé style Iron Man)
-public/style.css   — design HUD
-public/app.js      — voix, écoute, wake word, logique client
+server.js           — serveur Node (aucune dépendance npm), commandes système + IA
+ISAAC-IJ.bat        — lanceur classique (console visible)
+INSTALL-ISAAC.bat   — installe Isaac dans Windows (démarrage auto + appli fenêtrée)
+isaac-launch.vbs    — démon silencieux lancé par Windows au démarrage
+public/index.html   — interface (réacteur animé style Iron Man)
+public/style.css    — design HUD
+public/app.js       — voix, écoute, wake word, logique client
 ```
 
 ## 💡 Exemples de commandes

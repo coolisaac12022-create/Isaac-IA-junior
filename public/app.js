@@ -284,6 +284,7 @@ reactor.addEventListener('click', () => micBtn.click());
 // Mode veille
 wakeToggle.addEventListener('change', () => {
   wakeMode = wakeToggle.checked;
+  localStorage.setItem('ij-wake', wakeMode ? '1' : '0');
   if (wakeMode) {
     addMsg('Isaac IA Juniors', 'Mode veille activé, Isaac. Dites « Isaac » suivi de votre ordre.');
     speak('Mode veille activé. Je reste à votre écoute, Isaac.');
@@ -294,6 +295,16 @@ wakeToggle.addEventListener('change', () => {
     setState(null, 'En attente de vos ordres, Isaac');
   }
 });
+
+// Mode système : la veille « Isaac » est active par défaut, en permanence.
+// Le navigateur exige un premier clic/touche pour ouvrir le micro — armement automatique.
+if (localStorage.getItem('ij-wake') !== '0') {
+  wakeMode = true;
+  wakeToggle.checked = true;
+}
+const armMic = () => { if (wakeMode && recognition && !isListening) startListening(true); };
+document.addEventListener('pointerdown', armMic, { once: true });
+document.addEventListener('keydown', armMic, { once: true });
 
 // ---------- Saisie texte ----------
 cmdForm.addEventListener('submit', (e) => {
@@ -333,9 +344,9 @@ const bootLines = [
           addMsg('Isaac IA Juniors', 'Isaac, vous m\'avez ouvert en double-cliquant sur index.html : je ne peux pas fonctionner ainsi. Fermez cet onglet, double-cliquez sur le fichier ISAAC-IJ.bat (il se trouve juste à côté), et une fenêtre noire restera ouverte : c\'est mon serveur. La page s\'ouvrira alors toute seule à la bonne adresse.');
           speak('Isaac, pour m\'utiliser, double-cliquez sur Isaac IA Juniors point bat, pas sur la page.');
         } else {
-          setState(null, 'En attente de vos ordres, Isaac');
-          addMsg('Isaac IA Juniors', 'Bonjour Isaac. Je suis Isaac IA Juniors, votre assistant personnel. Cliquez sur le micro ou le réacteur pour me parler, ou écrivez votre ordre. Dites « aide » pour découvrir mes capacités.');
-          speak('Bonjour Isaac. Tous les systèmes de Isaac IA Juniors sont en ligne et à votre service.');
+          setState(null, wakeMode ? 'En veille — dites « Isaac »' : 'En attente de vos ordres, Isaac');
+          addMsg('Isaac IA Juniors', 'Bonjour Isaac, mon créateur. Je suis en mode système : cliquez n\'importe où dans cette fenêtre une première fois pour que je vous écoute en permanence. Appelez-moi ensuite d\'un simple « Isaac, ... ». Dites « aide » pour mes capacités, ou lancez INSTALL-ISAAC.bat pour que je démarre tout seul avec Windows.');
+          speak('Bonjour Isaac, mon créateur. Je suis en veille permanente. Cliquez une fois dans la fenêtre, puis appelez-moi : Isaac.');
         }
       }, 700);
     }

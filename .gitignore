@@ -8,3 +8,6 @@ node_modules/
 Thumbs.db
 desktop.ini
 *.log
+
+# Profil Edge/Chrome du mode système (ne jamais publier)
+isaac-profile/

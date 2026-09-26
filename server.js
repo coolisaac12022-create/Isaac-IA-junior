@@ -186,6 +186,12 @@ const APPS = {
   'word': 'start winword',
   'excel': 'start excel',
   'parametres': 'start ms-settings:',
+  'bluetooth': 'start ms-settings:bluetooth',
+  'wifi': 'start ms-settings:network-wifi',
+  'reseau': 'start ms-settings:network',
+  'notifications': 'start ms-settings:notifications',
+  'applications installees': 'start ms-settings:appsfeatures',
+  'spotify': 'start spotify:',
   'telechargements': 'explorer shell:Downloads',
   'bureau': 'explorer shell:Desktop'
 };
@@ -205,7 +211,7 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (/^(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac : ouvrir des applications (bloc-notes, calculatrice, explorateur...), ouvrir des sites (YouTube, Google, WhatsApp...), chercher sur Google (« cherche ... »), jouer une vidéo (« joue ... »), donner l'heure, la date et la météo, prendre des notes, raconter une blague, verrouiller ou éteindre le PC, et répondre à vos questions grâce à mon intelligence artificielle.",
+      reply: "Voici ce que je peux faire, Isaac : ouvrir des applications (bloc-notes, calculatrice, explorateur...), ouvrir des sites (YouTube, Google, WhatsApp...), chercher sur Google (« cherche ... »), jouer une vidéo (« joue ... »), donner l'heure, la date et la météo, prendre des notes, capturer votre écran, ouvrir les paramètres Bluetooth ou Wi-Fi, raconter une blague, verrouiller ou éteindre le PC, et répondre à vos questions grâce à mon intelligence artificielle.",
       source: 'local'
     };
   }
@@ -318,6 +324,23 @@ async function handleCommand(rawText) {
     if (!IS_LOCAL) return { reply: REMOTE_PC, source: 'system' };
     run('shutdown /r /t 60');
     return { reply: "Redémarrage programmé dans 60 secondes, Isaac. Dites « annule l'extinction » pour annuler.", source: 'system' };
+  }
+
+  // --- Capturer l'écran ---
+  if (/capture (l |d )?(ecran|image|d ecran)|screenshot|faire une capture/.test(text)) {
+    if (!IS_LOCAL) return { reply: "La capture d'écran n'est possible que lorsque je tourne sur votre PC, Isaac.", source: 'system' };
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const out = path.join(process.env.USERPROFILE || 'C:', 'Pictures', 'isaac-capture-' + stamp + '.png');
+    const ps = 'Add-Type -AssemblyName System.Windows.Forms,System.Drawing;' +
+      '$b=[System.Windows.Forms.SystemInformation]::VirtualScreen;' +
+      '$bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height;' +
+      '$g=[System.Drawing.Graphics]::FromImage($bmp);' +
+      '$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size);' +
+      `$bmp.Save('${out}');$g.Dispose();$bmp.Dispose()`;
+    exec(`powershell -NoProfile -WindowStyle Hidden -Command "${ps}"`, (err) => {
+      if (err) console.error('[capture]', err.message);
+    });
+    return { reply: `Capture d'écran enregistrée dans vos Images : isaac-capture-${stamp}.png, Isaac.`, source: 'system' };
   }
 
   // --- Calcul simple ---
