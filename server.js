@@ -13,6 +13,8 @@ const { exec } = require('child_process');
 
 const PORT = parseInt(process.env.PORT || '3777', 10);
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const CODE_DIR = path.join(PUBLIC_DIR, 'isaac-code'); // programmes générés par Isaac pour son créateur
+try { fs.mkdirSync(CODE_DIR, { recursive: true }); } catch (e) {}
 const NOTES_FILE = path.join(__dirname, 'notes.txt');
 const MEMORY_FILE = path.join(__dirname, 'isaac-memory.json');
 // Mode local = sur le PC d'Isaac (Windows) : contrôle total possible.
@@ -308,6 +310,50 @@ async function smartAnswer(question) {
   return null;
 }
 
+// ---------- Isaac programmeur : génère de vrai code pour son créateur ----------
+function pickLang(desc) {
+  if (/\bpython\b|\bpy\b/.test(desc))               return { ext: 'py',   nom: 'Python' };
+  if (/\bbatch\b|\b\.?bat\b|\bdos\b/.test(desc))    return { ext: 'bat',  nom: 'Batch Windows' };
+  if (/powershell|\bps1\b/.test(desc))              return { ext: 'ps1',  nom: 'PowerShell' };
+  if (/\bhtml\b|page web|site web|\bsite\b|\bcss\b|maquette/.test(desc))
+                                                    return { ext: 'html', nom: 'HTML (page web complète)' };
+  if (/javascript|\bjs\b|\bnode|\breact\b/.test(desc)) return { ext: 'js', nom: 'JavaScript' };
+  if (/\bsql\b|base de donnees|requete/.test(desc))     return { ext: 'sql', nom: 'SQL' };
+  if (/\bphp\b/.test(desc))                           return { ext: 'php',  nom: 'PHP' };
+  if (/\bjava\b(?!script)/.test(desc))                return { ext: 'java', nom: 'Java' };
+  if (/c\+\+|\bcpp\b/.test(desc))                     return { ext: 'cpp',  nom: 'C++' };
+  if (/\bjson\b/.test(desc))                          return { ext: 'json', nom: 'JSON' };
+  // Générique : sur le PC d'Isaac, un script batch se lance d'un double-clic
+  if (/script|fichier|dossier|renommer|copier|supprimer|lancer|automat|trouss/.test(desc))
+                                                      return { ext: 'bat', nom: 'Batch Windows' };
+  return { ext: 'py', nom: 'Python' };
+}
+
+async function askCode(description) {
+  const lang = pickLang(description);
+  const system = "Tu es ISAAC IA JUNIORS, l'expert en programmation au service d'Isaac, ton créateur, qui débute en code. " +
+    "Renvoie UNIQUEMENT du code fonctionnel dans le langage demandé, sans balises markdown, sans fence de backticks, sans texte avant ni après. " +
+    "Commente chaque partie en français simple, avec les commentaires du langage (#, rem ou //). " +
+    "Le code doit être robuste, adapté à Windows 11, et marcher tel quel dès sa première exécution. " +
+    "Langage imposé : " + lang.nom + ', extension de fichier : .' + lang.ext + '.';
+  let code = await askAI([{ role: 'system', content: system }, { role: 'user', content: description }]);
+  if (!code) return null;
+  code = code.replace(/```[a-z0-9]*\n?/gi, '').replace(/```/g, '').trim();
+  const slug = normalize(description).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 35) || 'programme';
+  const fileName = 'isaac-' + slug + '-' + Date.now().toString(36).slice(-4) + '.' + lang.ext;
+  const fullPath = path.join(CODE_DIR, fileName);
+  try { fs.writeFileSync(fullPath, code, 'utf8'); } catch (e) { console.error('[code] écriture impossible:', e.message); }
+  if (IS_LOCAL) run(`code "${fullPath}" 2>nul || start "" "${fullPath}"`);
+  return {
+    lang, fileName, code,
+    reply: `C'est écrit, Isaac. Un programme en ${lang.nom}, nommé ${fileName}. ` +
+           (IS_LOCAL
+             ? "Je l'ouvre dans votre éditeur : modifiez-le, puis relancez-le. Tout est dans le dossier isaac-code."
+             : "Téléchargez-le avec le lien affiché, puis double-cliquez dessus ou ouvrez-le dans VS Code."),
+    fileUrl: '/isaac-code/' + fileName
+  };
+}
+
 // Météo gratuite via wttr.in (aucune clé)
 async function getWeather(city) {
   const c = encodeURIComponent(city || "M'Bengue");
@@ -438,7 +484,7 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (/^(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac : ouvrir plus de 60 applications de votre PC — « ouvre vscode », « ouvre chrome », « ouvre word », « ouvre le gestionnaire des taches », « ouvre la corbeille », « ouvre spotify », « ouvre discord » — et des sites comme YouTube, WhatsApp ou Gmail (« ouvre gmail »). Je peux aussi chercher sur Google, jouer une vidéo, donner l'heure, la date et la météo, prendre des notes, capturer votre écran, régler le son, le Wi-Fi ou Bluetooth, éteindre le PC. Et surtout : j'ai une mémoire — dites « retiens que... » pour graver un fait, « que sais-tu de moi » pour la lire, « oublie tout » pour l'effacer, et je réponds à vos questions comme une vraie IA, en réfléchissant et non en recopiant.",
+      reply: "Voici ce que je peux faire, Isaac : ouvrir plus de 60 applications de votre PC — « ouvre vscode », « ouvre chrome », « ouvre word », « ouvre le gestionnaire des taches », « ouvre la corbeille », « ouvre spotify », « ouvre discord » — et des sites comme YouTube, WhatsApp ou Gmail (« ouvre gmail »). Je peux aussi chercher sur Google, jouer une vidéo, donner l'heure, la date et la météo, prendre des notes, capturer votre écran, régler le son, le Wi-Fi ou Bluetooth, éteindre le PC. Je sais aussi coder : dites « écris-moi un script python qui... » ou « crée une page web ... » et je génère le fichier, je l'ouvre dans VS Code, ou vous le téléchargez en version web. Et surtout : j'ai une mémoire — dites « retiens que... » pour graver un fait, « que sais-tu de moi » pour la lire, « oublie tout » pour l'effacer, et je réponds à vos questions comme une vraie IA, en réfléchissant et non en recopiant.",
       source: 'local'
     };
   }
@@ -511,6 +557,15 @@ async function handleCommand(rawText) {
     }
     return { reply: `Je ne connais pas « ${target} » directement, alors je le recherche sur Google, Isaac.`, source: 'system',
              open: 'https://www.google.com/search?q=' + encodeURIComponent(target) };
+  }
+
+  // --- Générer du code (Isaac programmeur) ---
+  m = text.match(/^(?:ecris|ecri|ecrire|ecrits|code|genere|generer|cree|creer|developpe|developper|fabrique|concois|programme)\s+(?:moi\s+)?(?:un|une|du|de\s+la|le|la|mon|ma)?\s*(.+)$/);
+  if (m && /\b(?:code|script|programme|application|logiciel|jeu|page|site|fichier|python|html|javascript|batch|powershell|sql)\b/.test(m[1]) &&
+      !/^(?:que|qui|pourquoi|comment|quand|ou)\b/.test(m[1])) {
+    const oeuvre = await askCode(m[1]);
+    if (oeuvre) return { reply: oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName };
+    return { reply: "Je n'ai pas pu joindre mon atelier de code, Isaac. Réessayez dans un instant — le cerveau IA était peut-être saturé.", source: 'local' };
   }
 
   // --- Blague ---

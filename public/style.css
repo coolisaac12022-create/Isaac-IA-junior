@@ -231,6 +231,35 @@ body.speaking .core-center { animation: speakWave .35s ease-in-out infinite; }
 #cmdInput:focus { border-color: var(--cyan-soft); box-shadow: 0 0 12px var(--cyan-dim); }
 #cmdInput::placeholder { color: rgba(0, 212, 255, .4); }
 
+/* ---------- Bloc de code généré par Isaac ---------- */
+.codebox {
+  background: rgba(2, 12, 20, .9);
+  border: 1px solid var(--cyan-dim, rgba(0, 212, 255, .35));
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0 4px;
+  max-height: 320px;
+  overflow: auto;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: .8rem;
+  line-height: 1.45;
+  color: #9feaff;
+  white-space: pre-wrap;
+  text-align: left;
+}
+.codedl {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 12px;
+  border: 1px solid rgba(0, 212, 255, .45);
+  border-radius: 6px;
+  color: #7fe6ff;
+  text-decoration: none;
+  font-size: .78rem;
+  letter-spacing: 1px;
+}
+.codedl:hover { background: rgba(0, 212, 255, .12); box-shadow: 0 0 10px rgba(0, 212, 255, .3); }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .reactor-wrap { transform: scale(.78); margin-top: -20px; }

@@ -70,6 +70,16 @@ function addMsg(who, text) {
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
+// Bloc de code généré par Isaac programmeur : affiché, mais jamais lu à voix haute
+function addCodeMsg(text, code, url, file) {
+  const div = document.createElement('div');
+  div.className = 'msg jarvis';
+  div.innerHTML = `<span class="who">I.A.J. — ISAAC IA JUNIORS</span>${escapeHtml(text)}` +
+    `<pre class="codebox">${escapeHtml(code)}</pre>` +
+    (url ? `<a class="codedl" href="${url}" download>${escapeHtml(file || 'Télécharger le fichier')}</a>` : '');
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -174,6 +184,7 @@ async function processCommand(text) {
 
   try {
     let reply;
+    let codeGenere = null;
     if (local) {
       reply = local;
     } else {
@@ -188,8 +199,10 @@ async function processCommand(text) {
       if (data.open) {
         try { window.open(data.open, '_blank'); } catch (e) { addMsg('Isaac IA Juniors', 'Votre navigateur a bloqué la nouvelle fenêtre, Isaac. Autorisez les pop-ups pour ce site.'); }
       }
+      if (data.code) codeGenere = { code: data.code, url: data.fileUrl, file: data.file };
     }
-    addMsg('Isaac IA Juniors', reply);
+    if (codeGenere) addCodeMsg(reply, codeGenere.code, codeGenere.url, codeGenere.file);
+    else addMsg('Isaac IA Juniors', reply);
     await speak(reply);
   } catch (e) {
     const msg = location.protocol === 'file:'
