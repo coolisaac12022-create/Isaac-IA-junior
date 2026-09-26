@@ -13,6 +13,7 @@ Isaac IA Juniors est un assistant vocal en français, inspiré de JARVIS (Iron M
 - 🌤️ **Météo en direct** — via wttr.in (réglée sur M'Bengue par défaut)
 - 📝 **Prise de notes vocale** — « note que ... » / « lis mes notes »
 - 🕐 **L'heure, la date, le calcul mental, des blagues**
+- 🧑‍💻 **Il sait coder** — « écris-moi un script python qui... », « crée une page web... » : il génère le fichier, l'ouvre dans VS Code et vous pouvez le télécharger
 - 🔒 **PC** — verrouiller la session, extinction avec délai annulable
 - 👁️ **Mode veille** — activation par le mot « Isaac »
 
