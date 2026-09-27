@@ -188,6 +188,15 @@ body.speaking .core-center { animation: speakWave .35s ease-in-out infinite; }
   border: 1px solid var(--cyan-soft);
   border-left: 3px solid var(--cyan);
 }
+/* GALIKA — seconde agente :-messages pourpres, distincts d'Aelyra */
+.msg.galika {
+  align-self: flex-start;
+  background: rgba(168, 85, 247, .10);
+  border: 1px solid rgba(168, 85, 247, .38);
+  border-left: 3px solid #c084fc;
+  color: #e9d5ff;
+}
+.msg.galika .who { color: #c084fc; }
 .msg.user {
   align-self: flex-end;
   background: rgba(255, 179, 71, .12);

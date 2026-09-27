@@ -65,8 +65,9 @@ function beep(freq = 880, duration = 0.09, when = 0) {
 // ---------- Journal ----------
 function addMsg(who, text) {
   const div = document.createElement('div');
-  div.className = 'msg ' + (who === 'Vous' ? 'user' : 'jarvis');
-  div.innerHTML = `<span class="who">${who === 'Vous' ? 'ISAAC' : 'AELYRA — ASSISTANTE PERSONNELLE'}</span>${escapeHtml(text)}`;
+  const gk = who === 'GALIKA';
+  div.className = 'msg ' + (who === 'Vous' ? 'user' : (gk ? 'galika' : 'jarvis'));
+  div.innerHTML = `<span class="who">${who === 'Vous' ? 'ISAAC' : (gk ? 'GALIKA — AGENTE BUSINESS' : 'AELYRA — ASSISTANTE PERSONNELLE')}</span>${escapeHtml(text)}`;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
@@ -124,7 +125,7 @@ function pickFrenchVoice() {
       || null;
 }
 
-function speak(text) {
+function speak(text, agent) {
   return new Promise((resolve) => {
     if (!('speechSynthesis' in window)) return resolve();
     speechSynthesis.cancel();
@@ -132,13 +133,13 @@ function speak(text) {
     u.lang = 'fr-FR';
     const v = pickFrenchVoice();
     if (v) u.voice = v;
-    u.rate = 1.02;
-    u.pitch = 1.05; // timbre un peu plus haut : Aelyra, voix de femme
+    if (agent === 'galika') { u.rate = 0.97; u.pitch = 0.88; } // Galika : voix plus grave, posée — femme d'affaires
+    else { u.rate = 1.02; u.pitch = 1.05; }                    // Aelyra : timbre haut, voix de femme
     isSpeaking = true;
-    setState('speaking', 'I.A.J. répond...');
+    setState('speaking', agent === 'galika' ? 'GALIKA répond...' : 'I.A.J. répond...');
     u.onend = u.onerror = () => {
       isSpeaking = false;
-      setState(null, wakeMode ? 'En veille — dites « Aelyra »' : 'En attente de vos ordres, Isaac');
+      setState(null, wakeMode ? 'En veille — dites « Aelyra » ou « Galika » ou « Galika »' : 'En attente de vos ordres, Isaac');
       resolve();
     };
     speechSynthesis.speak(u);
@@ -194,6 +195,7 @@ async function processCommand(text) {
 
   // Réponses instantanées côté client
   const t = text.toLowerCase();
+  const estGK = /(?:^|[\s,])(?:galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika)(?:[\s,]|$)/.test(t);
   let local = null;
   if (/^(bonjour|salut|hello|bonsoir)\b/.test(t)) local = 'Bonjour Isaac, mon créateur. Tous les systèmes sont opérationnels. Que puis-je faire pour vous ?';
   else if (/comment (tu t appelles|vous appelez|t appelles tu)|quel est ton nom|qui es.?tu/.test(t)) local = "Je suis Aelyra, votre assistante personnelle, Isaac. Vous m'avez donné ce prénom et je le porte avec fierté — c'est vous, Isaac, mon créateur.";
@@ -212,7 +214,9 @@ async function processCommand(text) {
   try {
     let reply;
     let codeGenere = null;
-    if (local) {
+    let agent = 'aelyra';
+    // « galika, ... » : jamais de réponse locale — c'est le serveur qui routage vers la seconde agente
+    if (local && !estGK) {
       reply = local;
     } else {
       const res = await fetch('/api/command', {
@@ -222,6 +226,7 @@ async function processCommand(text) {
       });
       const data = await res.json();
       reply = data.reply || "Je n'ai pas de réponse, Isaac.";
+      if (data.agent === 'galika') agent = 'galika';
       // Le serveur peut demander l'ouverture d'une page dans ce navigateur
       if (data.open) {
         try { window.open(data.open, '_blank'); } catch (e) { addMsg('Isaac IA Juniors', 'Votre navigateur a bloqué la nouvelle fenêtre, Isaac. Autorisez les pop-ups pour ce site.'); }
@@ -229,8 +234,8 @@ async function processCommand(text) {
       if (data.code) codeGenere = { code: data.code, url: data.fileUrl, file: data.file };
     }
     if (codeGenere) addCodeMsg(reply, codeGenere.code, codeGenere.url, codeGenere.file);
-    else addMsg('Isaac IA Juniors', reply);
-    await speak(reply);
+    else addMsg(agent === 'galika' ? 'GALIKA' : 'Isaac IA Juniors', reply);
+    await speak(reply, agent);
   } catch (e) {
     const msg = location.protocol === 'file:'
       ? 'Isaac, vous avez ouvert le fichier index.html directement. Fermez cet onglet, double-cliquez sur ISAAC-IJ.bat, et laissez-vous guider — la bonne adresse est http://localhost:3777'
@@ -259,12 +264,14 @@ if (SpeechRecognition) {
 
     if (wakeMode) {
       const low = transcript.toLowerCase();
-      const wakeRe = /\b(aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis)\b/;
+      // Détection : Aelyra OU Galika — mais on ne remplit que les mots d'accueil d'Aelyra,
+      // pour que « galika, ... » arrive intact au serveur et soit routé vers la seconde agente.
+      const wakeRe = /\b(aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis|galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika)\b/;
       if (!wakeRe.test(low)) {
-        addMsg('Aelyra', '(veille) J\'ai entendu : « ' + transcript + ' » — dites « Aelyra » pour m\'activer.');
+        addMsg('Aelyra', '(veille) J\'ai entendu : « ' + transcript + ' » — dites « Aelyra » ou « Galika » pour nous activer.');
         return;
       }
-      const cmd = transcript.replace(/(aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis)/gi, '').replace(/^[\s,]+|[\s,]+$/g, '');
+      const cmd = transcript.replace(/\b(aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis)\b/gi, '').replace(/^[\s,]+|[\s,]+$/g, '');
       if (cmd) processCommand(cmd);
       else speak('Oui, Isaac, mon créateur ?');
     } else {
@@ -293,7 +300,7 @@ if (SpeechRecognition) {
     } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
       setState(null, 'Erreur micro : ' + e.error);
     } else {
-      setState(null, wakeMode ? 'En veille — dites « Aelyra »' : 'En attente de vos ordres, Isaac');
+      setState(null, wakeMode ? 'En veille — dites « Aelyra » ou « Galika »' : 'En attente de vos ordres, Isaac');
     }
   };
 
@@ -314,7 +321,7 @@ function startListening(silent) {
     recognition.start();
     isListening = true;
     micBtn.classList.add('recording');
-    setState('listening', wakeMode ? 'En veille — dites « Aelyra »' : 'Je vous écoute, Isaac...');
+    setState('listening', wakeMode ? 'En veille — dites « Aelyra » ou « Galika »' : 'Je vous écoute, Isaac...');
     if (!silent) { beep(880, .09); beep(1320, .09, .12); }
   } catch (e) { /* déjà démarré */ }
 }
@@ -396,9 +403,10 @@ const bootLines = [
   '> Calibrage du microphone.................. OK',
   '> Synthèse vocale française (femme)........ OK',
   '> Reconnaissance du créateur : Isaac....... OK',
-  '> Mot d\'appel : « Aelyra »................. OK',
+  '> Mot d\'appel : « Aelyra » ou « Galika »... OK',
+  '> Seconde agente chargée : GALIKA (business) OK',
   '> Socle cyberdéfense (éthique)............. OK',
-  '> Bonjour Isaac, mon créateur. Je m\'appelle Aelyra, et tous les systèmes sont en ligne.'
+  '> Bonjour Isaac, mon créateur. Aelyra et Galika sont en ligne.'
 ];
 
 (function boot() {
@@ -419,7 +427,7 @@ const bootLines = [
           addMsg('Isaac IA Juniors', 'Isaac, vous m\'avez ouvert en double-cliquant sur index.html : je ne peux pas fonctionner ainsi. Fermez cet onglet, double-cliquez sur le fichier ISAAC-IJ.bat (il se trouve juste à côté), et une fenêtre noire restera ouverte : c\'est mon serveur. La page s\'ouvrira alors toute seule à la bonne adresse.');
           speak('Isaac, pour m\'utiliser, double-cliquez sur Isaac IA Juniors point bat, pas sur la page.');
         } else {
-          setState(null, wakeMode ? 'En veille — dites « Aelyra »' : 'En attente de vos ordres, Isaac');
+          setState(null, wakeMode ? 'En veille — dites « Aelyra » ou « Galika »' : 'En attente de vos ordres, Isaac');
           addMsg('Aelyra', 'Bonjour Isaac, mon créateur. Je suis en mode système : cliquez n\'importe où dans cette fenêtre une première fois pour que je vous écoute en permanence. Appelez-moi ensuite d\'un simple « Aelyra, ... ». Dites « aide » pour mes capacités, ou lancez INSTALL-ISAAC.bat pour que je démarre tout seul avec Windows.');
           speak('Bonjour Isaac, mon créateur. Je m\'appelle Aelyra. Je suis en veille permanente. Cliquez une fois dans la fenêtre, puis appelez-moi : Aelyra.');
         }
