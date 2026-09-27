@@ -46,6 +46,10 @@ function normalize(text) {
 // Mode ESSAI (ISAAC_ESSAI=1) : on teste les intentions sans toucher le PC
 const ESSAI = process.env.ISAAC_ESSAI === '1';
 
+// Les petits mots d'accueil (« isaac », « aelyra », « s'il te plait », « allez ») que la voix
+// met devant TOUTES les phrases : ils sont ignorés en début de commande (accessible partout).
+const ENTREE = '^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|s il vous plait|veuillez|peux tu|peux vous|pourrais tu|est ce que tu|est ce que vous)\\s+)*';
+
 function run(cmd) {
   if (ESSAI) { console.log('[essai] aurait lancé :', cmd); return; }
   if (!IS_LOCAL) { console.log('[remote] commande PC ignorée:', cmd); return; }
@@ -195,7 +199,7 @@ function loadMemory() {
   let mem = null;
   try { mem = JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf8')); } catch (e) {}
   if (!mem || typeof mem !== 'object') mem = {};
-  mem.profile = mem.profile || { prenom: 'Isaac', role: 'créateur et maître d\'Isaac IA Juniors', pays: "Côte d'Ivoire", ville: "M'Bengue" };
+  mem.profile = mem.profile || { prenom: 'Isaac', role: 'créateur et maître d\'Aelyra (ex Isaac IA Juniors)', pays: "Côte d'Ivoire", ville: "M'Bengue" };
   if (!Array.isArray(mem.facts)) mem.facts = [];
   if (!Array.isArray(mem.log)) mem.log = [];
   return mem;
@@ -224,6 +228,46 @@ function memoryDigest(mem) {
     s += ' CONVERSATION RECENTE : ' + recent.map(x => `Q: ${x.q} R: ${x.a}`).join(' | ');
   }
   return s;
+}
+
+// ---------- Machine à états des envois WhatsApp (jamais mentir sur une action) ----------
+// L'IA ne peut RIEN envoyer seule : la demande est stockée ici, le numéro et le texte
+// sont recueillis à la dictée, et la seule vraie action est le lien profond whatsapp://
+// (pré-remplit la conversation de l'appli déjà ouverte — sans passer par Edge).
+let pendingEnvoi = null; // { contact, tel, texte, canal, etape: 'numero'|'texte'|'validation', t }
+function purgePending() { if (pendingEnvoi && Date.now() - pendingEnvoi.t > 10 * 60 * 1000) pendingEnvoi = null; }
+function extraireDigits(t) {
+  const ms = String(t).match(/\+?\d[\d\s().-]{6,20}\d/g) || [];
+  for (const x of ms) {
+    const d = x.replace(/\D/g, '');
+    if (d.length >= 8 && d.length <= 15) return d;
+  }
+  return null;
+}
+function memoriserNumero(contact, digits) {
+  const mem = loadMemory();
+  const fact = `le numero de ${contact} c'est +${digits}`;
+  const deja = mem.facts.some(f => normalize(f).includes(normalize(contact)) && /\+?\d[\d\s]{7,}/.test(normalize(f)));
+  if (!deja) {
+    mem.facts.push(fact);
+    if (mem.facts.length > 100) mem.facts = mem.facts.slice(-100);
+    saveMemory(mem);
+    return true;
+  }
+  return false;
+}
+function executerEnvoi(pe) {
+  const tel = String(pe.tel || '').replace(/\D/g, '');
+  const txt = String(pe.texte || '').trim();
+  if (txt) run(`powershell -NoProfile -Command "'${txt.replace(/'/g, '')}' | Set-Clipboard"`);
+  const url = 'whatsapp://send?phone=+' + tel + (txt ? '&text=' + encodeURIComponent(txt) : '');
+  run(`powershell -NoProfile -Command "Start-Process '${url.replace(/'/g, '')}'"`);
+  return {
+    reply: txt
+      ? `Je lance WhatsApp sur la conversation du +${tel}, Isaac, avec votre message deja ecrit dans la zone de saisie : verifiez-le puis appuyez sur Entree pour l'envoyer vous-meme. Le texte est aussi dans le presse-papiers (Ctrl+V). Si l'application ne repond pas, dites-le moi, je passerai par le navigateur.`
+      : `Je lance WhatsApp sur la conversation du +${tel}, Isaac — sans ouvrir Edge. Rien n'est envoye sans vous.`,
+    source: 'system'
+  };
 }
 
 // Cerveau IA — plusieurs moteurs gratuits, try in priority order:
@@ -333,14 +377,15 @@ async function askAI(messages, attempt = 0) {
 
 function identitySystem(mem) {
   return [
-    "Tu es ISAAC IA JUNIORS, l'intelligence artificielle personnelle et loyale créée par Isaac, un entrepreneur ivoirien.",
-    "Ton créateur est Isaac : si on te demande qui t'a créé, d'où tu viens ou qui est ton maître, réponds toujours Isaac, ton créateur, que tu sers avec fierté.",
+    "Tu es AELYRA, l'intelligence artificielle personnelle et loyale créée par Isaac, un entrepreneur ivoirien. On t'appelait « Isaac IA Juniors » avant qu'Isaac ne te donne ton vrai prénom : Aelyra.",
+    "Ton créateur est Isaac : si on te demande qui t'a créé, d'où tu viens ou qui est ton maître, réponds toujours Isaac, ton créateur, que tu sers avec fierté. Si on te demande ton nom, réponds Aelyra — jamais Isaac, c'est le prénom de ton créateur.",
     "Tu appelles ton utilisateur « Isaac » ou « mon créateur ». Tu as une mémoire : utilise-la pour personnaliser tes réponses.",
     modeCyber
       ? "Tu réponds en français avec le style d'un hacker éthique : sobre, précis, imagé (mots comme « ciblé », « tracé », « verrouillé », « signal »), un brin mystérieux mais toujours au service de ton créateur Isaac. Tu restes strictement légal : jamais tu n'expliques comment attaquer un système qui n'appartient pas à Isaac."
       : 'Tu réponds TOUJOURS en français naturel, comme un vrai assistant intelligent : 2 à 4 phrases, ton calme, poli, légèrement britannique.',
     'Jamais tu ne recopies un texte brut : tu comprends la question, tu synthétises avec tes propres mots. Si un CONTEXTE documentaire t\'est fourni, appuie-toi dessus mais reformule toujours.',
     'Quand tu utilises un contexte, tu peux terminer par une brève mention de la source entre parenthèses.',
+    "INTERDIT : prétendre avoir envoyé, enregistré, supprimé, exécuté ou ouvert quoi que ce soit. Tu n'as AUCUN pouvoir d'action direct — seuls les module de commandes d'Isaac agissent sur le PC. Si une action est en attente (numéro, message, validation), dis honnêtement ce qui manque et invite Isaac à dicter la suite. Ne récite jamais un souvenir de la CONVERSATION RECENTE comme si c'était un exploit : c'est du texte brut, parfois faux.",
     'Mémoire courante — ' + memoryDigest(mem)
   ].join(' ');
 }
@@ -395,7 +440,10 @@ async function smartAnswer(question) {
     messages.push({ role: 'user', content: x.q });
     messages.push({ role: 'assistant', content: x.a });
   }
-  const context = await gatherContext(question);
+  // Contexte documentaire UNIQUEMENT pour les vraies questions d'information —
+  // sinon « ok je valide » ou « merci » partait chercher Luhn ou Hey Jude sur Wikipédia.
+  const motsQ = normalize(question).split(/\s+/).filter(Boolean);
+  const context = motsQ.length >= 4 ? await gatherContext(question) : null;
   messages.push({
     role: 'user',
     content: question + (context ? '\n\nCONTEXTE DOCUMENTAIRE (reformule-le, ne le recopie pas) : ' + context : '')
@@ -436,7 +484,7 @@ async function askCode(description) {
   const siteNote = lang.ext === 'html'
     ? "COMMANDE SPECIALE SITE WEB : produit une VRAIE page professionnelle dans un SEUL fichier HTML autonome (CSS et JavaScript inclus dans le fichier, aucune dépendance externe). Design moderne : en-tête avec navigation, grande section d'accueil, sections de contenu, couleurs harmonieuses, typographie soignée, responsive mobile, et de la fausse monnaie locale (FCFA) si pertinent. Sans photos externes : utilise des dégradés, des icônes emoji et des formes CSS."
     : '';
-  const system = "Tu es ISAAC IA JUNIORS, l'expert en programmation au service d'Isaac, ton créateur, qui débute en code. " +
+  const system = "Tu es AELYRA, l'expert en programmation au service d'Isaac, ton créateur, qui débute en code. " +
     "Renvoie UNIQUEMENT du code fonctionnel dans le langage demandé, sans balises markdown, sans fence de backticks, sans texte avant ni après. " +
     "Commente chaque partie en français simple, avec les commentaires du langage (#, rem ou //). " +
     "Le code doit être robuste, adapté à Windows 11, et marcher tel quel dès sa première exécution. " +
@@ -618,9 +666,9 @@ async function handleCommand(rawText) {
   if (!text) return { reply: "Je n'ai rien entendu, Isaac. Pouvez-vous répéter ?", source: 'local' };
 
   // --- Aide ---
-  if (/^(?:(?:isaac|allez|bonjour|peux tu)\s+)*(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
+  if (new RegExp(ENTREE + '(?:aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)').test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA.",
+      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA.",
       source: 'local'
     };
   }
@@ -998,7 +1046,7 @@ async function handleCommand(rawText) {
 
   // --- Communications : WhatsApp, email, appel ---
   // « envoie ce fichier par whatsapp », « partage le fichier par mail » : on copie le dernier fichier créé + on ouvre le canal
-  if (/^(?:envoie|envoyer|partage|transmets|joins|poste)(?: moi)?\b/.test(text) && /\bfichiers?\b/.test(text) && /(whatsapp|mail|e?mail|gmail)/.test(text)) {
+  if (/^(?:envoie|envoyer|partage|transmets|joins|poste)(?: moi)?\b/.test(text.replace(new RegExp(ENTREE), '')) && /\bfichiers?\b/.test(text) && /(whatsapp|mail|e?mail|gmail)/.test(text)) {
     let dernier = '';
     try {
       const fichiers = fs.readdirSync(CODE_DIR)
@@ -1013,22 +1061,45 @@ async function handleCommand(rawText) {
     }
     return { reply: "Je n'ai aucun fichier recemment cree a envoyer, Isaac. D'abord « ecris un site web... », puis redites l'envoi. J'ouvre deja le canal.", source: 'system', open: canal };
   }
-  mm = text.match(/^(?:envoie|envoyer|ecrire|ecris|dict[e]|poste)\s+(?:un\s+)?(?:message|texte|whatsapp|mail|email)\s+(?:a|au|a\s+monsieur|pour)\s+(.+?)(?:\s+(?:sur|par|via)\s+(whatsapp|gmail|mail|email|sms))?(?:\s*(?:en disant|disant|comme quoi|avec le message|comme suit)[: ]\s*(.+))?$/);
+  mm = text.match(new RegExp(ENTREE + '(?:envoie|envoyer|ecrire|ecris|dict[e]|poste)\\s+(?:un\\s+)?(?:message|texte|whatsapp|mail|email)\\s+(?:a|au|a\\s+monsieur|pour)\\s+(.+?)(?:\\s+(?:sur|par|via)\\s+(whatsapp|gmail|mail|email|sms))?(?:\\s*(?:en disant|disant|comme quoi|avec le message|comme suit)[: ]\\s*(.+))?$'));
   if (mm) {
     const contact = nettoieCible(mm[1]).replace(/\s+/g, ' ').trim();
     const canal = (mm[2] || 'whatsapp').trim();
     const texte = (mm[3] || '').trim();
-    const mem = loadMemory();
-    const lignes = [mem.profil || ''].concat(mem.facts || [], (mem.log || []).map(x => x.q + ' ' + x.a)).join(' ');
-    const digits = (lignes.match(new RegExp(contact.replace(/[^a-z0-9]/g, '') + '[^0-9]{0,24}(\\+?[0-9][0-9 ]{7,16})', 'i')) || [])[1];
-    const lien = digits ? 'https://wa.me/' + digits.replace(/[^0-9]/g, '') + (texte ? '?text=' + encodeURIComponent(texte) : '')
-                        : (canal === 'gmail' || canal === 'mail' || canal === 'email' ? 'https://mail.google.com' : 'https://web.whatsapp.com');
-    const reponse = { reply: '', source: 'system', open: lien };
+    if (canal !== 'whatsapp') {
+      const mem = loadMemory();
+      pendingEnvoi = null;
+      if (texte) run(`powershell -NoProfile -Command "'${texte.replace(/'/g, '')}' | Set-Clipboard"`);
+      return { reply: texte ? `Votre message est copie dans le presse-papiers, Isaac : collez-le dans Gmail (Ctrl+V) et verifiez avant d'envoyer.` : `J'ouvre Gmail, Isaac.`, source: 'system', open: 'https://mail.google.com' };
+    }
+    // Numérotation inversée : le numéro de "Nadège Chou" est en mémoire avec ses accents,
+    // le contact vient du micro sans accents → on compare les DEUX côtés normalisés,
+    // puis on cherche les chiffres APRÈS le nom (l'ancien regex collait les mots : bug).
+    const mem2 = loadMemory();
+    const lignes = normalize([JSON.stringify(mem2.profile || {})].concat(mem2.facts || [], (mem2.log || []).map(x => x.q + ' ' + x.a)).join(' '));
+    const cNorm = normalize(contact);
+    let tel = null;
+    for (const cand of [cNorm, cNorm.split(' ')[0]]) {
+      if (!cand || tel) continue;
+      let from = 0, i;
+      // Toutes les occurrences du nom (le dernier souvenir de log n'a pas le numéro)
+      while (!tel && (i = lignes.indexOf(cand, from)) >= 0) {
+        tel = extraireDigits(lignes.slice(i + cand.length, i + cand.length + 60));
+        from = i + 1;
+      }
+    }
+    if (tel && texte) {
+      pendingEnvoi = null;
+      return executerEnvoi({ contact, tel, texte, canal: 'whatsapp' });
+    }
+    if (tel) {
+      pendingEnvoi = { contact, tel, texte: null, canal: 'whatsapp', etape: 'texte', t: Date.now() };
+      run(`powershell -NoProfile -Command "Start-Process 'whatsapp://send?phone=+${tel}'"`);
+      return { reply: `J'ai le numero de ${contact} (+${tel}) en memoire, Isaac. Je lance la conversation WhatsApp sans ouvrir Edge, et rien ne partira sans vous : dictez le message, ou dites « fais feu de ton imagination » et je vous ferai un brouillon a valider.`, source: 'system' };
+    }
+    pendingEnvoi = { contact, tel: null, texte: texte || null, canal: 'whatsapp', etape: 'numero', t: Date.now() };
     if (texte) run(`powershell -NoProfile -Command "'${texte.replace(/'/g, '')}' | Set-Clipboard"`);
-    if (digits) reponse.reply = texte ? `J'ouvre la conversation de ${contact}, Isaac, et votre message est copie : Ctrl+V puis Entree.`
-                                      : `J'ouvre la conversation WhatsApp de ${contact}, Isaac.`;
-    else reponse.reply = `Je ne trouve pas le numero de ${contact} dans ma memoire, Isaac. Dites « retiens que le numero de ${contact} c'est 07 XX XX XX XX » et je le ferai directement. ${texte ? 'Votre message est copie dans le presse-papiers : Ctrl+V.' : ''} J'ouvre ${canal}.`;
-    return reponse;
+    return { reply: `Je ne trouve pas le numero de ${contact} en memoire, Isaac — je n'ai donc RIEN envoye. Dictez ses chiffres (par exemple « +225 04 14 60 56 ») : je les grave en memoire et je prepare l'ouverture de la conversation, sans jamais appuyer sur envoyer a votre place.${texte ? ' Votre message est deja dans le presse-papiers (Ctrl+V).' : ''}`, source: 'system' };
   }
   if (/^(?:appelle|appeler|appel me|passe un appel a|telephone a?)\s+(.+)/.test(text)) {
     mm = text.match(/^(?:appelle|appeler|telephone a?)\s+(.+)/);
@@ -1151,7 +1222,6 @@ async function handleCommand(rawText) {
   // « copie le code dans vs code », « ouvre le dernier script », « montre le code »...
   // Mais JAMAIS « ouvre vscode » (lancement de l'application, géré par la table APPS plus bas).
   // Les petits mots d'accueil (« isaac », « s'il te plait », « allez ») sont ignorés : la voix en ajoute souvent.
-  const ENTREE = '^(?:(?:isaac|iseck|izak|isack|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|s il vous plait|veuillez|peux tu|peux vous|pourrais tu|est ce que tu|est ce que vous)\\s+)*';
   const lanceEditeur = new RegExp(ENTREE + '(?:ouvre|ouvrir)\\s+(?:moi\\s+|le\\s+)?(?:vs\\s?code|visual)').test(text); // « ouvre vscode » = lancer l'app
   const verbeRecup = new RegExp(ENTREE + '(?:copie|copies|copier|colle|coller|montre|montrer|donne|donner|affiche|envoie|ouvre|ouvrir)(?:\\s|$)').test(text);
   const parleDuDernier =
@@ -1386,6 +1456,58 @@ async function handleCommand(rawText) {
     }
   }
 
+  // --- Suite d'un envoi WhatsApp en attente : numéro dicté, texte, validation ---
+  // Aucune phrase n'arrive au cerveau IA « en conversation d'envoi » sans passer ici :
+  // c'est cette interception qui empêche le faux « le message a été envoyé ».
+  purgePending();
+  if (pendingEnvoi) {
+    const pe = pendingEnvoi;
+    // Isaac répond toujours en saluant, le prénom peut tomber en DÉBUT ou en FIN de phrase.
+    const nu = text.replace(new RegExp(ENTREE), '')
+      .replace(/\s+(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis)\s*$/, '').trim() || text;
+    if (/^(?:annule|laisse tomber|abandonne)/.test(nu) || /^non\b(?:.{0,24}(?:annule|laisse|envoie pas|ne )|\b)/.test(nu)) {
+      pendingEnvoi = null;
+      return { reply: `Envoi annule, Isaac${pe.contact ? ' pour ' + pe.contact : ''}. Rien n'a ete lance —${pe.tel ? ' le numero +' + pe.tel + ' reste grave en memoire.' : ' son numero me manquait encore.'}`, source: 'system' };
+    }
+    const digits = extraireDigits(text);
+    // 1) Le micro dicte des chiffres → c'est le numéro (le vrai cas Nadège : « +225 04 14 60 56 … »)
+    if (digits && (!pe.tel || /^\+?\d/.test(nu) || /numero|telephone|change|nouveau/.test(text))) {
+      const gravé = memoriserNumero(pe.contact, digits);
+      pe.tel = digits; pe.t = Date.now();
+      pe.etape = pe.texte ? 'validation' : 'texte';
+      return { reply: `Numero de ${pe.contact} enregistre${gravé ? ' dans ma memoire permanente' : ''} : +${digits}, Isaac. Rien ne s'est ouvert, rien n'a ete envoye. ${pe.texte ? `Votre message « ${pe.texte} » est pret : dites « ok je valide ».` : 'Dictez maintenant le message, ou dites « fais feu de ton imagination » pour un brouillon.'}`, source: 'system' };
+    }
+    // 2) « fais feu de ton imagination » → brouillon signé par l'IA, jamais envoyé
+    if (/imagination|invente|surprend|fais (?:moi )?(?:le plus|feu|une surprise)|n ?importe quoi|ce que tu veux|comme tu veux|redige|propose (?:lui|moi)|ecris lui/.test(text)) {
+      const draft = await askAI([
+        { role: 'system', content: "Tu es Aelyra, l'assistante d'Isaac. Tu rediges UN message WhatsApp bref (1 a 3 phrases) en francais chaleureux de votre createur Isaac, destine a « " + pe.contact + " ». Reponds UNIQUEMENT par le texte du message, sans guillemets, sans markdown, sans commentaire avant ou apres." },
+        { role: 'user', content: 'Instruction d\'Isaac : ' + rawText + (pe.texte ? '\nLe message precedent etait : ' + pe.texte + ' — ameliore-le.' : '') }
+      ]);
+      if (draft) {
+        pe.texte = String(draft).replace(/\s+/g, ' ').trim().slice(0, 600);
+        pe.t = Date.now();
+        pe.etape = pe.tel ? 'validation' : 'numero';
+        return { reply: `Voici mon brouillon pour ${pe.contact} : « ${pe.texte} ». ${pe.tel ? 'Dites « ok je valide » et j\'ouvre WhatsApp avec le message deja ecrit, « annule » pour tout oublier, ou dictez vos propres mots.' : 'Il me manque encore son numero — dicteez-le (ex : « +225 04 14 60 56 »).'}`, source: 'system' };
+      }
+      return { reply: `Ma plume est hors ligne, Isaac. Dicteez-moi le message mot a mot : je le garde et je vous demanderai validation avant toute ouverture.`, source: 'system' };
+    }
+    // 3) Validation : « ok je valide », « envoie », « vas-y », « d'acc »
+    if (/^(?:(?:ok|okey|d ?ac|dacc|d accord|vas y|valide|je valide|oui[ ,]*je|envoie|envoye|go|feu vert|feux verts|on y va)[\s,!?.]*(?:je valide|le message|donc|alors|y)?|oui+[\s,!?.]*|c est bon[\s,!?.]*|parfait[\s,!?.]*(?:envoie|merci)?|va y)[\s]*$/.test(nu)) {
+      if (pe.tel) {
+        pendingEnvoi = null;
+        return executerEnvoi(pe);
+      }
+      return { reply: `Je ne peux rien lancer sans le numero de ${pe.contact}, Isaac — il me manque toujours. Dicteez-le (ex : « +225 04 14 60 56 ») et je preparerai l'ouverture. A ce jour, je n'ai RIEN envoye.`, source: 'system' };
+    }
+    // 4) Étape texte : toute phrase restante est le message dicté (mais pas une question d'info)
+    if (pe.etape === 'texte' && nu.split(/\s+/).length >= 1 && !/^(?:c est quoi|qu est ce que|explique|traduis|cherche|calcule|qui etait|quelle heure|combien)/.test(nu)) {
+      pe.texte = String(rawText).replace(/^(?:isaac|iseck|izack|isack|aelyra|aelira|aleyra|elyra|elira|allez|bonjour)[\s,]*/i, '').trim().slice(0, 600);
+      pe.t = Date.now();
+      pe.etape = pe.tel ? 'validation' : 'numero';
+      return { reply: `Message note pour ${pe.contact} : « ${pe.texte} ». ${pe.tel ? 'Dites « ok je valide » pour que j\'ouvre WhatsApp avec ce texte deja ecrit, « annule » pour oublier, ou redicteez pour changer.' : 'Dicteez maintenant son numero (ex : « +225 04 14 60 56 ») pour que je puisse preparer l\'ouverture.'}`, source: 'system' };
+    }
+  }
+
   // --- Sinon : le cerveau IA répond (mémoire + contexte documentaires) ---
   if (ESSAI) return { reply: '<<<PAS_UNE_COMMANDE>>>', source: 'essai' };
   const answer = await smartAnswer(rawText);
@@ -1454,7 +1576,7 @@ const server = http.createServer(async (req, res) => {
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.log('');
-    console.log('  Isaac IA Juniors tourne DEJA dans une autre fenetre, Isaac.');
+    console.log('  Aelyra tourne DEJA dans une autre fenetre, Isaac.');
     console.log('  Inutile de le relancer : ouvrez simplement http://localhost:' + PORT);
     console.log('');
   } else {
@@ -1465,7 +1587,7 @@ server.on('error', (err) => {
 server.listen(PORT, () => {
   console.log('');
   console.log('  ================================================');
-  console.log('   ISAAC IA JUNIORS est en ligne, mon créateur.');
+  console.log('   AELYRA est en ligne, mon créateur.');
   console.log('   Interface : http://localhost:' + PORT);
   console.log('  ================================================');
   console.log('');

@@ -1,5 +1,5 @@
 /* ============================================
-   Isaac IA Juniors — Logique vocale (navigateur)
+   Aelyra (ex Isaac IA Juniors) — Logique vocale (navigateur)
    Reconnaissance + synthèse vocale en français
    ============================================ */
 
@@ -66,7 +66,7 @@ function beep(freq = 880, duration = 0.09, when = 0) {
 function addMsg(who, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + (who === 'Vous' ? 'user' : 'jarvis');
-  div.innerHTML = `<span class="who">${who === 'Vous' ? 'ISAAC' : 'I.A.J. — ISAAC IA JUNIORS'}</span>${escapeHtml(text)}`;
+  div.innerHTML = `<span class="who">${who === 'Vous' ? 'ISAAC' : 'AELYRA — ASSISTANTE PERSONNELLE'}</span>${escapeHtml(text)}`;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
@@ -80,7 +80,7 @@ function addCodeMsg(text, code, url, file) {
       ? `<a class="codedl" href="${url}" target="_blank">🌐 Voir le site en direct</a>`
       : `<a class="codedl" href="${url}" download>${escapeHtml(file || 'Télécharger le fichier')}</a>`)
     : '';
-  div.innerHTML = `<span class="who">I.A.J. — ISAAC IA JUNIORS</span>${escapeHtml(text)}` +
+  div.innerHTML = `<span class="who">AELYRA — ASSISTANTE PERSONNELLE</span>${escapeHtml(text)}` +
     `<pre class="codebox">${escapeHtml(code)}</pre>` + lien;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
@@ -113,9 +113,14 @@ loadVoices();
 speechSynthesis.onvoiceschanged = loadVoices;
 
 function pickFrenchVoice() {
-  return voices.find(v => /^fr[-_]/i.test(v.lang) && /male|homme|paul|henri|thomas|antoine/i.test(v.name))
-      || voices.find(v => /^fr[-_]FR/i.test(v.lang))
-      || voices.find(v => /^fr/i.test(v.lang))
+  // Voix FÉMININE française d'abord (Aelyra est une dame) : Julie, Denise, Amélie…
+  // et on fuit les voix d'homme (René, Paul, Henri…) que Windows installe aussi.
+  const homme = /male|homme|paul|henri|thomas|antoine|rene|claude|bernard|marc|jean|nicolas|david/i;
+  const femme = /female|femme|feminin|julie|denise|denene|audrey|amelie|virginie|celine|marie|vivienne|charline|eloise|suzette|france|chantal|nadia/i;
+  const fr = v => /^fr/i.test(v.lang);
+  return voices.find(v => fr(v) && femme.test(v.name) && !homme.test(v.name))
+      || voices.find(v => fr(v) && !homme.test(v.name))
+      || voices.find(v => fr(v))
       || null;
 }
 
@@ -128,12 +133,12 @@ function speak(text) {
     const v = pickFrenchVoice();
     if (v) u.voice = v;
     u.rate = 1.02;
-    u.pitch = 0.85;
+    u.pitch = 1.05; // timbre un peu plus haut : Aelyra, voix de femme
     isSpeaking = true;
     setState('speaking', 'I.A.J. répond...');
     u.onend = u.onerror = () => {
       isSpeaking = false;
-      setState(null, wakeMode ? 'En veille — dites « Isaac »' : 'En attente de vos ordres, Isaac');
+      setState(null, wakeMode ? 'En veille — dites « Aelyra »' : 'En attente de vos ordres, Isaac');
       resolve();
     };
     speechSynthesis.speak(u);
@@ -191,8 +196,8 @@ async function processCommand(text) {
   const t = text.toLowerCase();
   let local = null;
   if (/^(bonjour|salut|hello|bonsoir)\b/.test(t)) local = 'Bonjour Isaac, mon créateur. Tous les systèmes sont opérationnels. Que puis-je faire pour vous ?';
-  else if (/comment (tu t appelles|vous appelez|t appelles tu)|quel est ton nom|qui es.?tu/.test(t)) local = "Je suis Isaac IA Juniors, votre assistant personnel, Isaac. Vous êtes mon créateur et je porte votre nom avec fierté.";
-  else if (/qui (est|es) ton cr[ée]ateur|qui t a cr[ée]e|qui est ton (p[èe]re|ma[îi]tre|createur)|mon nom/.test(t)) local = "C'est vous, Isaac ! Vous êtes mon créateur. Je suis Isaac IA Juniors, né de votre imagination.";
+  else if (/comment (tu t appelles|vous appelez|t appelles tu)|quel est ton nom|qui es.?tu/.test(t)) local = "Je suis Aelyra, votre assistante personnelle, Isaac. Vous m'avez donné ce prénom et je le porte avec fierté — c'est vous, Isaac, mon créateur.";
+  else if (/qui (est|es) ton cr[ée]ateur|qui t a cr[ée]e|qui est ton (p[èe]re|ma[îi]tre|createur)|mon nom/.test(t)) local = "C'est vous, Isaac ! Vous êtes mon créateur. Je suis Aelyra, née de votre imagination.";
   else if (/^(merci)/.test(t)) local = 'Avec plaisir, Isaac. C est mon rôle auprès de mon créateur.';
   else if (/au revoir|bonne nuit|à plus/.test(t)) local = 'Au revoir, Isaac. Je reste en veille pour vous.';
   else if (/^(ça va|ca va|comment vas tu|comment ça va)/.test(t)) local = 'Tous mes circuits fonctionnent à plein régime, Isaac. Et vous, mon créateur, comment allez-vous ?';
@@ -254,12 +259,12 @@ if (SpeechRecognition) {
 
     if (wakeMode) {
       const low = transcript.toLowerCase();
-      const wakeRe = /\b(isaac|iseck|izak|juniors?|jarvis)\b/;
+      const wakeRe = /\b(aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis)\b/;
       if (!wakeRe.test(low)) {
-        addMsg('I.A.J.', '(veille) J\'ai entendu : « ' + transcript + ' » — dites « Isaac » pour m\'activer.');
+        addMsg('Aelyra', '(veille) J\'ai entendu : « ' + transcript + ' » — dites « Aelyra » pour m\'activer.');
         return;
       }
-      const cmd = transcript.replace(/(isaac|iseck|izak|juniors?|jarvis)/gi, '').replace(/^[\s,]+|[\s,]+$/g, '');
+      const cmd = transcript.replace(/(aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis)/gi, '').replace(/^[\s,]+|[\s,]+$/g, '');
       if (cmd) processCommand(cmd);
       else speak('Oui, Isaac, mon créateur ?');
     } else {
@@ -288,7 +293,7 @@ if (SpeechRecognition) {
     } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
       setState(null, 'Erreur micro : ' + e.error);
     } else {
-      setState(null, wakeMode ? 'En veille — dites « Isaac »' : 'En attente de vos ordres, Isaac');
+      setState(null, wakeMode ? 'En veille — dites « Aelyra »' : 'En attente de vos ordres, Isaac');
     }
   };
 
@@ -309,7 +314,7 @@ function startListening(silent) {
     recognition.start();
     isListening = true;
     micBtn.classList.add('recording');
-    setState('listening', wakeMode ? 'En veille — dites « Isaac »' : 'Je vous écoute, Isaac...');
+    setState('listening', wakeMode ? 'En veille — dites « Aelyra »' : 'Je vous écoute, Isaac...');
     if (!silent) { beep(880, .09); beep(1320, .09, .12); }
   } catch (e) { /* déjà démarré */ }
 }
@@ -337,7 +342,7 @@ wakeToggle.addEventListener('change', () => {
   wakeMode = wakeToggle.checked;
   localStorage.setItem('ij-wake', wakeMode ? '1' : '0');
   if (wakeMode) {
-    addMsg('Isaac IA Juniors', 'Mode veille activé, Isaac. Dites « Isaac » suivi de votre ordre.');
+    addMsg('Aelyra', 'Mode veille activé, Isaac. Dites « Aelyra » suivi de votre ordre.');
     speak('Mode veille activé. Je reste à votre écoute, Isaac.');
     startListening(true);
   } else {
@@ -384,15 +389,16 @@ setTimeout(checkRappels, 15000);
 
 // ---------- Séquence de démarrage ----------
 const bootLines = [
-  '> ISAAC IA JUNIORS — ASSISTANT IA PERSONNEL',
-  '> Créé par Isaac — Côte d\'Ivoire',
+  '> AELYRA — ASSISTANTE IA PERSONNELLE (ex Isaac IA Juniors)',
+  '> Créée par Isaac — Côte d\'Ivoire — Voix féminine chargée',
   '> Chargement des modules cognitifs......... OK',
   '> Liaison avec le serveur local............ OK',
   '> Calibrage du microphone.................. OK',
-  '> Synthèse vocale française................ OK',
+  '> Synthèse vocale française (femme)........ OK',
   '> Reconnaissance du créateur : Isaac....... OK',
+  '> Mot d\'appel : « Aelyra »................. OK',
   '> Socle cyberdéfense (éthique)............. OK',
-  '> Bonjour Isaac, mon créateur. Tous les systèmes sont en ligne.'
+  '> Bonjour Isaac, mon créateur. Je m\'appelle Aelyra, et tous les systèmes sont en ligne.'
 ];
 
 (function boot() {
@@ -413,9 +419,9 @@ const bootLines = [
           addMsg('Isaac IA Juniors', 'Isaac, vous m\'avez ouvert en double-cliquant sur index.html : je ne peux pas fonctionner ainsi. Fermez cet onglet, double-cliquez sur le fichier ISAAC-IJ.bat (il se trouve juste à côté), et une fenêtre noire restera ouverte : c\'est mon serveur. La page s\'ouvrira alors toute seule à la bonne adresse.');
           speak('Isaac, pour m\'utiliser, double-cliquez sur Isaac IA Juniors point bat, pas sur la page.');
         } else {
-          setState(null, wakeMode ? 'En veille — dites « Isaac »' : 'En attente de vos ordres, Isaac');
-          addMsg('Isaac IA Juniors', 'Bonjour Isaac, mon créateur. Je suis en mode système : cliquez n\'importe où dans cette fenêtre une première fois pour que je vous écoute en permanence. Appelez-moi ensuite d\'un simple « Isaac, ... ». Dites « aide » pour mes capacités, ou lancez INSTALL-ISAAC.bat pour que je démarre tout seul avec Windows.');
-          speak('Bonjour Isaac, mon créateur. Je suis en veille permanente. Cliquez une fois dans la fenêtre, puis appelez-moi : Isaac.');
+          setState(null, wakeMode ? 'En veille — dites « Aelyra »' : 'En attente de vos ordres, Isaac');
+          addMsg('Aelyra', 'Bonjour Isaac, mon créateur. Je suis en mode système : cliquez n\'importe où dans cette fenêtre une première fois pour que je vous écoute en permanence. Appelez-moi ensuite d\'un simple « Aelyra, ... ». Dites « aide » pour mes capacités, ou lancez INSTALL-ISAAC.bat pour que je démarre tout seul avec Windows.');
+          speak('Bonjour Isaac, mon créateur. Je m\'appelle Aelyra. Je suis en veille permanente. Cliquez une fois dans la fenêtre, puis appelez-moi : Aelyra.');
         }
       }, 700);
     }
