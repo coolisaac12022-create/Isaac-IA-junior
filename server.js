@@ -468,11 +468,16 @@ function pickLang(desc) {
   if (/powershell|\bps1\b/.test(desc))              return { ext: 'ps1',  nom: 'PowerShell' };
   if (/\bhtml\b|page web|site web|\bsite\b|\bcss\b|maquette/.test(desc))
                                                     return { ext: 'html', nom: 'HTML (page web complète)' };
-  if (/javascript|\bjs\b|\bnode|\breact\b/.test(desc)) return { ext: 'js', nom: 'JavaScript' };
+  if (/\bjavascript\b|\bjs\b|\bnode\b|\breact\b/.test(desc)) return { ext: 'js', nom: 'JavaScript' };
+  if (/typescript|\bts\b/.test(desc))               return { ext: 'js', nom: 'TypeScript (écrit en JavaScript compatible)' };
   if (/\bsql\b|base de donnees|requete/.test(desc))     return { ext: 'sql', nom: 'SQL' };
   if (/\bphp\b/.test(desc))                           return { ext: 'php',  nom: 'PHP' };
   if (/\bjava\b(?!script)/.test(desc))                return { ext: 'java', nom: 'Java' };
   if (/c\+\+|\bcpp\b/.test(desc))                     return { ext: 'cpp',  nom: 'C++' };
+  if (/\bcsharp\b|c#/.test(desc))                     return { ext: 'cs',   nom: 'C#' };
+  if (/golang/.test(desc))                            return { ext: 'go',   nom: 'Go' };
+  if (/\brust\b/.test(desc))                          return { ext: 'rs',   nom: 'Rust' };
+  if (/\blanguage c\b|\bc lang\b/.test(desc))         return { ext: 'c',    nom: 'C' };
   if (/\bjson\b/.test(desc))                          return { ext: 'json', nom: 'JSON' };
   // Générique : sur le PC d'Isaac, un script batch se lance d'un double-clic
   if (/script|fichier|dossier|renommer|copier|supprimer|lancer|automat|trouss/.test(desc))
@@ -485,9 +490,12 @@ async function askCode(description) {
   const siteNote = lang.ext === 'html'
     ? "COMMANDE SPECIALE SITE WEB : produit une VRAIE page professionnelle dans un SEUL fichier HTML autonome (CSS et JavaScript inclus dans le fichier, aucune dépendance externe). Design moderne : en-tête avec navigation, grande section d'accueil, sections de contenu, couleurs harmonieuses, typographie soignée, responsive mobile, et de la fausse monnaie locale (FCFA) si pertinent. Sans photos externes : utilise des dégradés, des icônes emoji et des formes CSS."
     : '';
-  const system = "Tu es AELYRA, l'expert en programmation au service d'Isaac, ton créateur, qui débute en code. " +
+  const system = "Tu es AELYRA, ingenieure logicielle senior — la plus exigeante — au service d'Isaac, ton créateur, qui débute en code. " +
+    "Avant d'écrire, analyse mentalement le besoin : cas limites, erreurs possibles, dépendances Windows 11. " +
     "Renvoie UNIQUEMENT du code fonctionnel dans le langage demandé, sans balises markdown, sans fence de backticks, sans texte avant ni après. " +
-    "Commente chaque partie en français simple, avec les commentaires du langage (#, rem ou //). " +
+    "JAMAIS de code tronqué, JAMAIS de placeholder du type « ... » ou « reste du code ici » : chaque fonction est écrite en entier. " +
+    "Ajoute la gestion d'erreurs (try/except ou équivalent) et un message clair si quelque chose échoue. " +
+    "Commente chaque partie en français simple, avec les commentaires du langage (#, rem, //, /* */). " +
     "Le code doit être robuste, adapté à Windows 11, et marcher tel quel dès sa première exécution. " +
     "Langage imposé : " + lang.nom + ', extension de fichier : .' + lang.ext + '. ' + siteNote;
   let code = await askAI([{ role: 'system', content: system }, { role: 'user', content: description }]);
@@ -510,6 +518,60 @@ async function askCode(description) {
                ? "Je l'ouvre dans votre éditeur : modifiez-le, puis relancez-le. Tout est dans le dossier isaac-code."
                : "Téléchargez-le avec le lien affiché, puis double-cliquez dessus ou ouvrez-le dans VS Code.")),
     fileUrl: '/isaac-code/' + fileName
+  };
+}
+
+// --- Vrai site COMPLET en plusieurs fichiers (HTML + CSS + JS), dans son propre dossier ---
+async function askSitePro(description) {
+  const system = "Tu es AELYRA, architecte web senior au service d'Isaac, ton createur, qui debutte en code. " +
+    "Tu produis un VRAI SITE WEB COMPLET et PROFESSIONNEL en PLUSIEURS FICHIERS, dans ce format EXACT, sans balises markdown ni backticks :\n" +
+    "===FICHIER: index.html===\n(le contenu)\n===FICHIER: styles.css===\n(le contenu)\n===FICHIER: script.js===\n(le contenu)\n" +
+    "Regles strictes : index.html ne contient AUCUN style ni script inline — il lie styles.css et script.js avec les bons chemins relatifs. " +
+    "styles.css : design moderne (variables CSS, palette harmonieuse, responsive mobile, animations douces, typographie soignee, effets au survol). " +
+    "script.js : interactions REELLES (menu mobile, filtres ou recherche, formulaire valide avec message, contenu dynamise). " +
+    "Tu peux ajouter un quatrieme fichier donnees.js si le site a besoin de beaucoup de donnees. " +
+    "Commente en francais simple. Fausse monnaie FCFA si pertinent. Photos externes INTERDITES : degradés, emojis et formes CSS seulement. " +
+    "Aucune dependance externe (pas de CDN, pas de framework). JAMAIS de fichier tronque ni de placeholder. Le site doit marcher en ouvrant simplement index.html.";
+  let out = await askAI([
+    { role: 'system', content: system },
+    { role: 'user', content: description },
+  ]);
+  if (!out) return null;
+  out = out.replace(/```[a-z0-9]*\n?/gi, '').replace(/```/g, '').trim();
+  // découpe sur les marqueurs ===FICHIER: nom===
+  const parts = out.split(/===\s*FICHIER\s*:\s*([A-Za-z0-9_.-]{1,40})\s*===/i);
+  const fichiers = {};
+  const EXT_OK = /\.(html?|css|js|json|txt|md)$/i;
+  for (let i = 1; i < parts.length; i += 2) {
+    let nom = String(parts[i] || '').trim().replace(/\\/g, '/').split('/').pop().replace(/[^A-Za-z0-9_.-]/g, '');
+    const contenu = String(parts[i + 1] || '').trim();
+    if (!nom || !EXT_OK.test(nom) || !contenu) continue;
+    if (/^index/.test(nom)) nom = 'index.html';
+    fichiers[nom] = contenu;
+  }
+  if (!fichiers['index.html']) fichiers['index.html'] = out; // l'IA n'a pas respecté le format : on emballe tout dans la page
+  if (Object.keys(fichiers).length === 1 && !/\bdoctype\b/i.test(out)) return null;
+  const slug = normalize(description).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'site';
+  const dossier = 'isaac-' + slug + '-' + Date.now().toString(36).slice(-4);
+  const dirPath = path.join(CODE_DIR, dossier);
+  try {
+    fs.mkdirSync(dirPath, { recursive: true });
+    for (const [nom, contenu] of Object.entries(fichiers)) fs.writeFileSync(path.join(dirPath, nom), contenu, 'utf8');
+  } catch (e) { console.error('[sitepro] écriture impossible:', e.message); return null; }
+  const noms = Object.keys(fichiers);
+  if (IS_LOCAL) {
+    run(`code "${dirPath}" 2>nul`);
+    run(`start "" "${path.join(dirPath, 'index.html')}"`);
+  }
+  return {
+    lang: { ext: 'html', nom: 'Site web complet (HTML + CSS + JavaScript)' },
+    fileName: 'index.html',
+    code: fichiers['index.html'].slice(0, 20000),
+    reply: `Site complet livré, Isaac : ${noms.length} fichiers (${noms.join(', ')}) dans le dossier ${dossier}. ` +
+      (IS_LOCAL
+        ? "index.html s'ouvre dans votre navigateur, VS Code montre le dossier entier. Chaque fichier a son rôle : la structure dans index.html, la beauté dans styles.css, la vie dans script.js. Modifiez n'importe lequel, rechargez (F5)."
+        : "Cliquez sur « Voir le site en direct » : la structure est dans index.html, le style dans styles.css, la vie dans script.js."),
+    fileUrl: '/isaac-code/' + dossier + '/index.html',
   };
 }
 
@@ -1332,9 +1394,21 @@ async function handleCommand(rawText) {
 
   // --- Générer du code (Isaac programmeur) --- (ENTREE tolère les mots d'accueil ajoutés par la voix)
   m = text.match(new RegExp(ENTREE + '(?:ecris|ecri(?:vez)?|ecrire|ecrits|code(?:z)?|genere(?:z)?|generer|realise(?:z)?|realiser|cree(?:z)?|creer|developpe(?:z)?|developper|fabrique(?:z)?|concois|programme|prepare(?:z)?|construis(?:ez)?|faire|fais|fait|faite)\\s*(?:[- ]+)?(?:moi\\s+|nous\\s+)?(?:un|une|du|de\\s+la|le\\s+|la\\s+|mon\\s+|ma\\s+)?(.+)$'));
+  let descCode = null;
   if (m && /\b(?:code|script|programme|application|logiciel|jeu|page|site|web|fichier|python|html|javascript|batch|powershell|sql)\b/.test(m[1]) &&
-      !/^(?:que|qui|pourquoi|comment|quand|ou)\b/.test(m[1])) {
-    const oeuvre = await askCode(m[1]);
+      !/^(?:que|qui|pourquoi|comment|quand|ou)\b/.test(m[1])) descCode = m[1];
+  // « je veux un site complet », « j'aimerais une application web » — génération SANS verbe de création
+  if (!descCode) {
+    const mv = text.match(new RegExp(ENTREE + '(?:je veux|je voudrais|je veux vraiment|jaimerais|jai besoin de|il me faut|on a besoin de|donne(?:z)? moi|souhaite)\\s*(?:[- ]+)?(?:un|une|du|de la|le|la|mon|ma)?\\s*(.+)$'));
+    if (mv && /\b(?:site|web|appli|application|programme|logiciel|script|page|maquette|plateforme|code|jeu)\b/.test(mv[1])
+        && !/\b(?:ouvre|ouvrir|lance|ferme|voir|vois|montre|copie|colle|rappelo|telecharge)\b/.test(mv[1])
+        && !/^(?:que|qui|pourquoi|comment|quand|ou)\b/.test(mv[1])) descCode = mv[1];
+  }
+  if (descCode) {
+    // « site complet / plusieurs fichiers / appli web pro » → vrai projet multi-fichiers ; sinon fichier unique
+    const veutPro = /complet|complete|plusieurs fichiers|professionnel|profess|plein|reel|veritable|application web|appli web|plateforme|dashboard|tableau de bord|boutique|e[ -]commerce|portfolio/.test(descCode)
+                 && /site|web|appli|application|plateforme|boutique|portfolio|page|maquette/.test(descCode);
+    const oeuvre = veutPro ? await askSitePro(descCode) : await askCode(descCode);
     if (oeuvre) return { reply: oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName };
     return { reply: "Je n'ai pas pu joindre mon atelier de code, Isaac. Réessayez dans un instant — le cerveau IA était peut-être saturé.", source: 'local' };
   }
