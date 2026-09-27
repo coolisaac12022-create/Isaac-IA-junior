@@ -40,11 +40,11 @@ If Err.Number = 0 Then
 End If
 On Error GoTo 0
 
-' --- Démarrer le serveur caché si besoin ---
+' --- Démarrer le cerveau caché si besoin (avec auto-restart via cerveau.bat) ---
 If Not serverUp Then
   shell.CurrentDirectory = proj
-  shell.Run "node server.js", 0, False
-  WScript.Sleep 2500
+  shell.Run "cmd /c """ & proj & "\cerveau.bat""", 0, False
+  WScript.Sleep 3000
 End If
 
 ' --- Fenêtre d'application dédiée (profil Isaac séparé, hors navigateur normal) ---
