@@ -150,7 +150,8 @@ function extractOpenAIContent(body) {
   try {
     const data = JSON.parse(body);
     const c = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if (c && c.trim().length > 1 && !/^\s*[[{]/.test(c)) return c.trim().replace(/\s*\n+\s*/g, ' ').slice(0, 700);
+    // On garde le texte brut (les sauts de ligne sont vitaux pour le code généré)
+    if (c && c.trim().length > 1 && !/^\s*[[{]/.test(c)) return c.trim().slice(0, 20000);
   } catch (e) {}
   return null;
 }
@@ -184,8 +185,9 @@ async function askGemini(messages, attempt = 0) {
     try {
       const data = JSON.parse(res.data);
       const parts = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
-      const text = Array.isArray(parts) ? parts.map(p => p.text || '').join(' ').trim() : '';
-      if (text.length > 1) return text.replace(/\s*\n+\s*/g, ' ').slice(0, 700);
+      const text = Array.isArray(parts) ? parts.map(p => p.text || '').join('').trim() : '';
+      // On préserve les sauts de ligne (essentiels pour le code généré), plafond confortable
+      if (text.length > 1) return text.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').slice(0, 20000);
     } catch (e) {}
   }
   return askGemini(messages, attempt + 1);
@@ -303,7 +305,11 @@ async function smartAnswer(question) {
     content: question + (context ? '\n\nCONTEXTE DOCUMENTAIRE (reformule-le, ne le recopie pas) : ' + context : '')
   });
   const ai = await askAI(messages);
-  if (ai) return { reply: ai, source: 'ai' };
+  if (ai) {
+    // Version parlée : une phrase fluide, pas de coupures ni de longues listes
+    const voix = ai.replace(/\s*\n+\s*/g, ' ').slice(0, 700);
+    return { reply: voix, source: 'ai' };
+  }
   // IA morte : au moins donner l'information brute
   const wiki = await askWikipedia(question);
   if (wiki) return { reply: wiki, source: 'ai' };
@@ -331,11 +337,14 @@ function pickLang(desc) {
 
 async function askCode(description) {
   const lang = pickLang(description);
+  const siteNote = lang.ext === 'html'
+    ? "COMMANDE SPECIALE SITE WEB : produit une VRAIE page professionnelle dans un SEUL fichier HTML autonome (CSS et JavaScript inclus dans le fichier, aucune dépendance externe). Design moderne : en-tête avec navigation, grande section d'accueil, sections de contenu, couleurs harmonieuses, typographie soignée, responsive mobile, et de la fausse monnaie locale (FCFA) si pertinent. Sans photos externes : utilise des dégradés, des icônes emoji et des formes CSS."
+    : '';
   const system = "Tu es ISAAC IA JUNIORS, l'expert en programmation au service d'Isaac, ton créateur, qui débute en code. " +
     "Renvoie UNIQUEMENT du code fonctionnel dans le langage demandé, sans balises markdown, sans fence de backticks, sans texte avant ni après. " +
     "Commente chaque partie en français simple, avec les commentaires du langage (#, rem ou //). " +
     "Le code doit être robuste, adapté à Windows 11, et marcher tel quel dès sa première exécution. " +
-    "Langage imposé : " + lang.nom + ', extension de fichier : .' + lang.ext + '.';
+    "Langage imposé : " + lang.nom + ', extension de fichier : .' + lang.ext + '. ' + siteNote;
   let code = await askAI([{ role: 'system', content: system }, { role: 'user', content: description }]);
   if (!code) return null;
   code = code.replace(/```[a-z0-9]*\n?/gi, '').replace(/```/g, '').trim();
@@ -344,12 +353,17 @@ async function askCode(description) {
   const fullPath = path.join(CODE_DIR, fileName);
   try { fs.writeFileSync(fullPath, code, 'utf8'); } catch (e) { console.error('[code] écriture impossible:', e.message); }
   if (IS_LOCAL) run(`code "${fullPath}" 2>nul || start "" "${fullPath}"`);
+  if (lang.ext === 'html' && IS_LOCAL) run(`start "" "${fullPath}"`); // un site se visite dans le navigateur
   return {
     lang, fileName, code,
     reply: `C'est écrit, Isaac. Un programme en ${lang.nom}, nommé ${fileName}. ` +
-           (IS_LOCAL
-             ? "Je l'ouvre dans votre éditeur : modifiez-le, puis relancez-le. Tout est dans le dossier isaac-code."
-             : "Téléchargez-le avec le lien affiché, puis double-cliquez dessus ou ouvrez-le dans VS Code."),
+           (lang.ext === 'html'
+             ? (IS_LOCAL
+               ? "C'est un vrai site en un seul fichier : il s'ouvre dans votre navigateur et dans VS Code. Modifiez le texte dans VS Code, rechargez la page (F5), et il change sous vos yeux."
+               : "Cliquez sur le lien affiché : la page s'ouvre directement dans votre navigateur.")
+             : (IS_LOCAL
+               ? "Je l'ouvre dans votre éditeur : modifiez-le, puis relancez-le. Tout est dans le dossier isaac-code."
+               : "Téléchargez-le avec le lien affiché, puis double-cliquez dessus ou ouvrez-le dans VS Code.")),
     fileUrl: '/isaac-code/' + fileName
   };
 }

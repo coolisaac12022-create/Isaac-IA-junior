@@ -74,9 +74,14 @@ function addMsg(who, text) {
 function addCodeMsg(text, code, url, file) {
   const div = document.createElement('div');
   div.className = 'msg jarvis';
+  const page = /\.html?$/i.test(file || url || '');
+  const lien = url
+    ? (page
+      ? `<a class="codedl" href="${url}" target="_blank">🌐 Voir le site en direct</a>`
+      : `<a class="codedl" href="${url}" download>${escapeHtml(file || 'Télécharger le fichier')}</a>`)
+    : '';
   div.innerHTML = `<span class="who">I.A.J. — ISAAC IA JUNIORS</span>${escapeHtml(text)}` +
-    `<pre class="codebox">${escapeHtml(code)}</pre>` +
-    (url ? `<a class="codedl" href="${url}" download>${escapeHtml(file || 'Télécharger le fichier')}</a>` : '');
+    `<pre class="codebox">${escapeHtml(code)}</pre>` + lien;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
