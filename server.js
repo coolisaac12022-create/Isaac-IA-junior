@@ -491,6 +491,32 @@ const BLAGUES = [
   "Je raconterais bien une blague sur l'UDP, mais vous ne la recevriez peut-être pas."
 ];
 
+// Lance N'IMPORTE QUEL logiciel installé sur le PC d'Isaac (menu Démarrer + registre Windows)
+function chercheAppli(nom) {
+  return new Promise(resolve => {
+    const propre = String(nom || '').replace(/["&|<>^%$`()]/g, '').replace(/\s+/g, ' ').trim();
+    if (!propre || !IS_LOCAL) return resolve(null);
+    const ps = path.join(__dirname, 'chercher-appli.ps1');
+    exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps}" -Nom "${propre}"`,
+      { timeout: 25000, windowsHide: true }, (err, out) => {
+        const s = String(out || '').trim();
+        if (!s || /^NOTFOUND/.test(s)) return resolve(null);
+        resolve({ nom: s.split('|')[1] || propre });
+      });
+  });
+}
+
+// Les petits mots de la voix n'appartiennent pas au nom du logiciel
+const VIDAGE = /^(?:le|la|les|l|un|une|des|du|de|mon|ma|mes|ce|cet|cette|moi|toi|svp|stp)\s+|^s\s+il\s+te\s+plait\s+|^s\s+il\s+vous\s+plait\s+/;
+function nettoieCible(s) {
+  let t = String(s).trim();
+  let avant;
+  do { avant = t; t = t.replace(VIDAGE, '').trim(); } while (t !== avant);
+  const mots = t.split(/\s+/).filter(Boolean);
+  const restants = mots.filter(w => !/^(?:logiciel|logiciels|application|applications|programme|programmes|soft|logiciel|pu|peux|dois)$/.test(w));
+  return (restants.length ? restants : mots).join(' ');
+}
+
 async function handleCommand(rawText) {
   const text = normalize(rawText);
   if (!text) return { reply: "Je n'ai rien entendu, Isaac. Pouvez-vous répéter ?", source: 'local' };
@@ -596,8 +622,16 @@ async function handleCommand(rawText) {
     if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(target.replace(/\s/g, ''))) {
       return { reply: `J'ouvre le site ${target}, Isaac.`, source: 'system', open: 'https://' + target.replace(/\s/g, '') };
     }
-    return { reply: `Je ne connais pas « ${target} » directement, alors je le recherche sur Google, Isaac.`, source: 'system',
-             open: 'https://www.google.com/search?q=' + encodeURIComponent(target) };
+    // SINON : chercher le logiciel dans Windows (tous les programmes installés, pas seulement ma liste)
+    const nomPropre = nettoieCible(target);
+    if (IS_LOCAL && nomPropre.length >= 3) {
+      const trouvee = await chercheAppli(nomPropre);
+      if (trouvee) {
+        return { reply: `J'ouvre ${trouvee.nom}, Isaac — je viens de le trouver dans vos programmes installs. Dites « ouvre ${trouvee.nom.toLowerCase()} » la prochaine fois, ce sera plus rapide.`, source: 'system' };
+      }
+    }
+    return { reply: `Je n'ai pas trouve « ${target} » parmi vos logiciels, Isaac, alors je le cherche sur Google.`, source: 'system',
+             open: 'https://www.google.com/search?q=' + encodeURIComponent(nomPropre || target) };
   }
 
   // --- Lancer VS Code pour coder (sans demande de génération) ---
