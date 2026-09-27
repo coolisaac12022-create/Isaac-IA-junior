@@ -222,6 +222,7 @@ async function processCommand(text) {
 }
 
 // ---------- Reconnaissance vocale ----------
+let netErrors = 0, wakePauseUntil = 0;
 if (SpeechRecognition) {
   recognition = new SpeechRecognition();
   recognition.lang = 'fr-FR';
@@ -230,6 +231,7 @@ if (SpeechRecognition) {
   recognition.continuous = false;
 
   recognition.onresult = (event) => {
+    netErrors = 0; // le réseau vocal répond : on repart proprement
     const transcript = event.results[event.results.length - 1][0].transcript.trim();
     stopListening();
 
@@ -253,6 +255,19 @@ if (SpeechRecognition) {
     if (e.error === 'not-allowed') {
       setState(null, 'Microphone refusé — autorisez-le dans le navigateur');
       addMsg('Isaac IA Juniors', 'Isaac, le microphone est bloqué. Cliquez sur le cadenas dans la barre d\'adresse et autorisez le micro, puis réessayez.');
+    } else if (e.error === 'network' || e.error === 'service-not-allowed') {
+      // La dictée du navigateur passe par les serveurs vocaux d'Internet : route opérateur lente ou bloquée
+      netErrors++;
+      if (netErrors === 1) {
+        addMsg('Isaac IA Juniors', 'Reconnaissance vocale indisponible (réseau), Isaac. Les serveurs vocaux du navigateur ne répondent pas depuis votre opérateur — je réessaie automatiquement. En attendant, vous pouvez m\'écrire vos ordres dans le champ du bas, je répondrai toujours à voix haute.');
+      }
+      if (netErrors >= 3) {
+        wakePauseUntil = Date.now() + 20000; // pause de 20 s : evite la boucle infinie d'erreurs
+        setState(null, 'Réseau vocal indisponible — je retente dans 20 s (ou écrivez vos ordres ci-dessous)');
+      } else {
+        setState(null, 'Réseau vocal instable — nouvelle tentative (' + netErrors + '/3)...');
+        wakePauseUntil = Date.now() + 3000;
+      }
     } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
       setState(null, 'Erreur micro : ' + e.error);
     } else {
@@ -263,9 +278,10 @@ if (SpeechRecognition) {
   recognition.onend = () => {
     isListening = false;
     micBtn.classList.remove('recording');
-    // En mode veille : on réécoute en permanence
+    // En mode veille : on réécoute en permanence (en respectant la pause réseau éventuelle)
     if (wakeMode && !isSpeaking && !processing) {
-      setTimeout(() => { if (wakeMode) startListening(true); }, 400);
+      const attente = Math.max(400, (wakePauseUntil || 0) - Date.now() + 300);
+      setTimeout(() => { if (wakeMode) startListening(true); }, attente);
     }
   };
 }
