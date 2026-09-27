@@ -88,6 +88,23 @@ function addCodeMsg(text, code, url, file) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+// Le texte lu à voix haute : plus jamais de symboles markdown (« astérisque », « dièse »),
+// des maths prononcées, des liens réduits à leur libellé. L'affichage à l'écran garde le formatage.
+function speechClean(t) {
+  return String(t || '')
+    .replace(/```[\s\S]*?```/g, ' ')                        // blocs de code
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')                 // liens markdown → libellé
+    .replace(/([0-9])\s*[*xX]\s*([0-9])/g, '$1 fois $2')     // 7 * 8 → « 7 fois 8 » (avant suppression des *)
+    .replace(/(\d)\s*\/\s*(\d)/g, '$1 sur $2')               // 1/2 → « 1 sur 2 »
+    .replace(/[*_~`]+/g, '')                                 // gras, italique, titres, code inline
+    .replace(/(#{1,6})\s*/g, ' ')                            // dièses de titres
+    .replace(/^\s*[-•●▪◦]+\s+/gm, '')                        // puces de listes
+    .replace(/[—–]/g, ', ')                                  // tirets longs → pause
+    .replace(/\|/g, ' ')
+    .replace(/https?:\/\/\S+/g, 'le site indiqué')           // URL brute
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 // ---------- Voix de Isaac IA Juniors ----------
 let voices = [];
@@ -106,7 +123,7 @@ function speak(text) {
   return new Promise((resolve) => {
     if (!('speechSynthesis' in window)) return resolve();
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
+    const u = new SpeechSynthesisUtterance(speechClean(text));
     u.lang = 'fr-FR';
     const v = pickFrenchVoice();
     if (v) u.voice = v;
