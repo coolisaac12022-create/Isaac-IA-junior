@@ -880,7 +880,7 @@ async function handleCommand(rawText) {
   if (mm) {
     const theme = mm[1].trim();
     const t = await askAI([
-      { role: 'system', content: "Tu es formateur en cybersécurité pour débutants. Ton élève s'appelle Isaac, entrepreneur ivoirien, et il apprend à DÉFENDRE son PC. Pour le sujet demandé, réponds en 5 phrases maximum, en français simple et vivant : 1) ce que fait cette attaque, avec une image concrète ; 2) le geste précis pour s'en protéger sur Windows ; 3) où s'entraîner légalement (son propre PC, TryHackMe, picoCTF). Tu Expliques le PRINCIPE et la DÉFENSE, jamais un mode d'emploi détaillé pour attaquer un système qui n'est pas une cible d'entraînement autorisée." },
+      { role: 'system', content: "Tu es formateur en cybersécurité pour débutants. Ton élève s'appelle Isaac, entrepreneur ivoirien, et il apprend à DÉFENDRE son PC. Pour le sujet demandé, réponds en 5 phrases maximum, en français simple et vivant : 1) ce que fait cette attaque, avec une image concrète ; 2) le geste précis pour s'en protéger sur Windows ; 3) où s'entraîner légalement (son propre PC, TryHackMe, picoCTF) ; 4) si le sujet correspond à un défi de SON LABORATOIRE local (dire « ouvre le labo cyber » : injection SQL, XSS, command injection, IDOR, force brute), termine par une phrase « TP : relève le défi X dans ton laboratoire. » Tu Expliques le PRINCIPE et la DÉFENSE, jamais un mode d'emploi détaillé pour attaquer un système qui n'est pas une cible d'entraînement autorisée." },
       { role: 'user', content: 'Sujet : ' + theme },
     ]);
     if (t) return { reply: `Cyber-école, Isaac. ${t.replace(/\s*\n+\s*/g, ' ')}`.slice(0, 900), source: 'ai' };
@@ -888,6 +888,14 @@ async function handleCommand(rawText) {
   }
   if (/cyber ecole|apprendre a hacker|ou s entrainer|terrain d entrainement|entraine moi|pratique legale/.test(text)) {
     return { reply: "On apprend à attaquer là où c'est LÉGAL, Isaac : sur votre propre PC, et sur des machines volontairement vulnérables faites pour l'entraînement — TryHackMe que j'ouvre maintenant, ou picoCTF. Et pour comprendre une attaque précise : « cyber école rançonneur », « cyber école hameçonnage »...", source: 'system', open: 'https://tryhackme.com/path/outline/prelearning' };
+  }
+  // --- Laboratoire d'entraînement : 5 défis simulés, 100 % dans le navigateur, rien de réel ---
+  if (new RegExp(ENTREE + '(?:lance|ouvre|demarre|depart|active|montre?|va sur|va a) (?:moi |donc )?(?:mon |le |la |un |dans le )?(?:labo|laboratoire|lab)(?: cyber| d[^ ]*| de[^ ]*| entrainement)?').test(text)
+      || /labo (?:cyber|aelyra)|laboratoire (?:cyber|entrainement|d entrainement)/.test(text)) {
+    return { reply: "Laboratoire ouvert, Isaac. Cinq défis vous attendent : injection SQL, XSS, command injection, IDOR, force brute. Tout est SIMULÉ dans la page — aucune machine réelle ne subit rien. À chaque drapeau conquis, je vous explique la parade. Dites « donne moi un defi » si vous voulez que je vous guide.", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/labo.html' : '/labo.html') };
+  }
+  if (/(?:donne?(?: moi)? (?:un|du) (?:deffi|defi|challenge|exercice|tp) (?:cyber|de hacker|pratique)?|un defi pour (?:apprendre|s entrainer)|challenge cyber)/.test(text)) {
+    return { reply: "Défi du jour, mon créateur : contourner le formulaire de connexion de Megashop par une injection SQL. Ouvrez le laboratoire — dites « ouvre le labo cyber » — et tapez dans le mot de passe : apostrophe, OR 1=1, puis deux tirets et une espace. Quand le drapeau s'affiche, lisez la parade en bas de page. Les suivants montent en difficulté jusqu'à la force brute.", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/labo.html' : '/labo.html') };
   }
   if (/installe(?:z)? (?:moi )?(?:les |l[ae]s? )?outils (?:du |de )?(?:hacker|cyber|pentest)/.test(text)) {
     run('start cmd /k "winget install -e --id Insecure.Nmap --accept-package-agreements --accept-source-agreements && echo. && echo MERCI DE LANALYSEUR Wireshark : && winget install -e --id WiresharkFoundation.Wireshark --accept-package-agreements --accept-source-agreements"');

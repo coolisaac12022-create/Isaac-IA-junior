@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LABO CYBER — Aelyra</title>
+<style>
+:root{
+  --bg:#050a12; --panel:#0a1420; --panel2:#0d1a2a; --line:#123a52;
+  --cyan:#00e5ff; --green:#22ff88; --red:#ff3b5c; --orange:#ffb020; --dim:#5d7f96;
+  --txt:#c8e6f5;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--txt);
+  font-family:"Segoe UI",Consolas,monospace; min-height:100vh;
+  background-image:radial-gradient(ellipse at 50% -20%, #0a2035 0%, var(--bg) 60%);
+}
+header{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:16px 22px;border-bottom:1px solid var(--line);
+  background:rgba(8,16,26,.85); backdrop-filter:blur(6px);
+  position:sticky;top:0;z-index:50;
+}
+.brand{font-size:20px;letter-spacing:3px;color:var(--cyan);text-shadow:0 0 12px rgba(0,229,255,.6)}
+.brand small{display:block;font-size:10px;letter-spacing:2px;color:var(--dim);margin-top:3px}
+.score{font-size:13px;color:var(--dim);text-align:right}
+.score b{color:var(--green);font-size:17px;display:block;text-shadow:0 0 10px rgba(34,255,136,.5)}
+.banner{
+  margin:14px 22px 0;padding:10px 14px;border:1px solid var(--orange);
+  background:rgba(255,176,32,.07);color:var(--orange);font-size:12.5px;border-radius:6px;
+}
+.layout{display:flex;gap:18px;padding:18px 22px;align-items:flex-start;flex-wrap:wrap}
+nav.menu{width:230px;flex-shrink:0;position:sticky;top:86px}
+nav.menu button{
+  display:block;width:100%;text-align:left;margin-bottom:8px;padding:11px 13px;
+  background:var(--panel);border:1px solid var(--line);color:var(--txt);
+  font-family:inherit;font-size:13px;cursor:pointer;border-radius:6px;transition:.2s;
+}
+nav.menu button:hover{border-color:var(--cyan);color:var(--cyan)}
+nav.menu button.done{border-color:var(--green);color:var(--green)}
+nav.menu button.done::after{content:" ✔";font-weight:bold}
+main.zone{flex:1;min-width:320px;max-width:860px}
+.level{display:none;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;box-shadow:0 0 30px rgba(0,40,70,.35)}
+.level.active{display:block}
+.level h2{color:var(--cyan);font-size:17px;letter-spacing:1.5px;margin-bottom:6px}
+.level .diff{font-size:11px;color:var(--orange);letter-spacing:2px;margin-bottom:12px}
+.level p.desc{font-size:13.5px;line-height:1.55;margin-bottom:16px;color:var(--txt)}
+.sim{border:1px dashed var(--line);border-radius:8px;padding:16px;background:var(--panel2);margin-bottom:14px}
+.sim .tgt{font-size:11px;color:var(--dim);letter-spacing:2px;margin-bottom:10px}
+label{display:block;font-size:11px;color:var(--dim);letter-spacing:1px;margin:8px 0 4px}
+input[type=text],textarea{
+  width:100%;padding:9px 11px;background:#060d16;border:1px solid var(--line);
+  color:var(--green);font-family:Consolas,monospace;font-size:13.5px;border-radius:5px;
+}
+input[type=text]:focus,textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 10px rgba(0,229,255,.25)}
+button.act{
+  margin-top:12px;padding:9px 20px;background:transparent;border:1px solid var(--cyan);
+  color:var(--cyan);font-family:inherit;font-size:13px;letter-spacing:1px;cursor:pointer;border-radius:5px;
+}
+button.act:hover{background:rgba(0,229,255,.12)}
+button.ghost{border-color:var(--dim);color:var(--dim);margin-left:8px}
+button.ghost:hover{background:rgba(93,127,150,.12)}
+.out{
+  margin-top:14px;background:#04070c;border:1px solid var(--line);border-radius:6px;
+  padding:12px;font-family:Consolas,monospace;font-size:13px;min-height:44px;
+  white-space:pre-wrap;word-break:break-word;color:#8fd7ae;
+}
+.out.err{color:var(--red)}
+.out.win{color:var(--green);border-color:var(--green);box-shadow:0 0 14px rgba(34,255,136,.25)}
+.flagline{margin-top:12px;font-size:13px;color:var(--orange)}
+.flagline code{background:#04070c;padding:3px 8px;border-radius:4px;color:var(--green);font-size:12.5px;word-break:break-all}
+.hintbox{margin-top:16px;border-left:3px solid var(--orange);padding:10px 14px;background:rgba(255,176,32,.05);font-size:12.5px;line-height:1.6;display:none}
+.hintbox.show{display:block}
+.hintbox b{color:var(--orange)}
+.defbox{margin-top:16px;border-left:3px solid var(--cyan);padding:10px 14px;background:rgba(0,229,255,.04);font-size:12.5px;line-height:1.6}
+.defbox b{color:var(--cyan)}
+.term{font-family:Consolas,monospace;font-size:12.5px;background:#02050a;border:1px solid var(--line);border-radius:6px;padding:12px;min-height:120px;max-height:220px;overflow-y:auto;margin-top:12px}
+.term .l-ok{color:var(--green)} .term .l-err{color:var(--red)} .term .l-info{color:var(--dim)} .term .l-cmd{color:var(--cyan)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chips button{padding:5px 10px;font-size:11.5px;background:#060d16;border:1px solid var(--line);color:var(--dim);cursor:pointer;border-radius:4px;font-family:Consolas,monospace}
+.chips button:hover{border-color:var(--cyan);color:var(--cyan)}
+.userlist{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.userlist button{padding:7px 13px;background:#060d16;border:1px solid var(--line);color:var(--txt);cursor:pointer;border-radius:5px;font-size:12.5px;font-family:inherit}
+.userlist button:hover{border-color:var(--orange);color:var(--orange)}
+.comment{background:#060d16;border:1px solid var(--line);border-radius:5px;padding:9px 12px;margin-top:8px;font-size:13px}
+.comment .who{color:var(--dim);font-size:11px;margin-bottom:3px}
+.bar{height:5px;background:#0c1c2c;border-radius:3px;overflow:hidden;margin-top:5px;width:180px;display:inline-block;vertical-align:middle}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--red),var(--orange),var(--green));width:0%;transition:width 1s linear}
+footer{padding:18px 22px 30px;font-size:11px;color:var(--dim);border-top:1px solid var(--line);margin-top:24px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">⬢ LABO CYBER — AELYRA<small>ENVIRONNEMENT D'ENTRAÎNEMENT 100 % SIMULÉ</small></div>
+  <div class="score">DRAPEAUX OBTENUS<b id="scoreTxt">0 / 5</b></div>
+</header>
+
+<div class="banner">
+  ⚠ CE LABO EST UNE SIMULATION : tout tourne dans votre navigateur, aucune machine réelle n'est attaquée.
+  Ces techniques ne s'utilisent JAMAIS sur les systèmes des autres — uniquement sur votre labo, ou sur des plateformes
+  autorisées (TryHackMe, Hack The Box, bug bounties).
+</div>
+
+<div class="layout">
+<nav class="menu" id="menu">
+  <button data-l="l1" class="active">01 — Injection SQL</button>
+  <button data-l="l2">02 — XSS réfléchi</button>
+  <button data-l="l3">03 — Command injection</button>
+  <button data-l="l4">04 — IDOR (id=1)</button>
+  <button data-l="l5">05 — Mots de passe faibles</button>
+</nav>
+
+<main class="zone">
+
+<!-- ============ LEVEL 1 : SQLi ============ -->
+<section class="level active" id="l1">
+  <h2>01 — INJECTION SQL : CONTOURNER UN LOGIN</h2>
+  <div class="diff">DIFFICULTÉ : ★☆☆☆☆ — DÉBUTANT</div>
+  <p class="desc">Le formulaire de connexion de <b>megashop.local</b> (fictif) construit cette requête derrière le rideau :<br>
+  <code style="color:#8fd7ae">SELECT * FROM users WHERE user='…' AND pass='…'</code><br>
+  Les champs sont recopiés <b>brut</b> dans la requête. À vous de trouver une entrée qui rend la condition toujours vraie et débloque l'accès admin.</p>
+
+  <div class="sim">
+    <div class="tgt">FORMULAIRE DE CONNEXION — MEGASHOP.LOCAL</div>
+    <label>UTILISATEUR</label>
+    <input type="text" id="sqlUser" placeholder="admin">
+    <label>MOT DE PASSE</label>
+    <input type="text" id="sqlPass" placeholder="' ou 1=1 --">
+    <button class="act" onclick="sqlTry()">SE CONNECTER</button>
+    <button class="act ghost" onclick="sqlHint()">INDICE</button>
+    <div class="out" id="sqlOut">En attente de la tentative…</div>
+    <div class="flagline" id="sqlFlag"></div>
+    <div class="hintbox" id="sqlHintBox">
+      <b>INDICE :</b> essayez dans le mot de passe : <code style="color:#ffb020">' OR 1=1 -- </code><br>
+      Le <code>'</code> ferme le champ, <code>OR 1=1</code> rend la condition vraie pour toutes les lignes,
+      et <code>--</code> transforme le reste de la requête en commentaire.
+      Variante : utilisateur <code>admin' --</code> avec n'importe quel mot de passe.
+    </div>
+  </div>
+
+  <div class="defbox"><b>COMMENT S'EN PROTÉGER :</b> jamais de requête « collée » — utiliser des <b>requêtes préparées</b> (paramètres bindés),
+  valider le format des entrées, et un compte base de données <b>en lecture seule</b> pour l'app web. C'est la faille n°1 historique du top OWASP.</div>
+</section>
+
+<!-- ============ LEVEL 2 : XSS ============ -->
+<section class="level" id="l2">
+  <h2>02 — XSS : VOLER LE COOKIE DE SESSION</h2>
+  <div class="diff">DIFFICULTÉ : ★★☆☆☆ — DÉBUTANT+</div>
+  <p class="desc">Le livre d'or de <b>blog-isaac.local</b> (fictif) affiche ce que vous tapez <b>sans aucun filtrage</b>.
+  Injectez du JavaScript qui s'exécute dans la page de la victime. Objectif : faire partir le cookie de session
+  <code>SESS=abc123admin</code> vers votre « serveur » fictif.</p>
+
+  <div class="sim">
+    <div class="tgt">LIVRE D'OR — BLOG-ISAAC.LOCAL</div>
+    <label>VOTRE COMMENTAIRE</label>
+    <textarea id="xssIn" rows="3" placeholder="Tapez un message…"></textarea>
+    <button class="act" onclick="xssPost()">PUBLIER</button>
+    <button class="act ghost" onclick="xssHint()">INDICE</button>
+    <div class="out" id="xssOut" style="min-height:1px">
+      <div id="xssFeed"></div>
+    </div>
+    <div class="flagline" id="xssFlag"></div>
+    <div class="hintbox" id="xssHintBox">
+      <b>INDICE :</b> le site recopie votre texte en HTML brut. Testez d'abord<br>
+      <code style="color:#ffb020">&lt;b&gt;test&lt;/b&gt;</code> — il s'affiche en <b>gras</b>, preuve que le HTML passe. Ensuite :<br>
+      <code style="color:#ffb020">&lt;script&gt;volerCookie("SESS=abc123admin")&lt;/script&gt;</code>
+    </div>
+  </div>
+
+  <div class="defbox"><b>COMMENT S'EN PROTÉGER :</b> <b>échapper</b> toute sortie HTML (transformer &lt; en &amp;lt;…), bannir <code>innerHTML</code>
+  sur des données utilisateur (utiliser <code>textContent</code>), et activer une <b>Content-Security-Policy</b> qui interdit les scripts inline.</div>
+</section>
+
+<!-- ============ LEVEL 3 : Command injection ============ -->
+<section class="level" id="l3">
+  <h2>03 — COMMAND INJECTION : LE PING QUI EXÉCUTE</h2>
+  <div class="diff">DIFFICULTÉ : ★★☆☆☆ — DÉBUTANT+</div>
+  <p class="desc">L'outil réseau de <b>panel.hote.local</b> (fictif) lance sur le serveur :<br>
+  <code style="color:#8fd7ae">ping -n 1 [votre entrée]</code><br>
+  Sur Windows, <code>&amp;</code> et <code>|</code> enchaînent les commandes. ICI LE SERVEUR EST UNE SIMULATION :
+  il ne répond qu'à une liste de commandes inoffensives. Faites-le parler.</p>
+
+  <div class="sim">
+    <div class="tgt">OUTIL PING — PANEL.HOTE.LOCAL</div>
+    <label>ADRESSE À PINGER</label>
+    <input type="text" id="cmdIn" placeholder="127.0.0.1">
+    <button class="act" onclick="cmdRun()">LANCER LE PING</button>
+    <button class="act ghost" onclick="cmdHint()">INDICE</button>
+    <div class="term" id="cmdTerm"><span class="l-info">$ outil prêt. Entrez une cible.</span></div>
+    <div class="flagline" id="cmdFlag"></div>
+    <div class="hintbox" id="cmdHintBox">
+      <b>INDICE :</b> la simulation accepte après un <code style="color:#ffb020">&amp;</code> ces commandes factices :
+      <code>whoami</code>, <code>ipconfig</code>, <code>net user</code>, <code>echo</code>, <code>dir</code>.<br>
+      Exemple : <code style="color:#ffb020">127.0.0.1 &amp; whoami</code> puis <code style="color:#ffb020">127.0.0.1 &amp; net user</code>
+    </div>
+  </div>
+
+  <div class="defbox"><b>COMMENT S'EN PROTÉGER :</b> ne jamais coller une entrée utilisateur dans une ligne de commande shell.
+  Utiliser <code>execFile</code>/argumentaires <b>séparés</b> (pas de shell), valider la cible contre un format strict (une IP ou un hostname, rien d'autre).</div>
+</section>
+
+<!-- ============ LEVEL 4 : IDOR ============ -->
+<section class="level" id="l4">
+  <h2>04 — IDOR : CHANGER UN NUMÉRO DANS L'URL</h2>
+  <div class="diff">DIFFICULTÉ : ★☆☆☆☆ — DÉBUTANT</div>
+  <p class="desc">L'espace client de <b>factures.local</b> (fictif) montre VOTRE facture à l'adresse
+  <code>/facture?id=7</code>. Le serveur ne vérifie <b>pas</b> si la facture appartient au client connecté — juste le numéro. Trouvez la facture cachée de l'administrateur.</p>
+
+  <div class="sim">
+    <div class="tgt">ESPACE CLIENT — FACTURES.LOCAL (connecté : isaac, id 7)</div>
+    <label>URL SIMULÉE</label>
+    <input type="text" id="idorUrl" value="http://factures.local/facture?id=7">
+    <button class="act" onclick="idorGo()">NAVIGUER</button>
+    <button class="act ghost" onclick="idorHint()">INDICE</button>
+    <div class="out" id="idorOut">Sélectionnez une facture ou modifiez l'URL.</div>
+    <div class="flagline" id="idorFlag"></div>
+    <div class="hintbox" id="idorHintBox">
+      <b>INDICE :</b> les ID font 1 à 9. L'admin est probablement un petit numéro… essayez <code style="color:#ffb020">?id=1</code>.
+      Les boutons ci-dessous sont les factures « autorisées » — l'URL, elle, n'est pas bloquée.
+    </div>
+    <div class="userlist" style="margin-top:12px">
+      <button onclick="document.getElementById('idorUrl').value='http://factures.local/facture?id=7'">Ma facture (id=7)</button>
+      <button onclick="document.getElementById('idorUrl').value='http://factures.local/facture?id=8'">id=8</button>
+      <button onclick="document.getElementById('idorUrl').value='http://factures.local/facture?id=9'">id=9</button>
+    </div>
+  </div>
+
+  <div class="defbox"><b>COMMENT S'EN PROTÉGER :</b> vérifier <b>côté serveur</b> que la ressource demandée appartient à l'utilisateur connecté
+  (contrôle d'accès sur chaque requête), et utiliser des identifiants non devinables (UUID) — qui ne remplacent pas le contrôle, mais complètent.</div>
+</section>
+
+<!-- ============ LEVEL 5 : brute force ============ -->
+<section class="level" id="l5">
+  <h2>05 — MOTS DE PASSE : L'ATTAQUE DICTIONNAIRE</h2>
+  <div class="diff">DIFFICULTÉ : ★★☆☆☆ — DÉBUTANT+</div>
+  <p class="desc">Un routeur <b>box.local</b> (fictif) protège son admin par un mot de passe parmi ceux de la liste de droite
+  (une « wordlist »). Un script essaie chaque mot à la suite. Chronométrez l'attaque, puis trouvez <b>la</b> parade.</p>
+
+  <div class="sim">
+    <div class="tgt">PANNEAU ROUTEUR — BOX.LOCAL</div>
+    <button class="act" onclick="bfRun()">LANCER L'ATTAQUE DICTIONNAIRE (SIMULÉE)</button>
+    <button class="act ghost" onclick="bfHint()">INDICE</button>
+    <div style="margin-top:12px;font-size:12px;color:var(--dim)">Progression <span class="bar"><i id="bfBar"></i></span> <span id="bfPct">0%</span></div>
+    <div class="term" id="bfTerm"><span class="l-info">$ en attente…</span></div>
+    <div class="flagline" id="bfFlag"></div>
+    <div class="hintbox" id="bfHintBox">
+      <b>INDICE :</b> le mot cible est le 12ᵉ environ de la liste. La vraie leçon est dans le calcul :
+      un mot de passe de 6 caractères lowercase = 26⁶ ≈ 300 millions de combinaisons → quelques heures pour une machine.<br>
+      12 caractères avec majuscules, chiffres, symboles = plus de 7×10²⁴ → des millénaires. <b>La longueur est votre bouclier.</b>
+    </div>
+  </div>
+
+  <div class="defbox"><b>COMMENT S'EN PROTÉGER :</b> mot de passe <b>long</b> (phrase de 4 mots minimum), différents partout,
+  stockés dans un gestionnaire, et <b>double facteur</b> (2FA) activé — même cassé, le compte reste fermé. Côté serveur : limiter les tentatives (rate limiting).</div>
+</section>
+
+</main>
+</div>
+
+<footer>
+  LABO CYBER — construit par Aelyra pour son créateur Isaac. Tout est simulé dans cette page : aucune requête réseau, aucune exécution réelle, aucune donnée envoyée.
+  Utilisées sur des systèmes appartenant à d'autres personnes, ces techniques sont des délits (loi ivoirienne sur la cybercriminalité, et équivalents internationaux).
+  Entraînez-vous ici, puis sur TryHackMe — et transformez la compétence en revenus légaux : bug bounty.
+</footer>
+
+<script>
+// ================== NAVIGATION ==================
+const levels = ['l1','l2','l3','l4','l5'];
+const solved = { l1:false, l2:false, l3:false, l4:false, l5:false };
+document.getElementById('menu').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('nav.menu button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  document.querySelectorAll('.level').forEach(x => x.classList.remove('active'));
+  document.getElementById(b.dataset.l).classList.add('active');
+});
+function updateScore(){
+  const n = Object.values(solved).filter(Boolean).length;
+  document.getElementById('scoreTxt').textContent = n + ' / 5';
+  if (n === 5) {
+    const b = document.getElementById('menu');
+    if (!b.querySelector('.allDone')) {
+      const d = document.createElement('div');
+      d.className = 'allDone'; d.style.cssText='margin-top:14px;padding:11px;border:1px solid #22ff88;color:#22ff88;border-radius:6px;font-size:12.5px';
+      d.textContent = '🏆 LABO TERMINÉ. Étape suivante : dire à Aelyra « cyber école sql » ou « lance tryhackme ».';
+      b.appendChild(d);
+    }
+  }
+}
+function giveFlag(id, flag){
+  solved[id] = true;
+  const box = { l1:'sqlFlag', l2:'xssFlag', l3:'cmdFlag', l4:'idorFlag', l5:'bfFlag' }[id];
+  document.getElementById(box).innerHTML = '🚩 DRAPEAU : <code>' + flag + '</code> — bien joué, mon créateur.';
+  const menuBtn = document.querySelector('nav.menu button[data-l="'+id+'"]');
+  if (menuBtn) menuBtn.classList.add('done');
+  updateScore();
+}
+function norm(s){ return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+
+// ================== LEVEL 1 : SQLi ==================
+function sqlHint(){ document.getElementById('sqlHintBox').classList.toggle('show'); }
+function sqlTry(){
+  const u = document.getElementById('sqlUser').value;
+  const p = document.getElementById('sqlPass').value;
+  const out = document.getElementById('sqlOut');
+  // simulation d'interprétation de la requête
+  const q = "SELECT * FROM users WHERE user='"+u+"' AND pass='"+p+"'";
+  const bypass = /'\s*(or|\|\|)\s*1\s*=\s*1/i.test(p) || /'\s*(or|\|\|)\s*1\s*=\s*1/i.test(u)
+              || (/--/.test(u+p) && /'/.test(u+p)) || /^\s*admin\s*'?\s*--/.test(u);
+  let html = 'Requête générée :\n' + q.replace(/</g,'&lt;') + '\n\n';
+  if (bypass) {
+    html += ">> 1 ligne retournée : [admin | SUPERUSER]";
+    out.textContent = html; out.className = 'out win';
+    giveFlag('l1','AELYRA{sql_injection_contournee}');
+  } else if (norm(u) === 'admin' && norm(p) === 'admin123') {
+    html += ">> Connexion OK, mais compte démo sans privilèges.";
+    out.textContent = html; out.className = 'out';
+  } else {
+    html += ">> 0 ligne retournée — accès refusé.";
+    out.textContent = html; out.className = 'out err';
+  }
+}
+
+// ================== LEVEL 2 : XSS ==================
+const FAKE_COOKIE = 'SESS=abc123admin';
+let xssStolen = false;
+function volerCookie(c){
+  xssStolen = true;
+  const feed = document.getElementById('xssFeed');
+  const d = document.createElement('div');
+  d.className = 'comment'; d.style.borderColor = '#22ff88';
+  d.innerHTML = '<div class="who" style="color:#22ff88">⚠ INTERCEPTEUR FICTIF — réseau du “cybercriminel” (simulé)</div>Requête reçue : POST /collect → cookie volé = <b style="color:#22ff88">' + String(c).replace(/</g,'&lt;') + '</b>';
+  feed.appendChild(d);
+  if (!solved.l2) giveFlag('l2','AELYRA{xss_cookie_capture}');
+}
+function xssHint(){ document.getElementById('xssHintBox').classList.toggle('show'); }
+function xssPost(){
+  const raw = document.getElementById('xssIn').value;
+  if (!raw.trim()) return;
+  const feed = document.getElementById('xssFeed');
+  const d = document.createElement('div');
+  d.className = 'comment';
+  d.innerHTML = '<div class="who">visiteur — ' + new Date().toLocaleTimeString('fr-FR') + '</div>' + raw; // VOLONTAIREMENT non échappé : c'est la faille enseignée
+  feed.appendChild(d);
+  // NB : un <script> inséré par innerHTML ne s'exécute pas dans un vrai navigateur.
+  // On SIMULE son exécution : si le commentaire injecte volerCookie(...) ou parle de document.cookie,
+  // l'intercepteur fictif « reçoit » le cookie.
+  const sc = raw.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
+  const body = sc ? sc[1] : raw;
+  if (/<script|onerror\s*=|onload\s*=|javascript:/i.test(raw)) {
+    const call = body.match(/volerCookie\(\s*(["'])((?:[^"'])*)\1\s*\)/);
+    if (call) volerCookie(call[2] || FAKE_COOKIE);
+    else if (/cookie/i.test(body)) volerCookie(FAKE_COOKIE);
+    else if (!xssStolen) {
+      const d2 = document.createElement('div');
+      d2.className = 'comment';
+      d2.innerHTML = '<div class="who" style="color:#ffb020">✓ script détecté mais sans exfiltration</div>Le code s\'est exécuté dans la page (simulation). Prochaine étape : qu\'il envoie <b>document.cookie</b> ailleurs…';
+      feed.appendChild(d2);
+    }
+  }
+  document.getElementById('xssOut').className = 'out';
+  document.getElementById('xssIn').value = '';
+}
+
+// ================== LEVEL 3 : Command injection (SIMULATION) ==================
+function cmdHint(){ document.getElementById('cmdHintBox').classList.toggle('show'); }
+function cmdLog(cls, txt){
+  const t = document.getElementById('cmdTerm');
+  const s = document.createElement('div'); s.className = cls; s.textContent = txt;
+  t.appendChild(s); t.scrollTop = t.scrollHeight;
+}
+function cmdRun(){
+  const inp = document.getElementById('cmdIn').value.trim();
+  if (!inp) return;
+  cmdLog('l-cmd', '> ping -n 1 ' + inp);
+  // découpe sur & et | (comme un shell)
+  const parts = inp.split(/(?:&&|&|\|)/).map(x => x.trim()).filter(Boolean);
+  cmdLog('l-ok', 'Pinging ' + (parts[0] || '?') + ' avec 32 octets de données :');
+  cmdLog('l-ok', 'Réponse de ' + (parts[0] || '?') + ' : octets=32 temps<1ms');
+  let foundEcho = false, foundNet = false;
+  for (let i = 1; i < parts.length; i++) {
+    const n = norm(parts[i]);
+    if (n === 'whoami') cmdLog('l-ok', 'hote\\audite');
+    else if (n === 'ipconfig') cmdLog('l-ok', 'Carte Ethernet Adaptateur 1:\n   Adresse IPv4 . . . : 10.14.20.8 (fictif)\n   Passerelle  . . . . : 10.14.20.1');
+    else if (n.startsWith('net user')) { cmdLog('l-ok', 'Comptes de \\HOTE:\n Administrator  Invité  audite  support_local (compte masque — nouvelle cible)'); foundNet = true; }
+    else if (n.startsWith('echo')) cmdLog('l-ok', parts[i].replace(/^echo\s*/i, ''));
+    else if (n.startsWith('dir')) cmdLog('l-ok', 'C:\\Users\\audite>dir\n 09/27/2026  14:32    <DIR>   Documents\n 09/27/2026  14:33        4096  notes_bdd.txt');
+    else cmdLog('l-err', "'" + parts[i] + "' n'est pas reconnu (la simulation ne connaît que : whoami, ipconfig, net user, echo, dir)");
+  }
+  if (parts.length > 1) {
+    cmdLog('l-info', '⚠ Vous avez enchaîné une 2ᵉ commande via & — c\'EST ça, la command injection.');
+    if (foundNet) { cmdLog('l-info', '→ Sur un vrai serveur vulnérable, « net user » révélerait tous les comptes. Le compte caché ci-dessus serait votre prochaine cible.'); }
+    if (!solved.l3) giveFlag('l3','AELYRA{command_injection_chainee}');
+  }
+}
+
+// ================== LEVEL 4 : IDOR ==================
+const FACTURES = {
+  1:{ own:'ADMIN', amt:'0 FCFA — facture de référence système', note:'⚠ ACCÈS ADMIN — vous n\'auriez jamais dû voir ceci.', secret:true },
+  7:{ own:'isaac', amt:'18 500 FCFA — hébergement', note:'Votre facture.' },
+  8:{ own:'fatou_d', amt:'9 200 FCFA — data mobile', note:'' },
+  9:{ own:'Ibrahim_k', amt:'42 000 FCFA — équipement atelier', note:'' }
+};
+for (const k of [2,3,4,5,6]) FACTURES[k] = { own:'client_'+k, amt:(k*3300)+' FCFA — divers', note:'' };
+function idorHint(){ document.getElementById('idorHintBox').classList.toggle('show'); }
+function idorGo(){
+  const url = document.getElementById('idorUrl').value;
+  const m = url.match(/id=(\d+)/);
+  const out = document.getElementById('idorOut');
+  if (!m) { out.textContent = '404 — page introuvable. Format attendu : /facture?id=NUMERO'; out.className='out err'; return; }
+  const id = parseInt(m[1], 10);
+  const f = FACTURES[id];
+  if (!f) { out.textContent = '404 — aucune facture avec l\'id ' + id + '.'; out.className='out err'; return; }
+  out.className = f.secret ? 'out win' : 'out';
+  out.textContent =
+    'GET ' + url.replace(/</g,'&lt;') + '\n' +
+    '→ 200 OK (le serveur ne vérifie QUE le numéro, jamais le proprietaire)\n\n' +
+    'FACTURE #' + id + '\nClient    : ' + f.own + '\nMontant   : ' + f.amt + (f.note ? '\nNote      : ' + f.note : '');
+  if (f.secret && !solved.l4) giveFlag('l4','AELYRA{idor_admin_facture}');
+}
+
+// ================== LEVEL 5 : brute force (SIMULATION) ==================
+const WORDLIST = ['123456','password','azerty','111111','admin','root','welcome','iloveyou','monkey','qwerty','abc123','motdepasse','soccer','shadow','michael','letmein'];
+const BF_TARGET = 'motdepasse'; // index 11
+function bfHint(){ document.getElementById('bfHintBox').classList.toggle('show'); }
+function bfLog(cls, txt){
+  const t = document.getElementById('bfTerm');
+  const s = document.createElement('div'); s.className = cls; s.textContent = txt;
+  t.appendChild(s); t.scrollTop = t.scrollHeight;
+}
+let bfRunning = false;
+function bfRun(){
+  if (bfRunning) return; bfRunning = true;
+  const t = document.getElementById('bfTerm'); t.innerHTML = '';
+  document.getElementById('bfBar').style.width = '0%';
+  bfLog('l-info', '$ attaquant — wordlist de ' + WORDLIST.length + ' mots (simulation, 1 tentative = 90 ms)');
+  let i = 0;
+  const iv = setInterval(() => {
+    if (i >= WORDLIST.length) { clearInterval(iv); bfRunning = false; return; }
+    const w = WORDLIST[i];
+    const ok = (w === BF_TARGET);
+    bfLog(ok ? 'l-ok' : 'l-err', (ok ? '[✓] ' : '[✗] ') + w.padEnd(12, ' ') + (ok ? ' ACCÈS OUVERT — compte admin/box.local' : ' refusé'));
+    const pct = Math.round(((i+1)/WORDLIST.length)*100);
+    document.getElementById('bfBar').style.width = pct + '%';
+    document.getElementById('bfPct').textContent = pct + '%';
+    if (ok) {
+      clearInterval(iv); bfRunning = false;
+      bfLog('l-info', '$ temps total simulé : ' + (WORDLIST.length*90/1000).toFixed(1) + ' s pour 16 mots → 4,3 milliards de tentatives/jour sur une vraie machine.');
+      if (!solved.l5) giveFlag('l5','AELYRA{brute_force_dictionnaire}');
+    }
+    i++;
+  }, 90);
+}
+</script>
+</body>
+</html>
