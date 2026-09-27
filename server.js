@@ -545,6 +545,27 @@ async function handleCommand(rawText) {
              open: 'https://www.youtube.com/results?search_query=' + encodeURIComponent(m[1]) };
   }
 
+  // --- Récupérer le DERNIER code écrit : l'ouvrir dans VS Code + le copier au presse-papiers ---
+  // « copie le code dans vs code », « ouvre le dernier script », « montre le code »...
+  // Mais JAMAIS « ouvre vscode » (lancement de l'application, géré par la table APPS plus bas).
+  const veutDernier =
+    /^(?:copie|colle|montre|ouvre|ouvrir|donne|affiche)\b/.test(text) &&
+    /(?:le|la|les|mon|ma|ce|cet|ton|ta|du|de la|dernier|premier)\s+(?:dernier\s+|nouveau\s+|complete\s+)?(?:code|script)\b/.test(text);
+  if (veutDernier) {
+    if (!IS_LOCAL) return { reply: "Je ne peux ouvrir VS Code que lorsque je tourne sur votre PC, Isaac. En version web, utilisez le lien sous le bloc de code.", source: 'local' };
+    let derniers = [];
+    try { derniers = fs.readdirSync(CODE_DIR); } catch (e) {}
+    derniers.sort((a, b) => fs.statSync(path.join(CODE_DIR, b)).mtimeMs - fs.statSync(path.join(CODE_DIR, a)).mtimeMs);
+    if (!derniers.length) {
+      return { reply: "Je n'ai encore rien écrit pour vous, Isaac. Dites-moi quoi : « écris-moi un script qui... », puis « copie le code dans VS Code ».", source: 'local' };
+    }
+    const dernier = derniers[0];
+    const fullPath = path.join(CODE_DIR, dernier);
+    run(`code "${fullPath}"`);
+    run(`clip < "${fullPath}"`); // presse-papiers : Ctrl+V colle le code n'importe où
+    return { reply: `C'est fait, Isaac. « ${dernier} » est ouvert dans VS Code et copié dans votre presse-papiers : Ctrl+V le colle où vous voulez.`, source: 'system' };
+  }
+
   // --- Ouvrir un site ou une application ---
   m = text.match(/^(?:ouvre|ouvrir|lance|lancer|va sur|allez sur|vas sur)\s+(.+)/);
   if (m) {
@@ -757,7 +778,9 @@ const server = http.createServer(async (req, res) => {
   if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end(); return; }
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404); res.end('Non trouvé'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
+    // no-store : Isaac recharge toujours la dernière version de son interface (fin des « corrections invisibles »)
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream',
+                         'Cache-Control': 'no-store' });
     res.end(data);
   });
 });
