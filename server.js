@@ -498,7 +498,7 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (/^(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac : ouvrir plus de 60 applications de votre PC — « ouvre vscode », « ouvre chrome », « ouvre word », « ouvre le gestionnaire des taches », « ouvre la corbeille », « ouvre spotify », « ouvre discord » — et des sites comme YouTube, WhatsApp ou Gmail (« ouvre gmail »). Je peux aussi chercher sur Google, jouer une vidéo, donner l'heure, la date et la météo, prendre des notes, capturer votre écran, régler le son, le Wi-Fi ou Bluetooth, éteindre le PC. Je sais aussi coder : dites « écris-moi un script python qui... » ou « crée une page web ... » et je génère le fichier, je l'ouvre dans VS Code — et pour retrouver votre dernier code, dites « copie le code dans VS Code » ou « ouvre le dernier script » — ou vous le téléchargez en version web. Et surtout : j'ai une mémoire — dites « retiens que... » pour graver un fait, « que sais-tu de moi » pour la lire, « oublie tout » pour l'effacer, et je réponds à vos questions comme une vraie IA, en réfléchissant et non en recopiant.",
+      reply: "Voici ce que je peux faire, Isaac : ouvrir plus de 60 applications de votre PC — « ouvre vscode », « ouvre chrome », « ouvre word », « ouvre le gestionnaire des taches », « ouvre la corbeille », « ouvre spotify », « ouvre discord » — et des sites comme YouTube, WhatsApp ou Gmail (« ouvre gmail »). Je peux aussi chercher sur Google, jouer une vidéo, donner l'heure, la date et la météo, prendre des notes, capturer votre écran, régler le son, le Wi-Fi ou Bluetooth, éteindre le PC. Je sais aussi coder : dites « fais-moi un site... », « écris-moi un script python qui... » et je génère le fichier, je l'ouvre dans VS Code — « je veux coder » ou « on code » lance VS Code, et pour retrouver votre dernier code dites « copie le code dans VS Code » ou « ouvre le dernier script » — ou vous le téléchargez en version web. Et surtout : j'ai une mémoire — dites « retiens que... » pour graver un fait, « que sais-tu de moi » pour la lire, « oublie tout » pour l'effacer, et je réponds à vos questions comme une vraie IA, en réfléchissant et non en recopiant.",
       source: 'local'
     };
   }
@@ -598,9 +598,22 @@ async function handleCommand(rawText) {
              open: 'https://www.google.com/search?q=' + encodeURIComponent(target) };
   }
 
+  // --- Lancer VS Code pour coder (sans demande de génération) ---
+  // « commence a coder sur vs code », « je veux coder », « on code »... (jamais « ouvre vscode » ni « copie le code »)
+  if (!/^ouvre\b/.test(text) && !veutDernier) {
+    const space = ' ' + text + ' ';
+    const vsIci = /(?:vs ?code|visual)/.test(space);
+    const veutCoder = / (coder|programmer|developper|travailler|code) /.test(space);
+    if (veutCoder || (vsIci && / (commence|demarre|continue|on|je|il|faut|vais|veux|vaux|moi|go|allez|pret|code) /.test(space))) {
+      if (!IS_LOCAL) return { reply: "Pour coder dans VS Code, il faut que j'utilise votre PC : lancez ISAAC-IJ.bat, Isaac.", source: 'local' };
+      run('code');
+      return { reply: "C'est parti, Isaac. J'ouvre VS Code — dictez-moi « fais-moi un site... » ou « écris un script python... » et j'écrirai le code dedans.", source: 'system' };
+    }
+  }
+
   // --- Générer du code (Isaac programmeur) ---
-  m = text.match(/^(?:ecris|ecri|ecrire|ecrits|code|genere|generer|cree|creer|developpe|developper|fabrique|concois|programme)\s+(?:moi\s+)?(?:un|une|du|de\s+la|le|la|mon|ma)?\s*(.+)$/);
-  if (m && /\b(?:code|script|programme|application|logiciel|jeu|page|site|fichier|python|html|javascript|batch|powershell|sql)\b/.test(m[1]) &&
+  m = text.match(/^(?:ecris|ecri(?:vez)?|ecrire|ecrits|code(?:z)?|genere(?:z)?|generer|realise(?:z)?|realiser|cree(?:z)?|creer|developpe(?:z)?|developper|fabrique(?:z)?|concois|programme|prepare(?:z)?|construis(?:ez)?|faire|fais|fait)\s*(?:[- ]+)?(?:moi\s+|nous\s+)?(?:un|une|du|de\s+la|le\s+|la\s+|mon\s+|ma\s+)?(.+)$/);
+  if (m && /\b(?:code|script|programme|application|logiciel|jeu|page|site|web|fichier|python|html|javascript|batch|powershell|sql)\b/.test(m[1]) &&
       !/^(?:que|qui|pourquoi|comment|quand|ou)\b/.test(m[1])) {
     const oeuvre = await askCode(m[1]);
     if (oeuvre) return { reply: oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName };
