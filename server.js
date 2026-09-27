@@ -466,7 +466,7 @@ function pickLang(desc) {
   if (/\bpython\b|\bpy\b/.test(desc))               return { ext: 'py',   nom: 'Python' };
   if (/\bbatch\b|\b\.?bat\b|\bdos\b/.test(desc))    return { ext: 'bat',  nom: 'Batch Windows' };
   if (/powershell|\bps1\b/.test(desc))              return { ext: 'ps1',  nom: 'PowerShell' };
-  if (/\bhtml\b|page web|site web|\bsite\b|\bcss\b|maquette/.test(desc))
+  if (/\bhtml\b|page web|site web|\bsite\b|\bcss\b|maquette|page de connexion|page de login|\blogin\b|\bui\b|\bux\b|interface web|formulaire|landing|\bhero\b|\bstyler?\b|bien styl/.test(desc))
                                                     return { ext: 'html', nom: 'HTML (page web complète)' };
   if (/\bjavascript\b|\bjs\b|\bnode\b|\breact\b/.test(desc)) return { ext: 'js', nom: 'JavaScript' };
   if (/typescript|\bts\b/.test(desc))               return { ext: 'js', nom: 'TypeScript (écrit en JavaScript compatible)' };
@@ -572,6 +572,69 @@ async function askSitePro(description) {
         ? "index.html s'ouvre dans votre navigateur, VS Code montre le dossier entier. Chaque fichier a son rôle : la structure dans index.html, la beauté dans styles.css, la vie dans script.js. Modifiez n'importe lequel, rechargez (F5)."
         : "Cliquez sur « Voir le site en direct » : la structure est dans index.html, le style dans styles.css, la vie dans script.js."),
     fileUrl: '/isaac-code/' + dossier + '/index.html',
+  };
+}
+
+// --- Retravailler un fichier DEJA généré : « modifie ce site », « change la page de connexion » ---
+function dernierCodeGenere() {
+  let ents = [];
+  try {
+    ents = fs.readdirSync(CODE_DIR, { withFileTypes: true }).map(e => {
+      const p = path.join(CODE_DIR, e.name);
+      try { return { name: e.name, p, dir: e.isDirectory(), t: fs.statSync(p).mtimeMs }; } catch (x) { return null; }
+    }).filter(Boolean);
+  } catch (e) { return null; }
+  // dossiers-sites d'abord si plus récents ; on ignore labo.html qui vit à la racine de public/
+  ents.sort((a, b) => b.t - a.t);
+  return ents[0] || null;
+}
+function choisirFichierSite(desc, files) {
+  const d = ' ' + normalize(desc) + ' ';
+  if (/ (style|couleur|design|ui|ux|police|typo|joli|beau|belle|responsive|noir|blanc|bleu|dark|moderne|carte|coin) /.test(d) && files.includes('styles.css')) return 'styles.css';
+  if (/ (script|interaction|bouton|cliqu|animation|effet|bug|recherche|filtre|donne|formulaire|compteur|js) /.test(d) && files.includes('script.js')) return 'script.js';
+  if (files.includes('index.html')) return 'index.html';
+  return files[0];
+}
+async function askModif(descMod) {
+  const cible = dernierCodeGenere();
+  if (!cible) return null;
+  let filePath, dirPath = cible.dir ? cible.p : null;
+  if (dirPath) {
+    const files = fs.readdirSync(dirPath).filter(f => /\.(html?|css|js|json|py|bat|ps1|sql|php|java|cpp|c|cs|go|rs|txt|md)$/i.test(f));
+    if (!files.length) return null;
+    filePath = path.join(dirPath, choisirFichierSite(descMod, files));
+  } else filePath = cible.p;
+  let original;
+  try { original = fs.readFileSync(filePath, 'utf8'); } catch (e) { return null; }
+  if (!original.trim()) return null;
+  const nomF = path.basename(filePath);
+  const system = "Tu es AELYRA, ingenieure logicielle senior. On te donne le CONTENU COMPLET d'un fichier existant et une consigne de modification. " +
+    "Applique la modification en conservant TOUT le reste du fichier intact et fonctionnel. " +
+    "Renvoie UNIQUEMENT le nouveau contenu complet du fichier : pas de backticks, pas de markdown, aucun texte avant ou apres, jamais de troncature ni de placeholder du type « ... ». " +
+    "Garde les commentaires en francais simple.";
+  let nouveau = await askAI([
+    { role: 'system', content: system },
+    { role: 'user', content: 'FICHIER: ' + nomF + '\n---CONTENU---\n' + original.slice(0, 14000) + '\n---FIN DU CONTENU---\nConsigne exacte d\'Isaac : ' + descMod },
+  ]);
+  if (!nouveau) return null;
+  nouveau = nouveau.replace(/^```[a-z0-9]*\r?\n?/i, '').replace(/```\s*$/, '').trim();
+  // garde-fou : réponse creuse ou tronquée → on n'écrase pas le travail d'Isaac
+  if (nouveau.length < Math.max(40, Math.min(200, original.length * 0.25))) return null;
+  if (/\.\.\.\s*(?:restant|suite|etc)|\b(?:tocat|reste du code)\b/i.test(nouveau) && nouveau.length < original.length * 0.5) return null;
+  try { fs.writeFileSync(filePath, nouveau, 'utf8'); } catch (e) { return null; }
+  const page = /\.html?$/i.test(nomF);
+  if (IS_LOCAL) {
+    run(`code "${filePath}" 2>nul`);
+    if (page) run(dirPath ? `start "" "${path.join(dirPath, 'index.html')}"` : `start "" "${filePath}"`);
+  }
+  const urlFinale = dirPath && fs.existsSync(path.join(dirPath, 'index.html')) ? '/isaac-code/' + cible.name + '/index.html' : '/isaac-code/' + (dirPath ? cible.name + '/' + nomF : cible.name);
+  return {
+    fileName: dirPath && fs.existsSync(path.join(dirPath, 'index.html')) ? 'index.html' : nomF,
+    code: nouveau.slice(0, 20000),
+    fileUrl: urlFinale,
+    reply: `Modification appliquee, Isaac. J'ai retravaillé ${nomF}${dirPath ? ' dans le site ' + cible.name : ''} en gardant tout le reste intact. ` +
+      (IS_LOCAL ? (page ? "La page se rouvre : regarde — si ce n'est pas encore ce que tu veux, redictes-moi la precise, je retravaillerai encore." : "C'est ouvert dans VS Code — redicte-moi les details, j'ajusterai autant de fois que necessaire.")
+               : "Cliquez sur le lien pour voir le resultat."),
   };
 }
 
@@ -942,7 +1005,7 @@ async function handleCommand(rawText) {
   if (mm) {
     const theme = mm[1].trim();
     const t = await askAI([
-      { role: 'system', content: "Tu es formateur en cybersécurité pour débutants. Ton élève s'appelle Isaac, entrepreneur ivoirien, et il apprend à DÉFENDRE son PC. Pour le sujet demandé, réponds en 5 phrases maximum, en français simple et vivant : 1) ce que fait cette attaque, avec une image concrète ; 2) le geste précis pour s'en protéger sur Windows ; 3) où s'entraîner légalement (son propre PC, TryHackMe, picoCTF) ; 4) si le sujet correspond à un défi de SON LABORATOIRE local (dire « ouvre le labo cyber » : injection SQL, XSS, command injection, IDOR, force brute), termine par une phrase « TP : relève le défi X dans ton laboratoire. » Tu Expliques le PRINCIPE et la DÉFENSE, jamais un mode d'emploi détaillé pour attaquer un système qui n'est pas une cible d'entraînement autorisée." },
+      { role: 'system', content: "Tu es formateur en cybersécurité pour débutants. Ton élève s'appelle Isaac, entrepreneur ivoirien, et il apprend à DÉFENDRE son PC. Exigence d'Isaac : JAMAIS une simple définition — toujours une explication pas à pas avec un exemple concret et chiffré, et une démonstration qu'il peut faire lui-même. Pour le sujet demandé, réponds en 5 phrases maximum, en français simple et vivant : 1) ce que fait cette attaque, avec une image concrète ET un exemple réel (une entrée de formulaire exacte, une ligne de commande, ce que verrait la victime) ; 2) le geste précis pour s'en protéger sur Windows ; 3) où s'entraîner légalement (son propre PC, TryHackMe, picoCTF) ; 4) si le sujet correspond à un défi de SON LABORATOIRE local (dire « ouvre le labo cyber » : injection SQL, XSS, command injection, IDOR, force brute), termine par une phrase « TP : relève le défi X dans ton laboratoire. » Tu Expliques le PRINCIPE et la DÉFENSE, jamais un mode d'emploi détaillé pour attaquer un système qui n'est pas une cible d'entraînement autorisée." },
       { role: 'user', content: 'Sujet : ' + theme },
     ]);
     if (t) return { reply: `Cyber-école, Isaac. ${t.replace(/\s*\n+\s*/g, ' ')}`.slice(0, 900), source: 'ai' };
@@ -1411,6 +1474,18 @@ async function handleCommand(rawText) {
     const oeuvre = veutPro ? await askSitePro(descCode) : await askCode(descCode);
     if (oeuvre) return { reply: oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName };
     return { reply: "Je n'ai pas pu joindre mon atelier de code, Isaac. Réessayez dans un instant — le cerveau IA était peut-être saturé.", source: 'local' };
+  }
+
+  // --- Retravailler un programme deja ecrit : « modifie ces fonctionnalites », « change la page de connexion », « ameliore le design » ---
+  // verbe cherché PARTOUT dans la phrase : « je te demandais juste de modifier ces fonctionnalites » doit declencher la modification
+  mm = text.match(/(?:modifie[sz]?|modifier|changes?|changer|ameliore[sz]?|ameliorer|retravaille[sz]?|retravailler|corrige[sz]?|corriger|remanie[sz]?|remanier|reformes?|reformater)\s+(?:moi\s+|encore\s+|juste\s+|donc\s+|directement\s+|la\s+|le\s+|les\s+|ces\s+|ce\s+|cette\s+|mon\s+|ma\s+)?(.+)/);
+  if (mm && !/^(?:explique|comment|pourquoi|qu est ce que|dis moi|est ce que)\b/.test(text)
+      && /\b(?:fichier|site|page|script|programme|code|fonctionnalit\w*|design|connexion|interface|style\w*|css|html|maquette|bouton|couleur|texte|titre|menu|animation|logo|formulaire|dernier\w*)\b/.test(mm[1])
+      && !/\b(?:mot de passe|mdp|wifi|reseau|bluetooth|notif|e[ -]?cran|luminosite|volume|heure|date|fond d|voix|langue|nom)\b/.test(mm[1])) {
+    if (!IS_LOCAL) return { reply: "Pour retravailler tes programmes, il me faut ton PC : lance ISAAC-IJ.bat, Isaac.", source: 'local' };
+    const modif = await askModif(mm[1]);
+    if (modif) return { reply: modif.reply, source: 'ai', code: modif.code, fileUrl: modif.fileUrl, file: modif.fileName };
+    return { reply: "Je n'ai aucun programme a modifier pour l'instant, Isaac. D'abord « genere un site », ensuite « modifie le ».", source: 'local' };
   }
 
   // --- Blague ---
