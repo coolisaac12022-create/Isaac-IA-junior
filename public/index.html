@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aelyra — Assistante de Isaac</title>
+<title>Aelyra & Galika — Assistantes de Isaac</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -23,8 +23,14 @@
   <div class="hud-left">
     <span class="dot online" id="serverDot"></span> <span id="serverStatus">SYSTÈMES EN LIGNE</span>
   </div>
-  <div class="hud-title">AELYRA</div>
-  <div class="hud-right" id="clock">--:--</div>
+  <div class="hud-title">
+    <div id="hudTitle">AELYRA</div>
+    <div class="agent-switch" id="agentSwitch">
+      <button id="btnAelyra" class="sw active">AELYRA</button>
+      <button id="btnGalika" class="sw sw-gk">GALIKA</button>
+    </div>
+  </div>
+  <div class="hud-right"><button id="soundBtn" class="sound-btn" title="Couper ou activer la voix">🔊</button> <span id="clock">--:--</span></div>
 </header>
 
 <!-- Réacteur -->
@@ -49,7 +55,7 @@
     <span>JOURNAL DE COMMUNICATION</span>
     <label class="wake-toggle">
       <input type="checkbox" id="wakeMode">
-      <span>Mode veille « Isaac »</span>
+      <span>Mode veille</span>
     </label>
   </div>
   <div id="log" class="log"></div>

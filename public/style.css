@@ -68,11 +68,46 @@ html, body {
   font-size: 12px; letter-spacing: 3px;
 }
 .hud-title {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
   font-size: 18px; letter-spacing: 10px; font-weight: 600;
   text-shadow: 0 0 18px var(--cyan);
 }
 .hud-left, .hud-right { display: flex; align-items: center; gap: 8px; min-width: 200px; }
 .hud-right { justify-content: flex-end; font-size: 15px; letter-spacing: 2px; }
+
+/* ---------- Choix de l'agente active (Aelyra / Galika) ---------- */
+.agent-switch { display: flex; gap: 6px; }
+.sw {
+  background: transparent; cursor: pointer; font-family: inherit;
+  font-size: 10px; letter-spacing: 2px; padding: 3px 12px; border-radius: 20px;
+  border: 1px solid var(--cyan-soft); color: var(--cyan-soft);
+  transition: .25s;
+}
+.sw.active {
+  border-color: var(--cyan); color: var(--cyan);
+  background: var(--cyan-dim); text-shadow: 0 0 8px var(--cyan);
+}
+.sw-gk { border-color: rgba(168,85,247,.4); color: rgba(168,85,247,.55); }
+.sw-gk.active {
+  border-color: #c084fc; color: #c084fc;
+  background: rgba(168,85,247,.14); text-shadow: 0 0 8px #c084fc;
+}
+
+/* ---------- Bouton son (voix facultative) ---------- */
+.sound-btn {
+  background: transparent; border: 1px solid var(--cyan-soft); color: var(--cyan);
+  border-radius: 6px; font-size: 15px; line-height: 1; padding: 3px 7px; cursor: pointer;
+  transition: .25s;
+}
+.sound-btn:hover { background: var(--cyan-dim); }
+.sound-btn.muted { border-color: rgba(255,80,110,.6); color: #ff506e; }
+
+/* ---------- Mode GALIKA : tout le HUD passe au violet ---------- */
+body.mode-galika {
+  --cyan: #c084fc;
+  --cyan-soft: rgba(168, 85, 247, .45);
+  --cyan-dim: rgba(168, 85, 247, .13);
+}
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); }
 .dot.online { animation: blink 2s infinite; box-shadow: 0 0 10px var(--cyan); }
 .dot.offline { background: #ff5c5c; box-shadow: 0 0 10px #ff5c5c; animation: blink 1s infinite; }

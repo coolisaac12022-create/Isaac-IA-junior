@@ -10,6 +10,10 @@ const cmdInput = document.getElementById('cmdInput');
 const micBtn = document.getElementById('micBtn');
 const reactor = document.getElementById('reactor');
 const wakeToggle = document.getElementById('wakeMode');
+const btnAelyra = document.getElementById('btnAelyra');
+const btnGalika = document.getElementById('btnGalika');
+const soundBtn = document.getElementById('soundBtn');
+const hudTitle = document.getElementById('hudTitle');
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
@@ -17,6 +21,61 @@ let isListening = false;
 let isSpeaking = false;
 let processing = false;
 let wakeMode = false;
+
+// ---------- agente active : côté Aelyra (cyan) ou côté Galika (violet) ----------
+let agentActif = localStorage.getItem('ij-agent') === 'galika' ? 'galika' : 'aelyra';
+
+function setAgent(a) {
+  agentActif = a === 'galika' ? 'galika' : 'aelyra';
+  localStorage.setItem('ij-agent', agentActif);
+  document.body.classList.toggle('mode-galika', agentActif === 'galika');
+  hudTitle.textContent = agentActif === 'galika' ? 'GALIKA' : 'AELYRA';
+  if (btnAelyra) btnAelyra.classList.toggle('active', agentActif === 'aelyra');
+  if (btnGalika) btnGalika.classList.toggle('active', agentActif === 'galika');
+  if (!isSpeaking && !processing) {
+    setState(null, wakeMode
+      ? (agentActif === 'galika' ? 'En veille — dites « Galika »' : 'En veille — dites « Aelyra » ou « Galika »')
+      : 'En attente de vos ordres, Isaac');
+  }
+}
+
+// ---------- son facultatif : la voix d'Aelyra/Galika, coupable à volonté ----------
+let sonOn = localStorage.getItem('ij-son') !== '0';
+
+function setSon(on) {
+  sonOn = !!on;
+  localStorage.setItem('ij-son', sonOn ? '1' : '0');
+  if (soundBtn) {
+    soundBtn.textContent = sonOn ? '🔊' : '🔇';
+    soundBtn.classList.toggle('muted', !sonOn);
+    soundBtn.title = sonOn ? 'Couper la voix' : 'Rendre la voix';
+  }
+  if (!sonOn) { try { speechSynthesis.cancel(); } catch (e) {} isSpeaking = false; }
+}
+
+if (btnAelyra) btnAelyra.addEventListener('click', () => {
+  if (agentActif !== 'aelyra') {
+    setAgent('aelyra');
+    addMsg('Aelyra', 'Côté Aelyra, Isaac. Le PC, la maison, les fichiers, le labo cyber — c\'est moi. Tout ce que vous dites m\'est désormais adressé.');
+    speak('Bureau d\'Aelyra, Isaac.', 'aelyra');
+  }
+});
+if (btnGalika) btnGalika.addEventListener('click', () => {
+  if (agentActif !== 'galika') {
+    setAgent('galika');
+    addMsg('GALIKA', 'Côté Galika, Isaac. L\'atelier de code : sites complets, applications, corrections — c\'est moi. Vos ordres partent vers la développeuse.');
+    speak('Atelier de Galika, Isaac.', 'galika');
+  }
+});
+if (soundBtn) soundBtn.addEventListener('click', () => {
+  setSon(!sonOn);
+  if (sonOn) { beep(880, .08); addMsg(agentActif === 'galika' ? 'GALIKA' : 'Aelyra', 'Le son est réactivé, Isaac. Je vous réponds de nouveau à voix haute.'); }
+  else addMsg(agentActif === 'galika' ? 'GALIKA' : 'Aelyra', 'Le son est coupé, Isaac. Je continuerai à vous répondre à l\'écran, silencieusement. Cliquez sur le haut-parleur pour rouvrir la voix.');
+});
+
+// Application de l'état mémorisé dès l'ouverture de la page
+setAgent(agentActif);
+setSon(sonOn);
 
 // ---------- Horloge ----------
 function updateClock() {
@@ -45,8 +104,9 @@ function setState(state, text) {
   if (text) statusEl.textContent = text;
 }
 
-// ---------- Bip sonore (WebAudio, aucun fichier) ----------
+// ---------- Bip sonore (WebAudio, aucun fichier) — muet quand le son est coupé ----------
 function beep(freq = 880, duration = 0.09, when = 0) {
+  if (!sonOn) return;
   try {
     const ctx = beep.ctx || (beep.ctx = new (window.AudioContext || window.webkitAudioContext)());
     const osc = ctx.createOscillator();
@@ -71,17 +131,18 @@ function addMsg(who, text) {
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
-// Bloc de code généré par Isaac programmeur : affiché, mais jamais lu à voix haute
-function addCodeMsg(text, code, url, file) {
+// Bloc de code généré (par Aelyra ou Galika) : affiché, mais jamais lu à voix haute
+function addCodeMsg(text, code, url, file, agent) {
   const div = document.createElement('div');
-  div.className = 'msg jarvis';
+  const gk = agent === 'galika';
+  div.className = 'msg ' + (gk ? 'galika' : 'jarvis');
   const page = /\.html?$/i.test(file || url || '');
   const lien = url
     ? (page
       ? `<a class="codedl" href="${url}" target="_blank">🌐 Voir le site en direct</a>`
       : `<a class="codedl" href="${url}" download>${escapeHtml(file || 'Télécharger le fichier')}</a>`)
     : '';
-  div.innerHTML = `<span class="who">AELYRA — ASSISTANTE PERSONNELLE</span>${escapeHtml(text)}` +
+  div.innerHTML = `<span class="who">${gk ? 'GALIKA — AGENTE DÉVELOPPEUSE' : 'AELYRA — ASSISTANTE PERSONNELLE'}</span>${escapeHtml(text)}` +
     `<pre class="codebox">${escapeHtml(code)}</pre>` + lien;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
@@ -127,19 +188,23 @@ function pickFrenchVoice() {
 
 function speak(text, agent) {
   return new Promise((resolve) => {
-    if (!('speechSynthesis' in window)) return resolve();
+    // Son coupé : la réponse s'affiche à l'écran, aucune voix — mais l'UI reste cohérente
+    if (!sonOn || !('speechSynthesis' in window)) {
+      setState(null, wakeMode ? (agent === 'galika' ? 'En veille — dites « Galika »' : 'En veille — dites « Aelyra » ou « Galika »') : 'En attente de vos ordres, Isaac');
+      return resolve();
+    }
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(speechClean(text));
     u.lang = 'fr-FR';
     const v = pickFrenchVoice();
     if (v) u.voice = v;
-    if (agent === 'galika') { u.rate = 0.97; u.pitch = 0.88; } // Galika : voix plus grave, posée — femme d'affaires
+    if (agent === 'galika') { u.rate = 0.97; u.pitch = 0.88; } // Galika : voix plus grave, posée — la développeuse
     else { u.rate = 1.02; u.pitch = 1.05; }                    // Aelyra : timbre haut, voix de femme
     isSpeaking = true;
-    setState('speaking', agent === 'galika' ? 'GALIKA répond...' : 'I.A.J. répond...');
+    setState('speaking', agent === 'galika' ? 'GALIKA répond...' : 'AELYRA répond...');
     u.onend = u.onerror = () => {
       isSpeaking = false;
-      setState(null, wakeMode ? 'En veille — dites « Aelyra » ou « Galika » ou « Galika »' : 'En attente de vos ordres, Isaac');
+      setState(null, wakeMode ? (agent === 'galika' ? 'En veille — dites « Galika »' : 'En veille — dites « Aelyra » ou « Galika »') : 'En attente de vos ordres, Isaac');
       resolve();
     };
     speechSynthesis.speak(u);
@@ -186,16 +251,21 @@ if (location.protocol === 'file:') {
 }
 
 // ---------- Traitement d'une commande ----------
+const GK_MOTS = /(?:^|[\s,])(?:galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika)(?:[\s,]|$)/;
+
 async function processCommand(text) {
   text = (text || '').trim();
   if (!text || processing) return;
+  // Côté Galika : l'ordre saisi dans sa partie est adressé à la développeuse,
+  // même sans prononcer son prénom — le préfixe « galika » route au serveur.
+  if (agentActif === 'galika' && !GK_MOTS.test(text.toLowerCase())) text = 'galika ' + text;
   processing = true;
   addMsg('Vous', text);
   setState('thinking', 'Analyse en cours...');
 
   // Réponses instantanées côté client
   const t = text.toLowerCase();
-  const estGK = /(?:^|[\s,])(?:galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika)(?:[\s,]|$)/.test(t);
+  const estGK = GK_MOTS.test(t);
   let local = null;
   if (/^(bonjour|salut|hello|bonsoir)\b/.test(t)) local = 'Bonjour Isaac, mon créateur. Tous les systèmes sont opérationnels. Que puis-je faire pour vous ?';
   else if (/comment (tu t appelles|vous appelez|t appelles tu)|quel est ton nom|qui es.?tu/.test(t)) local = "Je suis Aelyra, votre assistante personnelle, Isaac. Vous m'avez donné ce prénom et je le porte avec fierté — c'est vous, Isaac, mon créateur.";
@@ -233,7 +303,7 @@ async function processCommand(text) {
       }
       if (data.code) codeGenere = { code: data.code, url: data.fileUrl, file: data.file };
     }
-    if (codeGenere) addCodeMsg(reply, codeGenere.code, codeGenere.url, codeGenere.file);
+    if (codeGenere) addCodeMsg(reply, codeGenere.code, codeGenere.url, codeGenere.file, agent);
     else addMsg(agent === 'galika' ? 'GALIKA' : 'Isaac IA Juniors', reply);
     await speak(reply, agent);
   } catch (e) {
@@ -349,7 +419,7 @@ wakeToggle.addEventListener('change', () => {
   wakeMode = wakeToggle.checked;
   localStorage.setItem('ij-wake', wakeMode ? '1' : '0');
   if (wakeMode) {
-    addMsg('Aelyra', 'Mode veille activé, Isaac. Dites « Aelyra » suivi de votre ordre.');
+    addMsg(agentActif === 'galika' ? 'GALIKA' : 'Aelyra', 'Mode veille activé, Isaac. Dites « Aelyra » pour le PC, « Galika » pour le code.');
     speak('Mode veille activé. Je reste à votre écoute, Isaac.');
     startListening(true);
   } else {
