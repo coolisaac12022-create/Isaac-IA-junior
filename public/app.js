@@ -391,6 +391,7 @@ const bootLines = [
   '> Calibrage du microphone.................. OK',
   '> Synthèse vocale française................ OK',
   '> Reconnaissance du créateur : Isaac....... OK',
+  '> Socle cyberdéfense (éthique)............. OK',
   '> Bonjour Isaac, mon créateur. Tous les systèmes sont en ligne.'
 ];
 

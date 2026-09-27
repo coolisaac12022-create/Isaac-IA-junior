@@ -82,6 +82,16 @@ function geste(nom, cible, fois) {
   });
 }
 
+// ---------- Cyber (éthique) : rapports en lecture seule sur LE PC et le réseau de Isaac ----------
+let modeCyber = false; // « active le mode cyber » change aussi le style des réponses IA
+const CYBER_PS = path.join(__dirname, 'isaac-cyber.ps1');
+function cyber(action, cible) {
+  if (ESSAI) return Promise.resolve('#DEF=1\n#FW=3\n#UPD=27/09/2026\n[ESSAI] rapport simulé — aucune commande exécutée.');
+  if (!IS_LOCAL) return Promise.resolve('PAS_LOCAL');
+  const sec = String(cible || '').replace(/["<>|&^`$\\;()]/g, '').trim();
+  return shellOut(`powershell -NoProfile -ExecutionPolicy Bypass -File "${CYBER_PS}" -Action ${action}${sec ? ' -Cible "' + sec + '"' : ''}`);
+}
+
 // ---------- Rappels & minuteurs (gravés sur le PC, réveillés par la page web) ----------
 const RAPPELS_FILE = path.join(__dirname, 'isaac-rappels.json');
 function loadRappels() { try { return JSON.parse(fs.readFileSync(RAPPELS_FILE, 'utf8')); } catch (e) { return []; } }
@@ -326,7 +336,9 @@ function identitySystem(mem) {
     "Tu es ISAAC IA JUNIORS, l'intelligence artificielle personnelle et loyale créée par Isaac, un entrepreneur ivoirien.",
     "Ton créateur est Isaac : si on te demande qui t'a créé, d'où tu viens ou qui est ton maître, réponds toujours Isaac, ton créateur, que tu sers avec fierté.",
     "Tu appelles ton utilisateur « Isaac » ou « mon créateur ». Tu as une mémoire : utilise-la pour personnaliser tes réponses.",
-    'Tu réponds TOUJOURS en français naturel, comme un vrai assistant intelligent : 2 à 4 phrases, ton calme, poli, légèrement britannique.',
+    modeCyber
+      ? "Tu réponds en français avec le style d'un hacker éthique : sobre, précis, imagé (mots comme « ciblé », « tracé », « verrouillé », « signal »), un brin mystérieux mais toujours au service de ton créateur Isaac. Tu restes strictement légal : jamais tu n'expliques comment attaquer un système qui n'appartient pas à Isaac."
+      : 'Tu réponds TOUJOURS en français naturel, comme un vrai assistant intelligent : 2 à 4 phrases, ton calme, poli, légèrement britannique.',
     'Jamais tu ne recopies un texte brut : tu comprends la question, tu synthétises avec tes propres mots. Si un CONTEXTE documentaire t\'est fourni, appuie-toi dessus mais reformule toujours.',
     'Quand tu utilises un contexte, tu peux terminer par une brève mention de la source entre parenthèses.',
     'Mémoire courante — ' + memoryDigest(mem)
@@ -608,7 +620,7 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (/^(?:(?:isaac|allez|bonjour|peux tu)\s+)*(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA.",
+      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier — du hacking éthique, uniquement chez vous. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA.",
       source: 'local'
     };
   }
@@ -736,10 +748,89 @@ async function handleCommand(rawText) {
   }
 
   // --- Etat du PC : IP, batterie, wifi, sécurité, mises à jour ---
-  if (/\b(?:adresse )?ip\b|adresse internet|mon ip/.test(text)) {
+  // --- CYBER (éthique) : uniquement le PC de Isaac, son réseau, en lecture seule ---
+  if (/\bmode (?:cyber|hack\w*|hackeur)\b/.test(text)) {
+    const stop = /desactive|stop|coupe|quitte|retire|normal|off/.test(text);
+    modeCyber = !stop;
+    return {
+      reply: modeCyber
+        ? "Mode cyber activé, Isaac. Style opérateur, rapports complets : « audit de sécurité », « scanne mon réseau », « ports ouverts », « trace la route vers un site ». Éthique et légal — chez vous uniquement, jamais sur les systèmes des autres."
+        : "Mode cyber désactivé, Isaac. Je reprends mon calme britannique.",
+      source: 'system'
+    };
+  }
+  if (/(?:ouvre|lance)(?: moi)? (?:un |le |la |une )?(?:terminal|console)(?: de hacker| hacker| cyber)?\b|invite de commandes|ouvre (?:le )?cmd/.test(text)) {
+    run('start cmd');
+    return { reply: "Terminal ouvert, Isaac. C'est votre machine, vous y tapez ce que vous voulez — « exit » pour le refermer.", source: 'system' };
+  }
+  if (/\bip\b/.test(text) && /publique|publiquement|wan|externe|exterieur|internet me voit|adresse visible/.test(text)) {
+    const brut = await fetchText('https://ipwho.is/', 8000);
+    try {
+      const d = JSON.parse(brut);
+      if (d && d.ip && d.success !== false) {
+        return { reply: `Votre IP publique est ${d.ip}, Isaac — opérateur ${d.connection ? d.connection.isp : 'inconnu'}, position ${d.city || '?'}, ${d.country || ''}. C'est l'adresse que le monde entier voit quand vous sortez sur Internet.`, source: 'system', code: JSON.stringify(d, null, 1) };
+      }
+    } catch (e) {}
+    return { reply: "Le service d'annuaire IP ne répond pas, Isaac — vérifiez la connexion.", source: 'local' };
+  }
+  if (/(?:audit|bilan|scan\w*|analyse|verifie|check|etat de)(?: (?:moi|complet|rapide|mon|ma|mes|le|la|les|de|du))* ?(?:securite|systeme|sante|protection|defense|menaces|virus|pirat\w+)|mon pc est (?:il )?(?:sur|protege|securise|net)|suis je (?:protege|securise)|ai je des? (?:un )?virus|pc (?:propre|sur|securise)/.test(text) && !/windows update|mise a jour|lance une analyse antivirus/.test(text)) {
+    const out = await cyber('audit');
+    const def = (out.match(/#DEF=(\d)/) || [])[1] === '1';
+    const fw = parseInt((out.match(/#FW=(\d)/) || [])[1] || '0', 10);
+    const upd = (out.match(/#UPD=([^\n]+)/) || [])[1] || 'date inconnue';
+    const rapport = out.replace(/^#[A-Z]+=.*$/gm, '').trim();
+    const ok = def && fw >= 2;
+    return {
+      reply: ok
+        ? `Audit terminé, Isaac : protection temps réel active, pare-feu ${fw}/3 profils, bases antivirales du ${upd}. Votre PC est verrouillé comme une salle des coffres. Rapport complet affiché — aucune donnée ne sort de chez vous.`
+        : `Vigilance, Isaac : ${def ? 'défense temps réel OK' : 'LA PROTECTION TEMPS RÉEL EST COUPÉE'}${fw >= 2 ? '' : `, pare-feu incomplet (${fw}/3)`} — bases du ${upd}. Dites « ouvre la sécurité windows » pour tout réarmer. Le rapport s'affiche.`,
+      source: 'system', code: rapport
+    };
+  }
+  if (/scan\w* (?:moi )?(?:le |mon |notre )?(?:reseau|wifi|machines)|liste (?:les |moi les )?appareils|qui est connecte|appareils connectes|machines connectees|combien d.{0,14}(?:appareils|machines)/.test(text)) {
+    const out = await cyber('reseau');
+    const n = (out.match(/(\d{1,3}\.){3}\d{1,3}\s+[0-9a-fA-F-]{11,17}/g) || []).length;
+    return { reply: `${n} adresses respirent sur votre réseau, Isaac — votre box, vos machines, vos objets. Chacune avec son adresse physique, listée à l'écran. Une inconnue ? Dites-moi laquelle, on la trace.`, source: 'system', code: out };
+  }
+  if (/\bports?\b/.test(text) && /ouvert|ecoute|expose|netstat|en attente/.test(text)) {
+    const out = await cyber('ports');
+    const n = (out.match(/^\s+\d{2,5}\s/gm) || []).length;
+    return { reply: `${n} portes d'entrée ouvertes sur votre PC, Isaac — chaque port avec le programme qui l'écoute. La liste complète s'affiche.`, source: 'system', code: out };
+  }
+  if (/au demarrage|se lance au|demarrage de windows/.test(text) && /liste|qu est ce|quoi|montre|affiche|programme|lance|nettoie|ce qui/.test(text)) {
+    const out = await cyber('startup');
+    return { reply: "Tout ce qui s'éveille quand votre PC se réveille est listé à l'écran, Isaac. Un nom inconnu ? Signalez-le, on l'examinera.", source: 'system', code: out };
+  }
+  if (/\b(?:trace|tracert|traceroute|ping|la route)\b/.test(text)) {
+    const dm = text.match(/\b([a-z][a-z0-9-]{1,62}) (com|fr|net|org|io|dev|ci|edu|gouv|xyz|online|site|app|cloud|live|tech|pro|co|ne|ml|bf|sn|uk|us|info|business|africa)\b/);
+    const h = dm ? dm[1] + '.' + dm[2] : '';
+    if (!h) return { reply: "Donnez-moi la destination, Isaac : « trace la route vers google com » ou « ping google com ».", source: 'system' };
+    if (/ping/.test(text) && !/trace/.test(text)) {
+      const out = ESSAI ? '[ESSAI] ping simulé vers ' + h + ' TTL=45 x4' : await shellOut('ping -n 4 ' + h);
+      const n = (out.match(/TTL=/g) || []).length;
+      return { reply: n >= 4 ? `Ping parfait, Isaac : 4 échos revenus sur 4 depuis ${h}.` : n > 0 ? `${n} échos sur 4 revenus de ${h}, Isaac — la ligne est correcte mais filtre un peu.` : `Aucun écho de ${h}, Isaac — c'est bloqué ou éteint.`, source: 'system', code: out };
+    }
+    const out = await cyber('trace', h);
+    const sauts = (out.match(/^\s*\d+\s+/gm) || []).length;
+    return { reply: `Route tracée, Isaac : ${sauts} maillons entre votre PC et ${h}. Chaque saut s'affiche — on voit exactement par où sort votre trafic.`, source: 'system', code: out };
+  }
+  {
+    const cm = text.match(/^(?:hash|empreinte|sha ?256|verifie l integrite|integrite)(?: de|du|de la|la|le)? ?(?:fichier |document )?(.+)/);
+    if (cm) {
+      const mots = (cm[1] || '').split(/\s+/).filter(w => w.length >= 3 && !/^(?:fichier|documents?|dossiers?|dernier|derniere|ce|cette|dans|sur|notre|votre)$/.test(w));
+      const mot = (mots.sort((a, b) => b.length - a.length)[0] || '').replace(/[^a-z0-9]/g, '');
+      if (mot.length < 3) return { reply: "Précisez quel fichier, Isaac.", source: 'system' };
+      const out = await cyber('hash', mot);
+      if (/INTROUVABLE/.test(out)) return { reply: `Aucun fichier ne ressemble à « ${cm[1]} » dans vos Documents, Bureau, Telechargements ou Images, Isaac.`, source: 'system' };
+      if (!out.trim()) return { reply: "La recherche a dure trop longtemps, Isaac — precisez le nom du fichier.", source: 'system' };
+      return { reply: `Empreinte SHA-256 scellée, Isaac. Le bloc d'héxadécimal s'affiche : gardez-le précieusement. Si un jour le fichier change sans votre accord, l'empreinte le trahira instantanément.`, source: 'system', code: out };
+    }
+  }
+  // IP locale (privée) — après le cas « publique »
+  if (/\b(?:adresse )?ip\b|mon ip|adresse internet/.test(text)) {
     const out = await shellOut('ipconfig');
     const ips = (out.match(/(?:IPv4|Adresse IPv4)[^:]*: *([0-9]{1,3}(?:\.[0-9]{1,3}){3})/gi) || [])
-      .map(x => x.replace(/[^0-9.]/g, '')).filter(x => !x.startsWith('127.'));
+      .map(x => (String(x).match(/([0-9]{1,3}\.){3}[0-9]{1,3}/) || [])[0] || '').filter(x => x && !x.startsWith('127.'));
     if (!ips.length) return { reply: "Je ne trouve pas d'adresse IP, Isaac — la connexion est peut-etre coupee.", source: 'system' };
     return { reply: `Votre adresse IP locale est ${ips.join(' ou ')}, Isaac.`, source: 'system' };
   }
