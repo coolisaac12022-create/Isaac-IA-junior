@@ -496,7 +496,7 @@ async function handleCommand(rawText) {
   if (!text) return { reply: "Je n'ai rien entendu, Isaac. Pouvez-vous répéter ?", source: 'local' };
 
   // --- Aide ---
-  if (/^(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
+  if (/^(?:(?:isaac|allez|bonjour|peux tu)\s+)*(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
     return {
       reply: "Voici ce que je peux faire, Isaac : ouvrir plus de 60 applications de votre PC — « ouvre vscode », « ouvre chrome », « ouvre word », « ouvre le gestionnaire des taches », « ouvre la corbeille », « ouvre spotify », « ouvre discord » — et des sites comme YouTube, WhatsApp ou Gmail (« ouvre gmail »). Je peux aussi chercher sur Google, jouer une vidéo, donner l'heure, la date et la météo, prendre des notes, capturer votre écran, régler le son, le Wi-Fi ou Bluetooth, éteindre le PC. Je sais aussi coder : dites « fais-moi un site... », « écris-moi un script python qui... » et je génère le fichier, je l'ouvre dans VS Code — « je veux coder » ou « on code » lance VS Code, et pour retrouver votre dernier code dites « copie le code dans VS Code » ou « ouvre le dernier script » — ou vous le téléchargez en version web. Et surtout : j'ai une mémoire — dites « retiens que... » pour graver un fait, « que sais-tu de moi » pour la lire, « oublie tout » pour l'effacer, et je réponds à vos questions comme une vraie IA, en réfléchissant et non en recopiant.",
       source: 'local'
@@ -548,8 +548,10 @@ async function handleCommand(rawText) {
   // --- Récupérer le DERNIER code écrit : l'ouvrir dans VS Code + le copier au presse-papiers ---
   // « copie le code dans vs code », « ouvre le dernier script », « montre le code »...
   // Mais JAMAIS « ouvre vscode » (lancement de l'application, géré par la table APPS plus bas).
-  const lanceEditeur = /^(?:ouvre|ouvrir)\s+(?:moi\s+|le\s+)?(?:vs\s?code|visual)/.test(text); // « ouvre vscode » = lancer l'app
-  const verbeRecup = /^(?:copie|copies|copier|colle|coller|montre|montrer|donne|donner|affiche|envoie|ouvre|ouvrir)\b/.test(text);
+  // Les petits mots d'accueil (« isaac », « s'il te plait », « allez ») sont ignorés : la voix en ajoute souvent.
+  const ENTREE = '^(?:(?:isaac|iseck|izak|isack|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|s il vous plait|veuillez|peux tu|peux vous|pourrais tu|est ce que tu|est ce que vous)\\s+)*';
+  const lanceEditeur = new RegExp(ENTREE + '(?:ouvre|ouvrir)\\s+(?:moi\\s+|le\\s+)?(?:vs\\s?code|visual)').test(text); // « ouvre vscode » = lancer l'app
+  const verbeRecup = new RegExp(ENTREE + '(?:copie|copies|copier|colle|coller|montre|montrer|donne|donner|affiche|envoie|ouvre|ouvrir)(?:\\s|$)').test(text);
   const parleDuDernier =
     /\b(?:le|la|les|du|de la|ce|cet|ton|ta|mon|ma|notre|dernier|premier)\s+(?:dernier\s+|nouveau\s+)?(?:code|codes|script|scripts)\b/.test(text) ||
     /\b(?:vs\s?code|visual\s?studio|presse[- ]?papier)\b/.test(text);
@@ -571,7 +573,7 @@ async function handleCommand(rawText) {
   }
 
   // --- Ouvrir un site ou une application ---
-  m = text.match(/^(?:ouvre|ouvrir|lance|lancer|va sur|allez sur|vas sur)\s+(.+)/);
+  m = text.match(new RegExp(ENTREE + '(?:ouvre|ouvrir|lance|lancer|va sur|allez sur|vas sur)\\s+(.+)'));
   if (m) {
     const target = m[1].trim();
     // Les articles ("le/la/l'/les/my...") sont ignorés ; les noms les plus longs d'abord
@@ -611,8 +613,8 @@ async function handleCommand(rawText) {
     }
   }
 
-  // --- Générer du code (Isaac programmeur) ---
-  m = text.match(/^(?:ecris|ecri(?:vez)?|ecrire|ecrits|code(?:z)?|genere(?:z)?|generer|realise(?:z)?|realiser|cree(?:z)?|creer|developpe(?:z)?|developper|fabrique(?:z)?|concois|programme|prepare(?:z)?|construis(?:ez)?|faire|fais|fait)\s*(?:[- ]+)?(?:moi\s+|nous\s+)?(?:un|une|du|de\s+la|le\s+|la\s+|mon\s+|ma\s+)?(.+)$/);
+  // --- Générer du code (Isaac programmeur) --- (ENTREE tolère les mots d'accueil ajoutés par la voix)
+  m = text.match(new RegExp(ENTREE + '(?:ecris|ecri(?:vez)?|ecrire|ecrits|code(?:z)?|genere(?:z)?|generer|realise(?:z)?|realiser|cree(?:z)?|creer|developpe(?:z)?|developper|fabrique(?:z)?|concois|programme|prepare(?:z)?|construis(?:ez)?|faire|fais|fait|faite)\\s*(?:[- ]+)?(?:moi\\s+|nous\\s+)?(?:un|une|du|de\\s+la|le\\s+|la\\s+|mon\\s+|ma\\s+)?(.+)$'));
   if (m && /\b(?:code|script|programme|application|logiciel|jeu|page|site|web|fichier|python|html|javascript|batch|powershell|sql)\b/.test(m[1]) &&
       !/^(?:que|qui|pourquoi|comment|quand|ou)\b/.test(m[1])) {
     const oeuvre = await askCode(m[1]);
