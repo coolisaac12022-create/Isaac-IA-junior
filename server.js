@@ -43,7 +43,11 @@ function normalize(text) {
     .trim();
 }
 
+// Mode ESSAI (ISAAC_ESSAI=1) : on teste les intentions sans toucher le PC
+const ESSAI = process.env.ISAAC_ESSAI === '1';
+
 function run(cmd) {
+  if (ESSAI) { console.log('[essai] aurait lancé :', cmd); return; }
   if (!IS_LOCAL) { console.log('[remote] commande PC ignorée:', cmd); return; }
   exec(cmd, { windowsHide: true }, (err) => {
     if (err) console.error('[exec]', err.message);
@@ -53,6 +57,86 @@ function run(cmd) {
 function openURL(url) {
   run(`start "" "${url}"`);
 }
+
+// Sortie texte d'une commande (pour lire l'état du PC : IP, batterie, wifi...)
+function shellOut(cmd) {
+  return new Promise(resolve => {
+    exec(cmd, { windowsHide: true, maxBuffer: 4 << 20, timeout: 25000 }, (err, out) => resolve(String(out || '')));
+  });
+}
+
+// Un geste Windows (son, luminosité, fenêtres, fond d'écran) via isaac-geste.ps1
+function geste(nom, cible, fois) {
+  return new Promise(resolve => {
+    if (ESSAI) return resolve('OK|essai');
+    if (!IS_LOCAL) return resolve('PAS_LOCAL');
+    const ps1 = path.join(__dirname, 'isaac-geste.ps1');
+    const sec = String(cible || '').replace(/["<>&^`$\\]/g, '').trim();
+    let ligne = `powershell -NoProfile -ExecutionPolicy Bypass -File "${ps1}" -Geste ${nom}`;
+    if (sec) ligne += ` -Cible "${sec}"`;
+    if (fois && fois > 1) ligne += ` -Fois ${parseInt(fois, 10) || 1}`;
+    exec(ligne, { windowsHide: true, timeout: 30000 }, (err, out) => {
+      const lignes = String(out || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+      resolve(lignes[lignes.length - 1] || (err ? 'ECHEC' : 'OK'));
+    });
+  });
+}
+
+// ---------- Rappels & minuteurs (gravés sur le PC, réveillés par la page web) ----------
+const RAPPELS_FILE = path.join(__dirname, 'isaac-rappels.json');
+function loadRappels() { try { return JSON.parse(fs.readFileSync(RAPPELS_FILE, 'utf8')); } catch (e) { return []; } }
+function saveRappels(l) { try { fs.writeFileSync(RAPPELS_FILE, JSON.stringify(l, null, 1), 'utf8'); } catch (e) {} }
+function lireNotes() {
+  try {
+    if (!fs.existsSync(NOTES_FILE)) return '';
+    return fs.readFileSync(NOTES_FILE, 'utf8').trim().split('\n').slice(-5).join(' — ');
+  } catch (e) { return ''; }
+}
+
+// « dans 10 minutes », « à 18h30 », « à 6 heures » → date future
+function parseEcheance(t) {
+  const maintenant = Date.now();
+  let m = t.match(/dans\s+(\d{1,4})\s*(second|minute|heure|jour|seconde|semaine)/);
+  if (!m) m = t.match(/(?:minuteur|timer| compte a rebours|de|pendant)\s+(\d{1,4})\s*(second|minute|heure)s?/);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    const u = m[2];
+    const mult = u.startsWith('second') ? 1e3 : u.startsWith('minute') ? 6e4 : u.startsWith('heure') ? 36e5 : u.startsWith('jour') ? 864e5 : 7 * 864e5;
+    return { t: maintenant + n * mult, relatif: `dans ${n} ${u}${n > 1 ? 's' : ''}` };
+  }
+  m = t.match(/(?:^|\s)(?:a|vers)\s*(\d{1,2})\s*(?:h\s*(\d{1,2})?|heures?\s*(\d{1,2})?|[:.](\d{2}))/);
+  if (m) {
+    const h = parseInt(m[1], 10);
+    const min = parseInt(m[2] || m[3] || m[4] || '0', 10);
+    if (h > 23 || min > 59) return null;
+    const d = new Date();
+    d.setHours(h, min, 0, 0);
+    if (d.getTime() <= maintenant) d.setDate(d.getDate() + 1);
+    return { t: d.getTime(), relatif: `${h}h${String(min).padStart(2, '0')}` };
+  }
+  m = t.match(/demain\s*(?:matin|soir|midi)?/);
+  if (m) {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(/matin/.test(t) ? 8 : /soir/.test(t) ? 20 : 12, 0, 0, 0);
+    return { t: d.getTime(), relatif: 'demain' };
+  }
+  return null;
+}
+
+// Les choses à faire sont-elles arrivées ? (la page web vient les chercher)
+let rappelsDuJour = [];
+setInterval(() => {
+  if (!IS_LOCAL) return;
+  const l = loadRappels();
+  const maintenant = Date.now();
+  const dus = l.filter(r => r.t <= maintenant && !r.envoye);
+  if (!dus.length) return;
+  dus.forEach(r => { r.envoye = true; rappelsDuJour.push(r); });
+  saveRappels(l.filter(r => !r.envoye));
+  console.log('[rappel] dues:', dus.map(d => d.note).join(', '));
+}, 15000);
+
 
 function fetchText(url, timeoutMs = 9000) {
   return new Promise((resolve) => {
@@ -497,7 +581,7 @@ function chercheAppli(nom) {
     const propre = String(nom || '').replace(/["&|<>^%$`()]/g, '').replace(/\s+/g, ' ').trim();
     if (!propre || !IS_LOCAL) return resolve(null);
     const ps = path.join(__dirname, 'chercher-appli.ps1');
-    exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps}" -Nom "${propre}"`,
+    exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps}" -Nom "${propre}"${ESSAI ? ' -SansLancer' : ''}`,
       { timeout: 25000, windowsHide: true }, (err, out) => {
         const s = String(out || '').trim();
         if (!s || /^NOTFOUND/.test(s)) return resolve(null);
@@ -524,13 +608,13 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (/^(?:(?:isaac|allez|bonjour|peux tu)\s+)*(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac : ouvrir plus de 60 applications de votre PC — « ouvre vscode », « ouvre chrome », « ouvre word », « ouvre le gestionnaire des taches », « ouvre la corbeille », « ouvre spotify », « ouvre discord » — et des sites comme YouTube, WhatsApp ou Gmail (« ouvre gmail »). Je peux aussi chercher sur Google, jouer une vidéo, donner l'heure, la date et la météo, prendre des notes, capturer votre écran, régler le son, le Wi-Fi ou Bluetooth, éteindre le PC. Je sais aussi coder : dites « fais-moi un site... », « écris-moi un script python qui... » et je génère le fichier, je l'ouvre dans VS Code — « je veux coder » ou « on code » lance VS Code, et pour retrouver votre dernier code dites « copie le code dans VS Code » ou « ouvre le dernier script » — ou vous le téléchargez en version web. Et surtout : j'ai une mémoire — dites « retiens que... » pour graver un fait, « que sais-tu de moi » pour la lire, « oublie tout » pour l'effacer, et je réponds à vos questions comme une vraie IA, en réfléchissant et non en recopiant.",
+      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA.",
       source: 'local'
     };
   }
 
   // --- Heure / date ---
-  if (/\bheure\b/.test(text)) {
+  if (/\bheure\b/.test(text) && !/rappelle| reveille |reveil|minuteur|alarme|timer/.test(text)) {
     const now = new Date();
     return { reply: `Il est ${now.getHours()} heures ${String(now.getMinutes()).padStart(2, '0')}, Isaac.`, source: 'local' };
   }
@@ -549,6 +633,375 @@ async function handleCommand(rawText) {
     if (w) return { reply: `Météo à ${city} : ${w}, Isaac.`, source: 'system' };
     return { reply: `Je n'arrive pas à contacter le satellite météo, Isaac. J'ouvre la météo pour ${city} dans votre navigateur.`, source: 'system',
              open: 'https://www.google.com/search?q=' + encodeURIComponent('météo ' + city) };
+  }
+
+  // ==================== COMMANDES SYSTÈME AVANCÉES ====================
+  let mm;
+
+  // --- Son ---
+  if (/\b(?:son|volume)\b/.test(text) && !/\b(?:mail|email|notes|alto)\b/.test(text)) {
+    if (/(?:monte|augment|hausse|remonte|plus fort|a fond|au max|mets?.*fort)\b/.test(text)) {
+      const plein = /a fond|au max/.test(text);
+      await geste('volume-plus', '', plein ? 35 : 8);
+      return { reply: plein ? "Voila le volume a fond, Isaac." : "J'augmente le son, Isaac.", source: 'system' };
+    }
+    if (/(?:baisse|diminue|reduis|reduit|moins fort|descend)\b/.test(text)) {
+      await geste('volume-moins', '', 8);
+      return { reply: "Je baisse le son, Isaac.", source: 'system' };
+    }
+    if (/(?:coupe|coupes|couper|sourdine|muet|silence|arrete le son|stoppe le son)\b/.test(text)) {
+      await geste('volume-coupe');
+      return { reply: "Son coupe, Isaac. Dites « remets le son » pour le rallumer.", source: 'system' };
+    }
+    if (/remets| rallume|retablis|annule (?:le |la )?(?:sourdine|mute)/.test(text)) {
+      await geste('volume-plus', '', 5);
+      return { reply: "Le son est retabli, Isaac.", source: 'system' };
+    }
+  }
+
+  // --- Luminosité de l'écran ---
+  if (/\b(?:lumiere|luminosite|retroeclairage)\b/.test(text) && !/\b(?:pieuvre|ampoule|dans la piece)\b/.test(text)) {
+    const vers = /baisse|moins|diminue|reduis|sombre/.test(text) ? 'luminosite-moins' : 'luminosite-plus';
+    const r = await geste(vers);
+    if (/UNSUPPORTED/.test(r)) return { reply: "Votre ecran de bureau ne se regle pas par logiciel, Isaac : utilisez les boutons du moniteur, ou la molette des portables.", source: 'system' };
+    const n = (String(r).split('|')[1] || '').trim();
+    return { reply: n ? `Luminosite reglee a ${n} pour cent, Isaac.` : "Je regle la luminosite, Isaac.", source: 'system' };
+  }
+
+  // --- Fenêtres, bureau, impression, corbeille ---
+  if (/(?:affiche|montre|voir)(?: moi)? (?:le|tout le) bureau|minimise tout|reduis tout|cache toutes les fenetres/.test(text)) {
+    await geste('bureau');
+    return { reply: "Tout est minimise, Isaac — votre bureau est propre.", source: 'system' };
+  }
+  if (/(?:restaure|remets|retablis|annule)(?: moi)? (?:les|toutes les) fenetres/.test(text)) {
+    await geste('restaurer');
+    return { reply: "Vos fenetres sont remises en place, Isaac.", source: 'system' };
+  }
+  if (/\b(?:bascule|alterne|change de fenetre|fenetre suivante|passe a la fenetre|autre fenetre)\b/.test(text)) {
+    await geste('alterner');
+    return { reply: "Je passe a la fenetre suivante, Isaac.", source: 'system' };
+  }
+  if (/(?:ferme|fermer) (?:cette|la) fenetre|ferme la fenetre active/.test(text)) {
+    await geste('fermer-fenetre');
+    return { reply: "Je ferme la fenetre active, Isaac.", source: 'system' };
+  }
+  // « ferme toutes les fenetres » : on minimise, on ne tue rien (peur du travail non sauvegarde)
+  if (/(?:ferme|tue|stoppe|arrete)(?: moi)? toutes(?: les)? (?:fenetres|applications|windows)|ferme tout le monde|ferme tout$/.test(text)) {
+    await geste('bureau');
+    return { reply: "Je minimise toutes les fenetres, Isaac. Pour vraiment les fermer, dites logiciel par logiciel (« ferme chrome ») : je ne veux pas fermer un travail non sauvegarde sans vous prevenir.", source: 'system' };
+  }
+  // Écran : l'éteindre et le rallumer (« eteins l'ecran », « sors de la veille »)
+  if (/(?:eteins|eteindre|end|endors|econde|cache|coupe)[a-z]*\s+(?:moi\s+)?(?:la\s+|le\s+|l\s+|mon\s+|du\s+)?[a-z]*ecran\b/.test(text) && !/\b(?:pc|ordinateur|wifi|lumiere)\b/.test(text)) {
+    await geste('ecran-off');
+    return { reply: "J'eteins l'ecran, Isaac. Dites « rallume l'ecran » ou bougez la souris pour le revoir.", source: 'system' };
+  }
+  if (/(?:allume|rallume|reveille|remets|ramene)[a-z]*\s+(?:moi\s+)?(?:la\s+|le\s+|l\s+|mon\s+)?[a-z]*ecran\b|sors? (?:moi )?de la veille/.test(text) && !/\bfond\b/.test(text)) {
+    await geste('ecran-on');
+    return { reply: "Voila l'ecran rallume, Isaac.", source: 'system' };
+  }
+  if (/(?:met|mets|mettre|place|envoie|vas? en)\s+(?:moi\s+)?(?:le |mon |l)?(?:pc|ordinateur|windows)?\s*en veille/.test(text) && !/ecran/.test(text)) {
+    run('rundll32.exe powrprof.dll,SetSuspendState 0,1,0');
+    return { reply: "Je mets le PC en veille, Isaac. Touchez une touche ou dites « Isaac » pour le reveil.", source: 'system' };
+  }
+  if (/vide (?:la|le) corbeille/.test(text)) {
+    await geste('corbeille');
+    return { reply: "Corbeille videe, Isaac.", source: 'system' };
+  }
+  if (/\b(?:imprime|imprimer|lance l impression|ctrl p)\b/.test(text)) {
+    await geste('imprimer');
+    return { reply: "J'ouvre la fenetre d impression du logiciel actif, Isaac. Validez avec Entree.", source: 'system' };
+  }
+  if (/(?:enregistre|sauvegarde) (?:ce|le|mon) (?:document|fichier|texte)|ctrl s/.test(text)) {
+    await geste('enregistrer');
+    return { reply: "Je sauvegarde le document en cours, Isaac.", source: 'system' };
+  }
+  if (/(?:change|mets|met|choisis|mets moi) (?:moi )?(?:un |le |mon )?(?:nouveau )?fond (?:d ?e?cran|e ?cran|decran)|papier peint/.test(text)) {
+    const r = await geste('fond-ecran');
+    if (/AUCUNEIMAGE/.test(r)) return { reply: "Je n'ai trouve aucune image a utiliser comme fond d'ecran, Isaac.", source: 'system' };
+    const n = (String(r).split('|')[1] || '').trim();
+    return { reply: `Nouveau fond d'ecran : ${n}, Isaac.`, source: 'system' };
+  }
+
+  // --- Fermer / arrêter UNE application précise (jamais le PC lui-même) ---
+  mm = text.match(/^(?:ferme|fermer|arrete|arreter|tue|stop|stoppe|cloture)\s+(?:moi\s+)?(?:l?[ ']?application\s+|le\s+logiciel\s+|le\s+programme\s+|logiciel\s+)?(.+)/);
+  if (mm && !/\b(?:pc|ordinateur|windows|fenetres|tout le reste|musique|video|page|site|onglet)\b/.test(mm[1]) && !/\b(?:vs code|code)\b/.test(mm[1])) {
+    const PROC = { chrome: 'chrome', 'google chrome': 'chrome', edge: 'msedge', explorateur: 'explorer', 'vs code': 'Code', vscode: 'Code', word: 'WINWORD', excel: 'EXCEL', powerpoint: 'POWERPNT', outlook: 'OUTLOOK', notepad: 'notepad', 'bloc note': 'notepad', vlc: 'vlc', spotify: 'Spotify', discord: 'Discord', teams: 'Teams', whatsapp: 'WhatsApp', calculatrice: 'Calculator', firefox: 'firefox', obs: 'obs', blender: 'blender', gimp: 'gimp', itunes: 'Itunes', telegram: 'Telegram', skype: 'Skype', zoom: 'Zoom', qoder: 'Qoder' };
+    const demande = nettoieCible(mm[1]);
+    let motif = PROC[demande] || PROC[demande.replace(/s$/, '')] || demande.replace(/[^a-z0-9]/g, '');
+    if (!motif || motif.length < 3) return { reply: "Dites-moi quel logiciel fermer, Isaac : « ferme chrome », « arrete spotify ».", source: 'system' };
+    const r = await geste('tuer', motif);
+    if (/INTROUVABLE/.test(r)) return { reply: `Ce logiciel n'est pas en cours d'execution, Isaac (${demande}).`, source: 'system' };
+    if (/NOMMANQUANT|ECHEC/.test(r)) return { reply: "Je n'arrive pas a fermer ce logiciel, Isaac.", source: 'system' };
+    return { reply: `C'est ferme, Isaac — ${demande} est arrête.`, source: 'system' };
+  }
+
+  // --- Etat du PC : IP, batterie, wifi, sécurité, mises à jour ---
+  if (/\b(?:adresse )?ip\b|adresse internet|mon ip/.test(text)) {
+    const out = await shellOut('ipconfig');
+    const ips = (out.match(/(?:IPv4|Adresse IPv4)[^:]*: *([0-9]{1,3}(?:\.[0-9]{1,3}){3})/gi) || [])
+      .map(x => x.replace(/[^0-9.]/g, '')).filter(x => !x.startsWith('127.'));
+    if (!ips.length) return { reply: "Je ne trouve pas d'adresse IP, Isaac — la connexion est peut-etre coupee.", source: 'system' };
+    return { reply: `Votre adresse IP locale est ${ips.join(' ou ')}, Isaac.`, source: 'system' };
+  }
+  if (/\b(?:batterie|niveau de charge|reste d energie|sur secteur|charge a combien)\b/.test(text)) {
+    const out = await shellOut('powershell -NoProfile -Command "(Get-CimInstance Win32_Battery -EA SilentlyContinue).EstimatedChargeRemaining"');
+    const n = (out.match(/\d+/) || [])[0];
+    if (!n) return { reply: "Votre machine n'a pas de batterie, Isaac — elle est sur secteur.", source: 'system' };
+    return { reply: `Batterie a ${n} pour cent, Isaac.${n <= 20 ? ' Pensez a brancher votre chargeur.' : ''}`, source: 'system' };
+  }
+  if (/\b(?:wifi|wi fi|sans fil|reseau internet|box)\b/.test(text) && !/\b(?:coupe|eteins|desactive)\b/.test(text)) {
+    const veutCle = /mot de passe|code|cle|password/.test(text);
+    const out = await shellOut('netsh wlan show interfaces');
+    const ssid = (out.match(/ *SSID[a-z ]*: *(.+)/i) || [])[1];
+    if (!ssid) return { reply: "Aucun reseau sans fil connecte, Isaac.", source: 'system' };
+    const nom = ssid.trim();
+    if (!veutCle) return { reply: `Vous etes connecte au reseau « ${nom} », Isaac.`, source: 'system' };
+    const cle = await shellOut(`netsh wlan show profiles name="${nom}" key=clear`);
+    const pass = (cle.match(/(?:Key Content|Contenu de la c)\s*: *(.+)/i) || [])[1];
+    if (!pass) return { reply: `Le reseau est « ${nom} », mais je ne peux pas lire sa cle, Isaac (il faut les droits administrateur).`, source: 'system' };
+    return { reply: `Le nom du reseau est « ${nom} ». La cle Wi-Fi s'affiche a l'ecran, Isaac — ne la partagez pas.`, source: 'system', code: pass.trim() };
+  }
+  if (/\bmode avion\b/.test(text)) {
+    run('start ms-settings:number');
+    run('start ms-settings:network-airplanemode');
+    return { reply: "J'ouvre le panneau mode avion, Isaac — appuyez sur l'interrupteur. Je ne peux pas le basculer moi-meme sans droits administrateur.", source: 'system' };
+  }
+  if (/\b(?:mise ?a jour|windows update|actualisations)\b/.test(text)) {
+    run('start ms-settings:windowsupdate');
+    return { reply: "J'ouvre Windows Update, Isaac. Dites « verifier les mises a jour » dans la fenetre qui s'ouvre.", source: 'system' };
+  }
+  if (/\b(?:antivirus|windows defender|analyse (?:complete |rapide )?(?:vir|securite)|securite (?:windows|du pc|de mon pc))\b/.test(text)) {
+    run('start windowsdefender:');
+    run('start ms-settings:windowsdefender');
+    return { reply: "J'ouvre la securite Windows, Isaac. Lancez « Protection contre les virus » puis une analyse rapide.", source: 'system' };
+  }
+  if (/\b(?:casque|enceinte|bluetooth|appair|jumeler|associer|connecter un appareil)\b/.test(text) && /\b(?:connect\w*|appair|jumelle|associe|nouvel|ajoute|paire|monte|met|ouvre|porte)\b/.test(text)) {
+    run('start ms-settings:bluetooth');
+    return { reply: "J'ouvre les parametres Bluetooth, Isaac. Mettez votre appareil en mode appairage, puis cliquez dessus dans la liste.", source: 'system' };
+  }
+
+  // --- Rappels, minuteurs, alarmes ---
+  if (/(?:rappelle|ne pas oublier|n oublie pas|thought? a faire|reveille|minuteur|timer|alarme|il est l heure de)/.test(text) &&
+      parseEcheance(text)) {
+    const e = parseEcheance(text);
+    const note = (text.match(/(?:rappelle (?:moi )?(?:de |que je dois |d |que )?|pense a|n oublie pas de|ne pas oublier de|reveille (?:moi )?)([^,]*?)(?:\s+a \d|\s+dans \d|\s+vers \d|$)/) || [])[1];
+    let propre = (note || ' votre rappel').replace(/\s+/g, ' ').trim() || 'votre rappel';
+    if (/^(?:a|vers|dans)\s*\d/.test(propre)) propre = 'votre rappel'; // l'énoncé était seulement l'heure
+    const l = loadRappels();
+    l.push({ t: e.t, note: propre });
+    saveRappels(l);
+    return { reply: `Entendu, Isaac : je vous rappelle « ${propre} » ${e.relatif.startsWith('dans') ? e.relatif : 'a ' + e.relatif}. Dites « mes rappels » pour la liste.`, source: 'system' };
+  }
+  if (/(?:mes rappels|liste (?:des |les )?rappels|j ?ai (?:quoi )?comme rappels?|j ?ai quoi|comme rappel|quest ce que j ?ai (?:a )?(?:faire|ecrire|ecrit|prevu)|que dois je faire|rappels? en attente)/.test(text)) {
+    const l = loadRappels();
+    if (!l.length) {
+      const notes = await lireNotes();
+      return { reply: notes ? `Aucun rappel en attente. Vos notes disent : ${notes}` : "Aucun rappel en attente, Isaac.", source: 'system' };
+    }
+    const liste = l.map(r => {
+      const d = new Date(r.t);
+      return `« ${r.note} » le ${d.getDate()}/${d.getMonth() + 1} a ${d.getHours()}h${String(d.getMinutes()).padStart(2, '0')}`;
+    });
+    return { reply: `Vos rappels, Isaac : ${liste.join(' ; ')}.`, source: 'system' };
+  }
+  if (/(?:annule|supprime|efface|enleve)(?: (?:le|les|tous|mes|mon))+.*rappel/.test(text) || /annule (?:le |mon )?(?:minuteur|timer|alarme)/.test(text)) {
+    saveRappels([]);
+    return { reply: "Tous les rappels sont effaces, Isaac.", source: 'system' };
+  }
+
+  // --- Fichiers : chercher, créer, renommer, supprimer, raccourci ---
+  mm = text.match(/^(?:cherche|recherche|trouve|ouvre|montre moi)(?: moi)? (?:le |les |un |des |ma |mes |dernier |derniere |mon |d )?(fichiers?|documents?|factures?|pdf|images?|photos?)\s+(.+?)(?: dans| sur| de mon| du)? ?(?:pc|ordinateur|mon pc|mes documents|documents|telechargements|bureau)?$/);
+  if (mm) {
+    const quoi = nettoieCible(mm[1] + ' ' + (mm[2] || '')).replace(/\s+/g, ' ').trim();
+    const mot = (quoi.split(' ').filter(w => w.length > 2).pop() || quoi).replace(/[^a-z0-9]/g, '');
+    if (mot.length >= 3) {
+      const out = await shellOut(`powershell -NoProfile -Command "Get-ChildItem -Path $env:USERPROFILE -Recurse -File -Include *${mot}* -EA SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 5 FullName"`);
+      const fichiers = out.split(/\r?\n/).map(x => x.trim()).filter(x => x && /[A-Z]:\\/.test(x));
+      if (!fichiers.length) return { reply: `Aucun fichier ne contient « ${quoi} » sur votre PC, Isaac.`, source: 'system' };
+      if (/^ouvre/.test(text) || /^montre moi/.test(text)) {
+        run(`start "" "${fichiers[0]}"`);
+        return { reply: `J'ouvre ${path.basename(fichiers[0])}, Isaac.`, source: 'system' };
+      }
+      return { reply: `J'ai trouve ${fichiers.length} fichier(s) pour « ${quoi} », Isaac : ${fichiers.map(f => path.basename(f)).join(' ; ')}. Dites « ouvre ${path.basename(fichiers[0]).split('.')[0]} » pour le premier.`, source: 'system', code: fichiers.join('\n') };
+    }
+  }
+  mm = text.match(/^(?:creer|cre|cree|crez|faites? un dossier|nouveau dossier)\s+(?:moi\s+)?(?:un\s+|sur le bureau\s+)?(?:dossier\s+)?(.+)/);
+  if (mm && !/raccourci/.test(text)) {
+    const nom = nettoieCible(mm[1]).replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, '_').trim();
+    if (nom && nom.length >= 2) {
+      if (ESSAI) return { reply: '[ESSAI] dossier cree : ' + nom, source: 'essai' };
+      const racine = /bureau/.test(text) ? (process.env.USERPROFILE + '\\Desktop') : (process.env.USERPROFILE + '\\Documents');
+      const cible = path.join(racine, nom);
+      try { fs.mkdirSync(cible, { recursive: true }); } catch (e) { return { reply: "Je n'arrive pas a creer ce dossier, Isaac : " + e.message, source: 'system' }; }
+      run(`start "" "${cible}"`);
+      return { reply: `Dossier « ${nom} » cree dans ${/bureau/.test(text) ? 'votre Bureau' : 'vos Documents'}, Isaac.`, source: 'system' };
+    }
+  }
+  mm = text.match(/^(?:renomme|renommer|rebaptise|renomme)\s+(?:le |la |mon |ma |ce |du )?(fichier|document|dossier)\s+(.+?)\s+(?:en|vers|a)\s+(.+)$/);
+  if (mm) {
+    const ancien = nettoieCible(mm[2]).replace(/[^a-z0-9 _-]/g, '').trim();
+    const nouveau = nettoieCible(mm[3]).replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, '_').trim();
+    if (ESSAI) return { reply: `[ESSAI] renommage ${ancien} -> ${nouveau}`, source: 'essai' };
+    const out = await shellOut(`powershell -NoProfile -Command "$f=Get-ChildItem -Path $env:USERPROFILE -Recurse -EA SilentlyContinue | Where-Object { $_.Name -like '*${ancien}*' } | Select-Object -First 1; if ($f) { Rename-Item $f.FullName -NewName '${nouveau}' -EA SilentlyContinue; $f.FullName }"`);
+    if (!/[A-Z]:\\/.test(out)) return { reply: `Je ne trouve rien qui ressemble a « ${ancien} », Isaac.`, source: 'system' };
+    return { reply: `Renomme en « ${nouveau} », Isaac.`, source: 'system' };
+  }
+  mm = text.match(/^(?:supprime|effacer|efface|delete|mets a la corbeille)\s+(?:le |la |mon |ma |ce |cette )?(fichier|document|photo|image)\s+(.+)/);
+  if (mm) {
+    const mot = nettoieCible(mm[2]).replace(/[^a-z0-9 _-]/g, '').trim();
+    if (mot.length < 3) return { reply: "Precisez quel fichier, Isaac.", source: 'system' };
+    if (ESSAI) return { reply: '[ESSAI] corbeille : ' + mot, source: 'essai' };
+    const out = await shellOut(`powershell -NoProfile -Command "$f=Get-ChildItem -Path $env:USERPROFILE -Recurse -File -EA SilentlyContinue | Where-Object { $_.Name -like '*${mot}*' } | Select-Object -First 1; if ($f) { Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($f.FullName,'OnlyErrorDialogs','SendToRecycleBin'); $f.Name }"`);
+    const nom = out.trim().split(/\r?\n/).pop();
+    if (!nom) return { reply: `Aucun fichier trouve pour « ${mot} », Isaac.`, source: 'system' };
+    return { reply: `« ${nom} » est parti a la corbeille, Isaac. Vous pouvez encore le recuperer.`, source: 'system' };
+  }
+  mm = text.match(/^(?:creer?|cre|cree)\s+(?:moi\s+)?un raccourci\s+(?:sur le bureau\s+)?(?:pour|de|vers)?\s*(.*)/);
+  if (mm) {
+    if (ESSAI) return { reply: '[ESSAI] raccourci : ' + (mm[1] || 'mon site'), source: 'essai' };
+    const quoi = nettoieCible(mm[1]);
+    let cible = '', nom = 'Isaac';
+    if (/site|page|mbengue|eleve/.test(quoi) || !quoi) {
+      try {
+        const htmls = fs.readdirSync(CODE_DIR).filter(f => /\.html$/i.test(f));
+        if (htmls.length) { cible = path.join(CODE_DIR, htmls[0]); nom = htmls[0].replace(/\.html$/i, ''); }
+      } catch (e) {}
+    }
+    if (!cible) return { reply: "Dites-moi ce que le raccourci doit ouvrir, Isaac : « cre un raccourci pour mon site ».", source: 'system' };
+    const bureau = path.join(process.env.USERPROFILE || 'C:', 'Desktop', nom.replace(/[^a-z0-9_-]/g, '_') + '.lnk');
+    await shellOut(`powershell -NoProfile -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('${bureau}'); $s.TargetPath='${cible}'; $s.Save()"`);
+    return { reply: `Raccourci « ${nom} » depose sur votre Bureau, Isaac.`, source: 'system' };
+  }
+
+  // --- Communications : WhatsApp, email, appel ---
+  // « envoie ce fichier par whatsapp », « partage le fichier par mail » : on copie le dernier fichier créé + on ouvre le canal
+  if (/^(?:envoie|envoyer|partage|transmets|joins|poste)(?: moi)?\b/.test(text) && /\bfichiers?\b/.test(text) && /(whatsapp|mail|e?mail|gmail)/.test(text)) {
+    let dernier = '';
+    try {
+      const fichiers = fs.readdirSync(CODE_DIR)
+        .map(f => ({ f, t: fs.statSync(path.join(CODE_DIR, f)).mtimeMs }))
+        .sort((a, b) => b.t - a.t);
+      if (fichiers.length) dernier = path.join(CODE_DIR, fichiers[0].f);
+    } catch (e) {}
+    const canal = /whatsapp/.test(text) ? 'https://web.whatsapp.com' : 'https://mail.google.com';
+    if (dernier) {
+      run(`powershell -NoProfile -Command "Set-Clipboard -Path '${dernier.replace(/'/g, '')}'"`);
+      return { reply: `Le fichier « ${path.basename(dernier)} » est copie dans le presse-papiers, Isaac. Collez-le avec Ctrl+V dans la conversation que j'ouvre.`, source: 'system', open: canal };
+    }
+    return { reply: "Je n'ai aucun fichier recemment cree a envoyer, Isaac. D'abord « ecris un site web... », puis redites l'envoi. J'ouvre deja le canal.", source: 'system', open: canal };
+  }
+  mm = text.match(/^(?:envoie|envoyer|ecrire|ecris|dict[e]|poste)\s+(?:un\s+)?(?:message|texte|whatsapp|mail|email)\s+(?:a|au|a\s+monsieur|pour)\s+(.+?)(?:\s+(?:sur|par|via)\s+(whatsapp|gmail|mail|email|sms))?(?:\s*(?:en disant|disant|comme quoi|avec le message|comme suit)[: ]\s*(.+))?$/);
+  if (mm) {
+    const contact = nettoieCible(mm[1]).replace(/\s+/g, ' ').trim();
+    const canal = (mm[2] || 'whatsapp').trim();
+    const texte = (mm[3] || '').trim();
+    const mem = loadMemory();
+    const lignes = [mem.profil || ''].concat(mem.facts || [], (mem.log || []).map(x => x.q + ' ' + x.a)).join(' ');
+    const digits = (lignes.match(new RegExp(contact.replace(/[^a-z0-9]/g, '') + '[^0-9]{0,24}(\\+?[0-9][0-9 ]{7,16})', 'i')) || [])[1];
+    const lien = digits ? 'https://wa.me/' + digits.replace(/[^0-9]/g, '') + (texte ? '?text=' + encodeURIComponent(texte) : '')
+                        : (canal === 'gmail' || canal === 'mail' || canal === 'email' ? 'https://mail.google.com' : 'https://web.whatsapp.com');
+    const reponse = { reply: '', source: 'system', open: lien };
+    if (texte) run(`powershell -NoProfile -Command "'${texte.replace(/'/g, '')}' | Set-Clipboard"`);
+    if (digits) reponse.reply = texte ? `J'ouvre la conversation de ${contact}, Isaac, et votre message est copie : Ctrl+V puis Entree.`
+                                      : `J'ouvre la conversation WhatsApp de ${contact}, Isaac.`;
+    else reponse.reply = `Je ne trouve pas le numero de ${contact} dans ma memoire, Isaac. Dites « retiens que le numero de ${contact} c'est 07 XX XX XX XX » et je le ferai directement. ${texte ? 'Votre message est copie dans le presse-papiers : Ctrl+V.' : ''} J'ouvre ${canal}.`;
+    return reponse;
+  }
+  if (/^(?:appelle|appeler|appel me|passe un appel a|telephone a?)\s+(.+)/.test(text)) {
+    mm = text.match(/^(?:appelle|appeler|telephone a?)\s+(.+)/);
+    const nom = nettoieCible(mm[1]).replace(/\s+/g, ' ').trim();
+    return { reply: `Appeler par la voix n'est pas possible sur un PC sans telephonie, Isaac. En revanche je peux ouvrir WhatsApp avec ${nom} : dites « envoie un message a ${nom} sur whatsapp en disant bonjour ».`, source: 'system' };
+  }
+  if (/(?:montre|affiche|ouvre|lis)(?: moi)? (?:mes|la boite aux|mon) (?:emails?|mails?|messagerie|boite mail)/.test(text)) {
+    return { reply: "J'ouvre votre messagerie, Isaac.", source: 'system', open: 'https://mail.google.com' };
+  }
+  if (/lis (?:moi )?(?:le |mes |mon )?(?:dernier|les derniers) (?:message|mail|sms)/.test(text)) {
+    return { reply: "Je ne peux pas lire vos messages a votre place sans acces a la boite, Isaac — mais j'ouvre WhatsApp et Gmail pour vous. Dites « ouvre whatsapp ».", source: 'system', open: 'https://web.whatsapp.com' };
+  }
+
+  // --- Traduire / résumer / mot de passe / conversions ---
+  mm = text.match(/^(?:traduis|traduire|traduction de|comment dit on)\s+(.+?)\s+(?:en|dans|vers|au)\s+(anglais|francais|france|espagnol|allemand|italien|portugais|arabe|chinois|japonais|souahili|diola|baoule|anglais)/);
+  if (mm) {
+    const langues = { anglais: 'anglais', francais: 'français', france: 'français', espagnol: 'espagnol', allemand: 'allemand', italien: 'italien', portugais: 'portugais', arabe: 'arabe', chinois: 'chinois', japonais: 'japonais', souahili: 'swahili', diola: 'diola (Côte d\'Ivoire)', baoule: 'baoulé' };
+    const vers = langues[mm[2].trim()] || mm[2];
+    const t = await askAI([
+      { role: 'system', content: "Tu es un traducteur professionnel. Tu réponds UNIQUEMENT avec la traduction, sans explication ni guillemets." },
+      { role: 'user', content: `Traduis en ${vers} : ${mm[1]}` },
+    ]);
+    if (t) return { reply: `En ${vers}, Isaac, cela se dit : ${t.slice(0, 700)}`, source: 'ai' };
+    return { reply: "Mon cerveau de traduction est indisponible, Isaac. Réessayez dans un instant.", source: 'local' };
+  }
+  mm = text.match(/^(?:resume|resumer|resumes|retrecis|racourcis|fais un resume de|condense)\s*(?:moi\s+)?(?:ce|ca|le|la|un|mon|texte|article|document)?\s*[:\-]?\s*(.*)$/);
+  if (mm) {
+    const source = (mm[1] || '').trim();
+    const mem = loadMemory();
+    const derniere = ((mem.log || []).slice(-1)[0] || {}).a || '';
+    const texte = source.length > 60 ? source : derniere;
+    if (!texte || texte.length < 40) return { reply: "Dictez-moi le texte a resumer apres « resume : », Isaac, ou dites-le moi juste apres que je vous ai repondu et je le condenserai.", source: 'local' };
+    const t = await askAI([
+      { role: 'system', content: "Tu résumes en français en 3 phrases maximum, directement, sans introduction." },
+      { role: 'user', content: 'Résume ce texte : ' + texte.slice(0, 4000) },
+    ]);
+    if (t) return { reply: `En resume, Isaac : ${t.replace(/\s*\n+\s*/g, ' ')}`.slice(0, 700), source: 'ai' };
+    return { reply: "Je n'arrive pas a resumer pour l'instant, Isaac.", source: 'local' };
+  }
+  if (/(?:generateurs?|generer|genere|creer|cre|cree|donne|trouve)\s*(?:moi\s+)?(?:d[eu]\s+|un\s+|des\s+|le\s+|du\s+)?mot ?de ?passe/.test(text) || /mot de passe (?:fort|securise|aleatoire|solide)/.test(text)) {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*+-';
+    const octets = require('crypto').randomBytes(16);
+    let mp = '';
+    for (let i = 0; i < 16; i++) mp += alphabet[octets[i] % alphabet.length];
+    run(`powershell -NoProfile -Command "'${mp}' | Set-Clipboard"`);
+    return { reply: "Mot de passe genere, Isaac : il est copie dans votre presse-papiers (Ctrl+V pour le coller) et affiche a l'ecran. Je ne le lis pas a voix haute.", source: 'system', code: mp };
+  }
+  mm = text.match(/(\d+(?:[.,]\d+)?)\s*(?:pour ?cent|pourcents?|pc|%)\s*(?:de|sur|dans)\s*(\d+(?:[.,]\d+)?)/);
+  if (mm) {
+    const p = parseFloat(mm[1].replace(',', '.')), b = parseFloat(mm[2].replace(',', '.'));
+    const r = Math.round((p / 100 * b) * 100) / 100;
+    return { reply: `${mm[1].replace('.', ',')} pour cent de ${mm[2].replace('.', ',')} = ${String(r).replace('.', ',')}, Isaac.`, source: 'local' };
+  }
+  if (/combien de jours|jours avant|jours jusqu/.test(text)) {
+    const MOIS = { janvier: 0, fevrier: 1, mars: 2, avril: 3, mai: 4, juin: 5, juillet: 6, aout: 7, septembre: 8, octobre: 9, novembre: 10, decembre: 11 };
+    mm = text.match(/(\d{1,2})\s*(?:er)?\s*(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)\s*(\d{4})?/);
+    if (mm) {
+      const jour = parseInt(mm[1], 10), mois = MOIS[mm[2]], annee = mm[3] ? parseInt(mm[3], 10) : new Date().getFullYear();
+      let cibleD = new Date(annee, mois, jour);
+      const aujourd = new Date(); aujourd.setHours(0, 0, 0, 0);
+      if (cibleD < aujourd && !mm[3]) cibleD.setFullYear(annee + 1);
+      const jours = Math.round((cibleD - aujourd) / 864e5);
+      return { reply: `Il reste ${jours} jour${jours > 1 ? 's' : ''} avant le ${jour} ${mm[2]} ${cibleD.getFullYear()}, Isaac.`, source: 'local' };
+    }
+    return { reply: "Donnez-moi la date, Isaac : « combien de jours avant le 31 decembre ».", source: 'local' };
+  }
+  if (/\b(?:converti|conversion|combien)\b/.test(text) && /(\d[\d .,]{0,14})\s*(francs? ?cfa|fcfa|xof|euros?|dollars?|usd|livres?|gbp|dirhams?|nairas?|cedis?|dinars?)/.test(text)) {
+    mm = text.match(/(\d[\d .,]{0,14})\s*(francs? ?cfa|fcfa|xof|euros?|dollars?|usd|livres?|gbp|dirhams?|nairas?|cedis?|dinars?)\s*(?:en|vers|dans)\s*(francs? ?cfa|fcfa|xof|euros?|dollars?|usd|livres?|gbp|dirhams?|nairas?|cedis?|dinars?|[a-z]{3})/);
+    if (mm) {
+      const CODES = { 'francs cfa': 'XOF', 'franc cfa': 'XOF', fcfa: 'XOF', xof: 'XOF', cfa: 'XOF', euro: 'EUR', euros: 'EUR', dollar: 'USD', dollars: 'USD', usd: 'USD', livre: 'GBP', livres: 'GBP', gbp: 'GBP', dirham: 'MAD', naira: 'NGN', cedi: 'GHS', dinar: 'DZD' };
+      const montant = parseFloat(mm[1].replace(/[ .,](?=\d{3}(\D|$))/g, '').replace(',', '.'));
+      const de = CODES[mm[2].replace(/\s+/g, ' ').trim()] || String(mm[2]).toUpperCase().slice(0, 3);
+      const vers = CODES[mm[3].replace(/\s+/g, ' ').trim()] || String(mm[3]).toUpperCase().slice(0, 3);
+      if (montant > 0 && de.length === 3 && vers.length === 3) {
+        const brut = await fetchText('https://open.er-api.com/v6/latest/' + de, 8000);
+        try {
+          const j = JSON.parse(brut);
+          const taux = j.rates && j.rates[vers];
+          if (!taux) return { reply: `Je ne trouve pas le taux ${de} vers ${vers}, Isaac.`, source: 'local' };
+          const resultat = montant * taux;
+          const forme = n => String(Math.round(n * 100) / 100).replace('.', ',');
+          return { reply: `${forme(montant)} ${de} = ${forme(resultat)} ${vers} (taux du jour : 1 ${vers} = ${forme(1 / taux)} ${de}), Isaac.`, source: 'system' };
+        } catch (e) { return { reply: "Le serveur de change ne repond pas, Isaac. Réessayez dans un instant.", source: 'local' }; }
+      }
+    }
+  }
+  if (/\b(?:extension|add on|addons?)\b/.test(text) && /chrome|navigateur/.test(text)) {
+    return { reply: "J'ouvre le Chrome Web Store, Isaac : cherchez y l'extension puis cliquez sur « Ajouter ». Je ne peux pas l'installer a votre place sans Confirmation.", source: 'system', open: 'https://chrome.google.com/webstore' };
+  }
+  if (/\b(?:vitesse|accelere|plus vite|lentement)\b/.test(text) && /lecture|video|musique/.test(text)) {
+    await geste('lecture');
+    return { reply: "Je donne un coup sur la lecture, Isaac. Pour la vitesse, utilisez les touches +/- dans le lecteur.", source: 'system' };
+  }
+  if (/^(?:pause|stop la lecture|mets en pause|arrete la musique|continue la lecture|reprends la lecture)$/.test(text)) {
+    await geste('lecture');
+    return { reply: /pause|stop|arrete/.test(text) ? "Lecture mise en pause, Isaac." : "Lecture reprise, Isaac.", source: 'system' };
   }
 
   // --- Cherche sur Google ---
@@ -811,6 +1264,7 @@ async function handleCommand(rawText) {
   }
 
   // --- Sinon : le cerveau IA répond (mémoire + contexte documentaires) ---
+  if (ESSAI) return { reply: '<<<PAS_UNE_COMMANDE>>>', source: 'essai' };
   const answer = await smartAnswer(rawText);
   if (answer) return answer;
   return {
@@ -828,6 +1282,14 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/api/ping') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ ok: true, time: new Date().toISOString() }));
+    return;
+  }
+
+  // Les rappels arrivés à l'heure sont livrés à la page web (qui les lit à voix haute)
+  if (u.pathname === '/api/rappel') {
+    const aDire = rappelsDuJour.splice(0, rappelsDuJour.length).map(r => r.note);
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ rappels: aDire }));
     return;
   }
 

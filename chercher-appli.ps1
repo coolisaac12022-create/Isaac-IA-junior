@@ -1,4 +1,5 @@
 param([string]$Nom, [switch]$SansLancer)
+# Cherche et lance n'importe quel logiciel installe sur le PC de Isaac.
 $ErrorActionPreference = 'SilentlyContinue'
 
 function Clean([string]$s) {

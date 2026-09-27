@@ -365,6 +365,23 @@ cmdForm.addEventListener('submit', (e) => {
   processCommand(text);
 });
 
+// ---------- Rappels & minuteurs : le serveur les dépose, je vous les lis ----------
+async function checkRappels() {
+  try {
+    const res = await fetch('/api/rappel');
+    const data = await res.json();
+    if (data.rappels && data.rappels.length) {
+      for (const note of data.rappels) {
+        const phrase = `Isaac, votre rappel : ${note}.`;
+        addMsg('Isaac IA Juniors', phrase);
+        await speak(phrase);
+      }
+    }
+  } catch (e) { /* serveur éteint : on réessaiera au prochain tour */ }
+}
+setInterval(checkRappels, 20000);
+setTimeout(checkRappels, 15000);
+
 // ---------- Séquence de démarrage ----------
 const bootLines = [
   '> ISAAC IA JUNIORS — ASSISTANT IA PERSONNEL',
