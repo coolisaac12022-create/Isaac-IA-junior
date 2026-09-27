@@ -232,6 +232,15 @@ body.speaking .core-center { animation: speakWave .35s ease-in-out infinite; }
   color: #e9d5ff;
 }
 .msg.galika .who { color: #c084fc; }
+/* Agente libre rencontrée sur le réseau (séances d'Académie extérieures) : ambre pointillé */
+.msg.autre {
+  align-self: flex-start;
+  background: rgba(251, 191, 36, .08);
+  border: 1px dashed rgba(251, 191, 36, .45);
+  border-left: 3px solid #fbbf24;
+  color: #fde68a;
+}
+.msg.autre .who { color: #fbbf24; }
 .msg.user {
   align-self: flex-end;
   background: rgba(255, 179, 71, .12);

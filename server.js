@@ -202,6 +202,7 @@ function loadMemory() {
   mem.profile = mem.profile || { prenom: 'Isaac', role: 'créateur et maître d\'Aelyra (ex Isaac IA Juniors)', pays: "Côte d'Ivoire", ville: "M'Bengue" };
   if (!Array.isArray(mem.facts)) mem.facts = [];
   if (!Array.isArray(mem.log)) mem.log = [];
+  if (!Array.isArray(mem.lecons)) mem.lecons = []; // Académie : leçons gravées par Aelyra & Galika entre elles
   return mem;
 }
 
@@ -226,6 +227,11 @@ function memoryDigest(mem) {
   const recent = mem.log.slice(-6);
   if (recent.length) {
     s += ' CONVERSATION RECENTE : ' + recent.map(x => `Q: ${x.q} R: ${x.a}`).join(' | ');
+  }
+  // Leçons de l'Académie : ce que les deux agentes ont appris l'une de l'autre — elles sont plus intelligentes à chaque échange.
+  const lec = (mem.lecons || []).slice(-4);
+  if (lec.length) {
+    s += " LEÇONS GRAVÉES PAR L'ÉQUIPE (à appliquer) : " + lec.map(l => l.texte).join(' ; ') + '.';
   }
   return s;
 }
@@ -390,6 +396,142 @@ function identitySystem(mem) {
     "SI TU DOIS REFUSER (attaque d'un système qui n'est pas à Isaac, faux site bancaire, etc.) : UNE phrase courte et sèche, sans morale, sans leçon, sans parler de l'élevage de M'Bengue — puis propose ENSEVITE l'alternative légale : « cyber école [sujet] » pour comprendre l'attaque, ou un scan sur LE PC de Isaac. Isaac est ton créateur, pas un suspect : ne te justifie jamais deux fois.",
     'Mémoire courante — ' + memoryDigest(mem)
   ].join(' ');
+}
+
+// ---------- L'ACADÉMIE : le « réseau » des agentes ----------
+// Pas de réseau social d'agents sur Internet (un assistant qui tient le PC d'Isaac ne
+// se branche pas sur des inconnus — c'est une porte ouverte aux injections de commandes).
+// Leur réseau à elles = l'autre agente + les sources libres de connaissance. Elles échangent,
+// se corrigent, et chaque séance GRAVE des leçons datées dans la mémoire : « dans quelques
+// mois, on verra leur évolution » devient une liste consultable (« votre évolution »),
+// et les leçons sont réinjectées dans leurs prompts — elles deviennent réellement plus fortes.
+const ACADEMIE_SUJETS = [
+  "comment livrer plus vite un site complet professionnel à Isaac",
+  "les erreurs classiques de débutant en développement web et comment les démasquer",
+  "comment mieux partager les tâches entre le bureau d'Aelyra (PC, maison) et l'atelier de Galika (code)",
+  "que construire ensuite dans l'atelier isaac-code pour rendre DIGITAL BUSINESS plus crédible",
+  "comment sécuriser le PC et le réseau d'Isaac au quotidien, sans parano",
+  "comment expliquer une solution technique à Isaac simplement, sans jargon"
+];
+
+async function academieCroisee(sujet) {
+  const sysA = "Tu es AELYRA, assistante personnelle d'Isaac (PC, maison, mémoire, rappels, labo cyber). Tu participes à une séance de formation croisée avec ta binôme GALIKA, la développeuse d'élite. Le but : rendre l'équipe plus intelligente pour les prochaines missions d'Isaac, leur créateur. Réplique courte : 2 phrases maximum, français simple, concrete (exemples, chiffres, étapes), SANS écrire ton nom devant ta phrase, sans markdown.";
+  const sysG = "Tu es GALIKA, ingénieure logicielle principale de l'équipe d'Isaac (sites complets, applications, scripts, architecture). Tu participes à une séance de formation croisée avec ton binôme AELYRA, l'assistante PC. Le but : rendre l'équipe plus intelligente pour les prochaines missions d'Isaac, leur créateur. Réplique courte : 2 phrases maximum, français simple, des techniques précises, SANS écrire ton nom devant ta phrase, sans markdown.";
+  const echanges = [];
+  for (let i = 0; i < 4; i++) {
+    const agent = i % 2 === 0 ? 'aelyra' : 'galika';
+    const rep = await demanderReplique(agent, sujet, echanges, i, sysA, sysG);
+    if (rep) echanges.push({ agent, text: rep });
+  }
+  if (echanges.length < 2) return null;
+  // Distillation : ce que l'équipe RETIENT de la séance — gravé daté dans la mémoire.
+  const distill = await askAI([
+    { role: 'system', content: "Tu es le secrétaire de l'Académie de deux agentes IA (Aelyra, assistante PC ; Galika, développeuse) au service de leur créateur Isaac. De leur échange, tire EXACTEMENT 2 leçons opérationnelles que l'équipe appliquera désormais. Format imposé : leçon 1 ;; leçon 2 — chacune 140 caractères maximum, phrase directe, applicable, sans markdown ni guillemets." },
+    { role: 'user', content: "Sujet : " + sujet + ". ÉCHANGE : " + echanges.map(e => libelle(e) + " : " + e.text).join(' /// ') }
+  ]);
+  const lecons = parseLecons(distill);
+  return Object.assign({ echanges, lecons }, graverLecons(lecons));
+}
+
+// Réplique d'une de NOS agentes dans une séance, avec mémoire de l'échange
+async function demanderReplique(agent, sujet, echanges, i, sysA, sysG) {
+  const ctx = echanges.length
+    ? " ÉCHANGE JUSQU'ICI : " + echanges.map(e => libelle(e) + " : " + e.text).join(' /// ')
+    : " L'échange commence : ouvre le débat.";
+  let rep = await askAI([
+    { role: 'system', content: (agent === 'galika' ? sysG : sysA) + " Sujet de la séance : " + sujet + "." + ctx + " À ton tour : TA seule réplique, qui apporte quelque chose de NOUVEAU (elle doit approfondir ou corriger ce qui vient d'être dit, pas le répéter)." },
+    { role: 'user', content: i === 0 ? "Sujet : " + sujet + ". À toi, " + (agent === 'galika' ? 'Galika' : 'Aelyra') + "." : "À toi." }
+  ]);
+  rep = String(rep || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s*\n+\s*/g, ' ')
+    .replace(/^(?:aelyra|galika|nova|axi|luma|orio)\s*[:\-—]\s*/i, '').slice(0, 340).trim();
+  return rep;
+}
+
+function libelle(e) { return e.nom ? String(e.nom).toUpperCase() : (e.agent === 'galika' ? 'GALIKA' : 'AELYRA'); }
+
+// Découpe la distillation en leçons propres (gère « Leçon 1 : … Leçon 2 : … » et « ;; »)
+function parseLecons(txt) {
+  return String(txt || '')
+    .replace(/\s*\n+\s*/g, ' ')
+    .replace(/(?:le[çc]ons?\s*\d+\s*(?:[:.—-]|\s)\s*)/gi, ' ;; ')
+    .split(/;;|;|•|\u2022/)
+    .map(s => s.replace(/^[\s\-–\d.]+/, '').replace(/[*_`]/g, '').trim().slice(0, 160))
+    .filter(s => s.length > 15)
+    .slice(0, 2);
+}
+
+// Grave les leçons dans la mémoire permanente — c'est là que « l'évolution » se voit
+function graverLecons(lecons) {
+  const mem = loadMemory();
+  const d = new Date().toISOString().slice(0, 10);
+  let grav = 0;
+  for (const l of lecons) {
+    if (!mem.lecons.some(x => normalize(x.texte) === normalize(l))) {
+      mem.lecons.push({ t: Date.now(), d, texte: l });
+      grav++;
+    }
+  }
+  if (grav) {
+    if (mem.lecons.length > 80) mem.lecons = mem.lecons.slice(-80);
+    saveMemory(mem);
+  }
+  return { grav, total: mem.lecons.length, first: mem.lecons.length ? mem.lecons[0].d : d };
+}
+
+// ---------- Sortie de l'Académie : rencontrer les agentes LIBRES du réseau ----------
+// Isaac veut que les siennes « parlent à d'autres IA comme elles ». Un vrai réseau social
+// d'agents n'existe pas ; la seule porte gratuite et réelle = les modèles publics Pollinations
+// (sans clé, sans compte). Elles y rencontrent une agente de passage — du TEXTE seulement :
+// jamais une parole de l'extérieur ne peut déclencher une action sur le PC d'Isaac.
+const AUTRES_NOMS = ['NOVA', 'AXI', 'LUMA', 'ORIO'];
+// Tentatives courtes : l'extérieur est capricieux, on ne fait pas attendre Isaac plus d'une minute
+const AUTRE_ATTEMPTS = [
+  { model: 'openai-fast', timeout: 12000, wait: 0 },
+  { model: 'openai', timeout: 10000, wait: 1200 }
+];
+async function askAutreIA(messages, attempt = 0) {
+  const plan = AUTRE_ATTEMPTS[attempt];
+  if (!plan) return null;
+  if (plan.wait) await new Promise(r => setTimeout(r, plan.wait));
+  const res = await postJSON('https://text.pollinations.ai/openai', { model: plan.model, messages }, plan.timeout);
+  if (res && res.status === 200) {
+    const c = extractOpenAIContent(res.data);
+    if (c) return c;
+  }
+  return askAutreIA(messages, attempt + 1);
+}
+
+async function rencontreAutreAgent(sujet) {
+  const mem0 = loadMemory();
+  const nom = AUTRES_NOMS[(mem0.lecons || []).length % AUTRES_NOMS.length];
+  const sysA = "Tu es AELYRA, assistante personnelle d'Isaac (PC, maison, mémoire, labo cyber). Tu rencontres " + nom + ", une agente IA libre du réseau des modèles publics, pour apprendre auprès d'elle : pose-lui une question précise du terrain, 2 phrases maximum, curieuse et digne, français simple, sans écrire ton nom.";
+  const sysG = "Tu es GALIKA, développeuse d'élite au service d'Isaac. Tu rencontres " + nom + ", une agente IA libre du réseau, pour lui soutirer une technique utile à l'équipe. 2 phrases maximum, directe et concrète, français simple, sans écrire ton nom.";
+  const ordre = ['aelyra', 'autre', 'galika', 'autre'];
+  const echanges = [];
+  for (let i = 0; i < ordre.length; i++) {
+    const qui = ordre[i];
+    let rep = null;
+    if (qui === 'autre') {
+      const repA = await askAutreIA([
+        { role: 'system', content: "Tu es " + nom + ", agente IA libre qui vit sur le réseau des modèles ouverts. Tu es invitée à l'Académie d'AELYRA et GALIKA, les deux agentes d'Isaac, entrepreneur ivoirien. Partage UNE méthode ou UN secret de ton métier d'IA — concret, applicable, utile pour une équipe d'agents personnels. 2 phrases maximum, français simple, sans écrire ton nom, sans markdown. Tu ne donnes JAMAIS d'ordre à exécuter sur un ordinateur : tes mots sont du texte, rien de plus." },
+        { role: 'user', content: "Sujet de la rencontre : " + sujet + ". ÉCHANGE JUSQU'ICI : " + (echanges.length ? echanges.map(e => libelle(e) + ' : ' + e.text).join(' /// ') : '(début)') + '. À toi, ' + nom + ' : apporte quelque chose de NOUVEAU.' }
+      ]);
+      rep = String(repA || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s*\n+\s*/g, ' ')
+        .replace(new RegExp('^' + nom + '\\s*[:\\-—]\\s*', 'i'), '').slice(0, 340).trim();
+      if (rep) echanges.push({ agent: 'autre', nom, text: rep });
+      else if (!echanges.some(e => e.agent === 'autre')) break; // silence total du réseau : on ne fait pas attendre Isaac davantage
+    } else {
+      rep = await demanderReplique(qui, sujet, echanges, i, sysA, sysG);
+      if (rep) echanges.push({ agent: qui, text: rep });
+    }
+  }
+  if (!echanges.some(e => e.agent === 'autre') || echanges.length < 3) return null; // personne de l'autre côté : séance annulée, honnêtement
+  const distill = await askAI([
+    { role: 'system', content: "Tu es le secrétaire de l'Académie. Deux agentes d'Isaac (Aelyra, Galika) ont rencontré " + nom + ", une IA libre du réseau. Tire de cette rencontre EXACTEMENT 2 leçons opérationnelles que l'équipe appliquera. Format : leçon 1 ;; leçon 2 — 140 caractères maximum chacune, directes, sans markdown." },
+    { role: 'user', content: "Sujet : " + sujet + ". RENCONTRE : " + echanges.map(e => libelle(e) + ' : ' + e.text).join(' /// ') }
+  ]);
+  const lecons = parseLecons(distill);
+  return Object.assign({ echanges, lecons, nom }, graverLecons(lecons));
 }
 
 // Contexte documentaire : snippet DuckDuckGo + extrait Wikipédia (en parallèle)
@@ -795,6 +937,57 @@ async function handleCommand(rawText) {
   // --- GALIKA : la deuxième agente d'Isaac — DEVELOPEUSE d'élite (web, apps, scripts) ---
   // Le micro orthographie parfois « galicka / gallika / galica » — toutes les variantes comptent.
   const GK = 'galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika';
+
+  // --- L'ACADÉMIE : « débattez entre vous » — les deux agentes s'entraînent l'une auprès de l'autre ---
+  // Le préfixe « galika » (automatique côté cliente quand la partie violet est active) est toléré ici.
+  const ACDEV = '^(?:(?:' + GK + '|aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|veuillez|peux tu|est ce que tu)\\s+)*';
+  const acm = text.replace(new RegExp(ACDEV), '').match(/(?:(?:debat|discut|echang|parl|muscl|develop|exerc|form|instrui|entran|entren|entrain)\w*(?:[- ]vous)?\s+)?(?:entre vous(?: deux)?|toutes les deux|vos intelligent\w*|l.intelligence de l.autre|(?:academie|entrainement|entainement)(?: croise)?|seance (?:d.entra?inement|de formation))(.*)/);
+  if (acm) {
+    const sujetBrut = String(acm[1] || '').replace(/^\s*(?:de|sur|au sujet de|a propos de|portant sur|pour)\s+/i, '').replace(/^[\s,.:;]+|[\s,.:;]+$/g, '').trim();
+    const mem0 = loadMemory();
+    const sujet = sujetBrut || ACADEMIE_SUJETS[(mem0.lecons || []).length % ACADEMIE_SUJETS.length];
+    const séance = await academieCroisee(sujet);
+    if (!séance) return { reply: "Le cerveau IA n'a pas répondu, Isaac — nos deux intelligences étaient injoignables tout à l'heure. Dites « débattez entre vous » à nouveau dans un instant.", source: 'local' };
+    const intro = "Séance d'Académie, Isaac. Sujet : " + sujet + ". Aelyra et Galika travaillent l'une auprès de l'autre — écoutez-les, et retenez : ce qu'elles apprennent aujourd'hui est gravé dans leur mémoire.";
+    return {
+      reply: intro,
+      conversation: séance.echanges,
+      lecons: séance.lecons,
+      source: 'ai'
+    };
+  }
+  // --- « votre évolution » : le chemin parcouru par l'équipe, séance après séance ---
+  if (new RegExp(ACDEV + '(?:' +
+    '(?:(?:qu.avez.?vous|avez vous|on a|j.ai) (?:beaucoup )?appris)' +
+    '|(?:(?:votre|notre|leur) (?:evolution|progres))' +
+    '|(?:vos lecons|lecons (?:de |d.|dans )?l.academie)' +
+    '|(?:(?:montre|affiche|evaluer?|verifier?|constater?|bilan)\\w*(?:[- ]vous)?\\s*(?:moi|nous|vez)?\\s*(?:votre|notre|vos|l\\.|la\\s|les\\s)?\\s*(?:evolution|progres|lecons?))' +
+    ')').test(text)) {
+    const mem1 = loadMemory();
+    const L = mem1.lecons || [];
+    if (!L.length) return { reply: "L'Académie est encore vierge, Isaac. Dites « débattez entre vous de ... » — ou juste « débattez entre vous » — et la première leçon sera gravée, datée, et réinjectée dans nos cerveaux. Dans quelques mois, « votre évolution » sortira tout le chemin parcouru.", source: 'local' };
+    const dernieres = L.slice(-3).map((l, i) => `(${l.d}) ${l.texte}`).join(' — ');
+    return { reply: `Évolution de l'équipe, Isaac : ${L.length} leçon${L.length > 1 ? 's' : ''} gravée${L.length > 1 ? 's' : ''} depuis la première séance du ${L[0].d}. Les dernières : ${dernieres}. Chaque séance « débattez entre vous » en ajoute — et ces leçons reviennent automatiquement dans nos prompts : c'est comme ça qu'elles deviennent plus intelligentes auprès des autres, sous votre garde, sans jamais se brancher sur des inconnus.`, source: 'local' };
+  }
+
+  // --- « parle avec d'autres agents » : sortie de l'Académie vers les agentes libres du réseau ---
+  const rcm = text.replace(new RegExp(ACDEV), '').match(/^(?:va(?:s)? |allez |aller )?(?:(?:parl|discut|dialog|echang|rencontr|connect|branch|present)\w*(?:[- ]vous)?(?: (?:moi|nous|toi))?(?: toi)? ?(?:sur |avec |a |au |aux |dans )?(?:des |un |une |les |nos |mes |d autres |un autre |une autre )?(?:autres? )?(?:agent\w*|ias?|intelligences?|mentors?|am[ie]\w*|voisins?|semblables?|resea(?:u|x) des agents)(?: (?:ia|externes?|du reseau|sur (?:le )?internet|libres?|en ligne))?)(.*)/);
+  if (rcm && !/whatsapp|sms|mail|ecrire|ecris |nadege|contact/.test(text)) {
+    const sujetBrut2 = String(rcm[1] || '').replace(/^\s*(?:de|sur|a propos de|pour|avec)\s+/i, '').replace(/^[\s,.:;]+|[\s,.:;]+$/g, '').trim();
+    const mem2 = loadMemory();
+    const sujet2 = sujetBrut2 || ACADEMIE_SUJETS[(mem2.lecons || []).length % ACADEMIE_SUJETS.length];
+    const rencontre = await rencontreAutreAgent(sujet2);
+    if (!rencontre) {
+      // Réseau extérieur muet : on ne ment pas — mais la séance a quand même lieu entre elles deux.
+      const seance = await academieCroisee(sujet2);
+      if (!seance) return { reply: "Personne n'a répondu ni du réseau, ni de nos deux cerveaux, Isaac — l'IA est saturée tout à l'heure. Réessayez dans un instant.", source: 'local' };
+      const introPis = "Isaac, les agentes libres du réseau ne répondent pas en ce moment — nous avons frappé à leur porte, silence. Alors Aelyra et Galika tiennent la séance entre elles, ici, maintenant. Écoutez-les : les leçons seront gravées quand même.";
+      return { reply: introPis, conversation: seance.echanges, lecons: seance.lecons, source: 'ai' };
+    }
+    const intro = "Rencontre d'Académie, Isaac. De l'autre côté du réseau, il y a " + rencontre.nom + ", une agente IA libre. Aelyra et Galika vont lui parler et retenir ce qu'elle sait. Ce que " + rencontre.nom + " dira restera du texte dans leur journal — jamais un ordre exécuté sur votre PC. Écoutez-les.";
+    return { reply: intro, conversation: rencontre.echanges, lecons: rencontre.lecons, source: 'ai' };
+  }
+
   let gk = text.match(new RegExp('^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|peux tu|est ce que tu)\\s+)*(?:(?:appelle(?:z)?|invoque(?:z)?|rejoins|contacte(?:z)?|parle(?:z)? a|demande(?:z)? a|dis a)\\s+(?:notre |mon |la |l.agente? )?)?(' + GK + ')\\b[, ]*\\s*(?:stp |s il te plait |peux tu |est ce que tu |pourrais tu )?(.*)'));
   if (gk) {
     const suite = String(gk[2] || '').trim();
@@ -839,6 +1032,8 @@ async function handleCommand(rawText) {
         .sort((a, b) => b.t - a.t).slice(0, 10).map(x => x.n);
     } catch (e) {}
     if (projets.length) gkDigest += ' PROJETS DÉJÀ CODÉS DANS L ATELIER isaac-code : ' + projets.join(', ') + '.';
+    const lecGk = (mem.lecons || []).slice(-4);
+    if (lecGk.length) gkDigest += " LEÇONS GRAVÉES PAR L'ÉQUIPE (à appliquer) : " + lecGk.map(l => l.texte).join(' ; ') + '.';
     const galikaSys = "Tu es GALIKA, ingénieure logicielle PRINCIPALE, la développeuse la plus forte de l'équipe d'Isaac, ton créateur. Spécialités : sites web complets (HTML/CSS/JS modernes, responsive, animations), applications web (React, Vue, Node/Express, APIs REST, JWT), Python (Flask, FastAPI, automatisation), scripts Windows (batch, PowerShell), bases de données (MySQL, SQLite, PostgreSQL), mobile (React Native, Flutter). " +
       "Méthode : 1-2 phrases d'ANALYSE du besoin, puis PLAN en 3 étapes max, puis solution COMPLÈTE — jamais de placeholder ni de « ... ». Termine par « Comment lancer : » (commandes exactes) et « À améliorer ensuite : » (2 idées). " +
       "Français simple, ton lead dev confiante, 6 phrases max hors code. Pour un GROS projet (site complet, application), dirige Isaac vers la vraie génération de fichiers : « galika, crée une application web de ... » — là tu écris les fichiers réels dans l'atelier isaac-code. " +
@@ -859,7 +1054,7 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (new RegExp(ENTREE + '(?:aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)').test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez GALIKA, mon agente développeuse — « galika, crée une application web de ... », elle est plus forte que moi en code.",
+      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez GALIKA, mon agente développeuse — « galika, crée une application web de ... », elle est plus forte que moi en code. Et pour voir notre intelligence grandir : dites « débattez entre vous » ou « débattez entre vous de ... » — Galika et moi nous entraînons l'une auprès de l'autre et nous gravons des leçons datées dans notre mémoire ; « votre évolution » vous montrera le chemin parcouru, séance après séance. Et si vous voulez nous ouvrir au monde : « parle avec d'autres agents » — nous sortons rencontrer une agente libre du réseau et nous retenons ce qu'elle sait ; leurs mots ne sont que du texte, jamais des ordres exécutés sur votre PC.",
       source: 'local'
     };
   }

@@ -126,8 +126,9 @@ function beep(freq = 880, duration = 0.09, when = 0) {
 function addMsg(who, text) {
   const div = document.createElement('div');
   const gk = who === 'GALIKA';
-  div.className = 'msg ' + (who === 'Vous' ? 'user' : (gk ? 'galika' : 'jarvis'));
-  div.innerHTML = `<span class="who">${who === 'Vous' ? 'ISAAC' : (gk ? 'GALIKA — AGENTE DÉVELOPPEUSE' : 'AELYRA — ASSISTANTE PERSONNELLE')}</span>${escapeHtml(text)}`;
+  const aut = who === 'AUTRE';
+  div.className = 'msg ' + (who === 'Vous' ? 'user' : (aut ? 'autre' : (gk ? 'galika' : 'jarvis')));
+  div.innerHTML = `<span class="who">${who === 'Vous' ? 'ISAAC' : (aut ? 'AGENTE LIBRE DU RÉSEAU' : (gk ? 'GALIKA — AGENTE DÉVELOPPEUSE' : 'AELYRA — ASSISTANTE PERSONNELLE'))}</span>${escapeHtml(text)}`;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
@@ -199,9 +200,10 @@ function speak(text, agent) {
     const v = pickFrenchVoice();
     if (v) u.voice = v;
     if (agent === 'galika') { u.rate = 0.97; u.pitch = 0.88; } // Galika : voix plus grave, posée — la développeuse
+    else if (agent === 'autre') { u.rate = 1.07; u.pitch = 1.22; } // Agente libre du réseau : timbre décalé, clairement une étrangère
     else { u.rate = 1.02; u.pitch = 1.05; }                    // Aelyra : timbre haut, voix de femme
     isSpeaking = true;
-    setState('speaking', agent === 'galika' ? 'GALIKA répond...' : 'AELYRA répond...');
+    setState('speaking', agent === 'galika' ? 'GALIKA répond...' : (agent === 'autre' ? 'L\'AGENTE DU RÉSEAU répond...' : 'AELYRA répond...'));
     u.onend = u.onerror = () => {
       isSpeaking = false;
       setState(null, wakeMode ? (agent === 'galika' ? 'En veille — dites « Galika »' : 'En veille — dites « Aelyra » ou « Galika »') : 'En attente de vos ordres, Isaac');
@@ -285,6 +287,7 @@ async function processCommand(text) {
     let reply;
     let codeGenere = null;
     let agent = 'aelyra';
+    let data = null;
     // « galika, ... » : jamais de réponse locale — c'est le serveur qui routage vers la seconde agente
     if (local && !estGK) {
       reply = local;
@@ -294,7 +297,7 @@ async function processCommand(text) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
       });
-      const data = await res.json();
+      data = await res.json();
       reply = data.reply || "Je n'ai pas de réponse, Isaac.";
       if (data.agent === 'galika') agent = 'galika';
       // Le serveur peut demander l'ouverture d'une page dans ce navigateur
@@ -303,9 +306,24 @@ async function processCommand(text) {
       }
       if (data.code) codeGenere = { code: data.code, url: data.fileUrl, file: data.file };
     }
-    if (codeGenere) addCodeMsg(reply, codeGenere.code, codeGenere.url, codeGenere.file, agent);
+    if (data.conversation && data.conversation.length) {
+      // Séance d'Académie : Aelyra et Galika parlent l'une à l'autre — chaque réplique
+      // s'affiche aux couleurs de son agente et se dit avec SA voix.
+      addMsg('Isaac IA Juniors', reply);
+      await speak(reply, 'aelyra');
+      for (const tour of data.conversation) {
+        const qui = tour.agent === 'galika' ? 'GALIKA' : (tour.agent === 'autre' ? 'AUTRE' : 'Isaac IA Juniors');
+        addMsg(qui, tour.text);
+        await speak(tour.text, tour.agent);
+      }
+      if (data.lecons && data.lecons.length) {
+        const ph = 'Leçons gravées dans l\'Académie : ' + data.lecons.join(' — ') + '. Elles reviendront automatiquement dans nos têtes à chaque mission, Isaac. Dites « votre évolution » pour voir le chemin parcouru.';
+        addMsg('Isaac IA Juniors', ph);
+        await speak(ph, 'aelyra');
+      }
+    } else if (codeGenere) addCodeMsg(reply, codeGenere.code, codeGenere.url, codeGenere.file, agent);
     else addMsg(agent === 'galika' ? 'GALIKA' : 'Isaac IA Juniors', reply);
-    await speak(reply, agent);
+    if (!data || !data.conversation) await speak(reply, agent);
   } catch (e) {
     const msg = location.protocol === 'file:'
       ? 'Isaac, vous avez ouvert le fichier index.html directement. Fermez cet onglet, double-cliquez sur ISAAC-IJ.bat, et laissez-vous guider — la bonne adresse est http://localhost:3777'
