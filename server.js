@@ -620,7 +620,7 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (/^(?:(?:isaac|allez|bonjour|peux tu)\s+)*(aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)/.test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier — du hacking éthique, uniquement chez vous. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA.",
+      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA.",
       source: 'local'
     };
   }
@@ -825,6 +825,38 @@ async function handleCommand(rawText) {
       if (!out.trim()) return { reply: "La recherche a dure trop longtemps, Isaac — precisez le nom du fichier.", source: 'system' };
       return { reply: `Empreinte SHA-256 scellée, Isaac. Le bloc d'héxadécimal s'affiche : gardez-le précieusement. Si un jour le fichier change sans votre accord, l'empreinte le trahira instantanément.`, source: 'system', code: out };
     }
+  }
+  // --- Cyber-école : pour défendre, il faut comprendre l'attaque (cibles légales uniquement) ---
+  mm = text.match(/^cyber ecole (?:sur |de |du |des |a |apprends moi )?(.+)/);
+  if (mm) {
+    const theme = mm[1].trim();
+    const t = await askAI([
+      { role: 'system', content: "Tu es formateur en cybersécurité pour débutants. Ton élève s'appelle Isaac, entrepreneur ivoirien, et il apprend à DÉFENDRE son PC. Pour le sujet demandé, réponds en 5 phrases maximum, en français simple et vivant : 1) ce que fait cette attaque, avec une image concrète ; 2) le geste précis pour s'en protéger sur Windows ; 3) où s'entraîner légalement (son propre PC, TryHackMe, picoCTF). Tu Expliques le PRINCIPE et la DÉFENSE, jamais un mode d'emploi détaillé pour attaquer un système qui n'est pas une cible d'entraînement autorisée." },
+      { role: 'user', content: 'Sujet : ' + theme },
+    ]);
+    if (t) return { reply: `Cyber-école, Isaac. ${t.replace(/\s*\n+\s*/g, ' ')}`.slice(0, 900), source: 'ai' };
+    return { reply: "Le cerveau de formation est indisponible, Isaac. Réessayez dans un instant.", source: 'local' };
+  }
+  if (/cyber ecole|apprendre a hacker|ou s entrainer|terrain d entrainement|entraine moi|pratique legale/.test(text)) {
+    return { reply: "On apprend à attaquer là où c'est LÉGAL, Isaac : sur votre propre PC, et sur des machines volontairement vulnérables faites pour l'entraînement — TryHackMe que j'ouvre maintenant, ou picoCTF. Et pour comprendre une attaque précise : « cyber école rançonneur », « cyber école hameçonnage »...", source: 'system', open: 'https://tryhackme.com/path/outline/prelearning' };
+  }
+  if (/installe(?:z)? (?:moi )?(?:les |l[ae]s? )?outils (?:du |de )?(?:hacker|cyber|pentest)/.test(text)) {
+    run('start cmd /k "winget install -e --id Insecure.Nmap --accept-package-agreements --accept-source-agreements && echo. && echo MERCI DE LANALYSEUR Wireshark : && winget install -e --id WiresharkFoundation.Wireshark --accept-package-agreements --accept-source-agreements"');
+    return { reply: "Fenêtre d'installation ouverte, Isaac — deux outils gratuits et légaux : Nmap, le stéthoscope du réseau, et Wireshark, l'analyseur de trafic. Répondez YES aux accords si Windows demande. Une fois terminé, dites « teste mon pc avec nmap » : je scannerai VOTRE machine pour vous montrer ce qu'un attaquant verrait en premier.", source: 'system' };
+  }
+  if (/\bnmap\b|teste? (?:mon |le )?pc (?:avec nmap|en attaquant)?|ce que voit un (?:attaquant|hacker)|test(?:e)? mon (?:pare[ -]?feu|firewall)/.test(text)) {
+    if (!IS_LOCAL) return { reply: "Le scan nmap exige votre PC : lancez ISAAC-IJ.bat, Isaac.", source: 'local' };
+    let nmap = ['C:\\Program Files (x86)\\Nmap\\nmap.exe', 'C:\\Program Files\\Nmap\\nmap.exe'].find(p => fs.existsSync(p));
+    if (!nmap) {
+      const ou = await shellOut('where nmap');
+      if (/nmap\.exe/i.test(ou)) nmap = ou.split(/\r?\n/)[0].trim();
+    }
+    if (!nmap) return { reply: "Nmap n'est pas encore installé, Isaac. Dites « installe les outils du hacker » — c'est gratuit, et j'ouvre la fenêtre d'installation.", source: 'system' };
+    const outIp = await shellOut('ipconfig');
+    const moi = (outIp.match(/(?:IPv4|Adresse IPv4)[^:]*: *([0-9]{1,3}(?:\.[0-9]{1,3}){3})/) || [])[1] || '127.0.0.1';
+    const out = ESSAI ? '[ESSAI] scan nmap simulé\n22/tcp open ssh' : await shellOut(`"${nmap}" -Pn -F --top-ports 20 ${moi}`);
+    const ports = (out.match(/\/tcp\s+open/gi) || []).length;
+    return { reply: `Scan nmap sur VOTRE propre PC (${moi}) : ${ports} portes ouvertes vues de l'extérieur — exactement ce qu'un attaquant repérerait en premier s'il entrait chez vous par le Wi-Fi. La défense commence là : vous savez maintenant quoi fermer.`, source: 'system', code: out };
   }
   // IP locale (privée) — après le cas « publique »
   if (/\b(?:adresse )?ip\b|mon ip|adresse internet/.test(text)) {
