@@ -548,9 +548,13 @@ async function handleCommand(rawText) {
   // --- Récupérer le DERNIER code écrit : l'ouvrir dans VS Code + le copier au presse-papiers ---
   // « copie le code dans vs code », « ouvre le dernier script », « montre le code »...
   // Mais JAMAIS « ouvre vscode » (lancement de l'application, géré par la table APPS plus bas).
-  const veutDernier =
-    /^(?:copie|colle|montre|ouvre|ouvrir|donne|affiche)\b/.test(text) &&
-    /(?:le|la|les|mon|ma|ce|cet|ton|ta|du|de la|dernier|premier)\s+(?:dernier\s+|nouveau\s+|complete\s+)?(?:code|script)\b/.test(text);
+  const lanceEditeur = /^(?:ouvre|ouvrir)\s+(?:moi\s+|le\s+)?(?:vs\s?code|visual)/.test(text); // « ouvre vscode » = lancer l'app
+  const verbeRecup = /^(?:copie|copies|copier|colle|coller|montre|montrer|donne|donner|affiche|envoie|ouvre|ouvrir)\b/.test(text);
+  const parleDuDernier =
+    /\b(?:le|la|les|du|de la|ce|cet|ton|ta|mon|ma|notre|dernier|premier)\s+(?:dernier\s+|nouveau\s+)?(?:code|codes|script|scripts)\b/.test(text) ||
+    /\b(?:vs\s?code|visual\s?studio|presse[- ]?papier)\b/.test(text);
+  const veutDernier = !lanceEditeur && verbeRecup && parleDuDernier &&
+    !/\b(?:python|html|javascript|batch|powershell|sql|php|java|c\+\+)\b/.test(text.replace(/vs\s?code|visual\s?studio/g, '')); // « copie le code python qui... » = génération, pas récupération
   if (veutDernier) {
     if (!IS_LOCAL) return { reply: "Je ne peux ouvrir VS Code que lorsque je tourne sur votre PC, Isaac. En version web, utilisez le lien sous le bloc de code.", source: 'local' };
     let derniers = [];
