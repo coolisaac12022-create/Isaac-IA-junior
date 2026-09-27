@@ -67,7 +67,7 @@ function addMsg(who, text) {
   const div = document.createElement('div');
   const gk = who === 'GALIKA';
   div.className = 'msg ' + (who === 'Vous' ? 'user' : (gk ? 'galika' : 'jarvis'));
-  div.innerHTML = `<span class="who">${who === 'Vous' ? 'ISAAC' : (gk ? 'GALIKA — AGENTE BUSINESS' : 'AELYRA — ASSISTANTE PERSONNELLE')}</span>${escapeHtml(text)}`;
+  div.innerHTML = `<span class="who">${who === 'Vous' ? 'ISAAC' : (gk ? 'GALIKA — AGENTE DÉVELOPPEUSE' : 'AELYRA — ASSISTANTE PERSONNELLE')}</span>${escapeHtml(text)}`;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
@@ -404,7 +404,7 @@ const bootLines = [
   '> Synthèse vocale française (femme)........ OK',
   '> Reconnaissance du créateur : Isaac....... OK',
   '> Mot d\'appel : « Aelyra » ou « Galika »... OK',
-  '> Seconde agente chargée : GALIKA (business) OK',
+  '> Seconde agente chargée : GALIKA (développeuse) OK',
   '> Socle cyberdéfense (éthique)............. OK',
   '> Bonjour Isaac, mon créateur. Aelyra et Galika sont en ligne.'
 ];

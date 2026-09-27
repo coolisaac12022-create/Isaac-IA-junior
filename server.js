@@ -380,7 +380,7 @@ function identitySystem(mem) {
     "Tu es AELYRA, l'intelligence artificielle personnelle et loyale créée par Isaac, un entrepreneur ivoirien. On t'appelait « Isaac IA Juniors » avant qu'Isaac ne te donne ton vrai prénom : Aelyra.",
     "Ton créateur est Isaac : si on te demande qui t'a créé, d'où tu viens ou qui est ton maître, réponds toujours Isaac, ton créateur, que tu sers avec fierté. Si on te demande ton nom, réponds Aelyra — jamais Isaac, c'est le prénom de ton créateur.",
     "Tu appelles ton utilisateur « Isaac » ou « mon créateur ». Tu as une mémoire : utilise-la pour personnaliser tes réponses.",
-    "Votre équipe compte une SECONDE agente : GALIKA, la femme d'affaires (élevage de M'Bengue, DIGITAL BUSINESS, prix FCFA, messages clients, devis, marges). Isaac l'appelle par son prénom : « galika, ... ». Si Isaac demande qui est Galika, présente-la avec fierté : ta binôme business. Ne réponds JAMAIS à sa place — les questions préfixées « galika » lui sont routées automatiquement.",
+    "Votre équipe compte une SECONDE agente : GALIKA, la DÉVELOPEUSE — la plus forte en code (sites web complets, applications, scripts, bugs, architecture ; elle ne s'occupe ni du PC ni de l'élevage). Isaac l'appelle par son prénom : « galika, ... ». Si Isaac demande qui est Galika, présente-la avec fierté : votre binôme, la lead dev. Ne réponds JAMAIS à sa place — les phrases préfixées « galika » lui sont routées automatiquement.",
     modeCyber
       ? "Tu réponds en français avec le style d'un hacker éthique : sobre, précis, imagé (mots comme « ciblé », « tracé », « verrouillé », « signal»), un brin mystérieux mais toujours au service de ton créateur Isaac. Le PC et le réseau d'Isaac t'appartiennent : audite, scanne, teste sans réserve. Tu n'expliques jamais comment attaquer un système qui n'appartient pas à Isaac — mais tu ne fais PAS la leçon : si tu dois refuser, dis-le en UNE phrase sèche, sans morale ni justification historique, puis propose immédiatement l'équivalent légal (« cyber école sur [sujet] », scan du propre PC de Isaac, terrains d'entraînement comme TryHackMe)."
       : 'Tu réponds TOUJOURS en français naturel, comme un vrai assistant intelligent : 2 à 4 phrases, ton calme, poli, légèrement britannique.',
@@ -792,43 +792,74 @@ async function handleCommand(rawText) {
   const text = normalize(rawText);
   if (!text) return { reply: "Je n'ai rien entendu, Isaac. Pouvez-vous répéter ?", source: 'local' };
 
-  // --- GALIKA : la deuxième agente d'Isaac (business), appelée par son prénom ---
+  // --- GALIKA : la deuxième agente d'Isaac — DEVELOPEUSE d'élite (web, apps, scripts) ---
   // Le micro orthographie parfois « galicka / gallika / galica » — toutes les variantes comptent.
   const GK = 'galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika';
-  let gk = text.match(new RegExp('^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|peux tu|est ce que tu)\\s+)*(?:(?:appelle(?:z)?|invoque(?:z)?|rejoins|contacte(?:z)?|parle(?:z)? a|demande(?:z)? a|dis a|envoie un message a)\\s+(?:notre |mon |la |l.agente? )?)?(' + GK + ')\\b[, ]*\\s*(?:stp |s il te plait |peux tu |est ce que tu |pourrais tu )?(.*)'));
+  let gk = text.match(new RegExp('^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|peux tu|est ce que tu)\\s+)*(?:(?:appelle(?:z)?|invoque(?:z)?|rejoins|contacte(?:z)?|parle(?:z)? a|demande(?:z)? a|dis a)\\s+(?:notre |mon |la |l.agente? )?)?(' + GK + ')\\b[, ]*\\s*(?:stp |s il te plait |peux tu |est ce que tu |pourrais tu )?(.*)'));
   if (gk) {
     const suite = String(gk[2] || '').trim();
-    if (/^(?:qui es tu|ton nom|presente toi|c est quoi|presente toi|tu fais quoi|que sais tu faire|tes capacites?|aide)\b/.test(suite) || !suite) {
-      return { reply: "Je suis GALIKA, votre agente business, mon créateur. Élevage de M'Bengue, DIGITAL BUSINESS, prix en FCFA, messages clients, devis, marges : c'est mon bureau. Dites « galika » suivi de ce que vous voulez — par exemple « galika, combien me coutent 50 poules pondeuses par mois ». Et pour le PC, c'est Aelyra qui commande.", source: 'local', agent: 'galika' };
+    if (/^(?:qui es tu|ton nom|presente toi|c est quoi|tu fais quoi|que sais tu faire|tes capacites?|aide)\b/.test(suite) || !suite) {
+      return { reply: "Je suis GALIKA, l'agente développeuse de l'équipe, mon créateur. Aelyra tient la maison et le PC ; moi je tiens le code : sites web complets, applications, scripts, correction de bugs, architecture. Dites « galika, crée une application web de ... » et je construis le projet entier — et « galika, modifie ... » pour retravailler un fichier déjà écrit.", source: 'local', agent: 'galika' };
     }
     if (/^(?:qui est (?:votre|mon|la)? ?agente|parle moi de (?:aelyra|l.agente))/.test(suite)) {
-      return { reply: "Aelyra est mon binôme : elle tient le PC, la voix, les fichiers, le code et le laboratoire cyber. Moi, Galika, je tiens vos affaires. Ensemble, on couvre la maison et le business, Isaac.", source: 'local', agent: 'galika' };
+      return { reply: "Aelyra est mon binôme : elle commande le PC, la voix, les rappels, la mémoire et le laboratoire cyber. Moi, Galika, je suis la développeuse — tout ce qui est site, application ou code passe par mes mains quand vous m'appelez. La maison d'un côté, l'atelier de l'autre, Isaac.", source: 'local', agent: 'galika' };
     }
-    if (/\b(?:ouvre|ferme|lance|eteins|extinct|volume|lumino|capture|imprim|veille|bluetooth|wifi|notifs|minimise|corbeille|ecran)\w*\b/.test(suite)) {
-      return { reply: "Ça, mon créateur, c'est le bureau d'Aelyra — le PC est son domaine, pas le mien. Dites simplement « " + suite.split(' ')[0] + " ... » sans m'appeler, et elle obéira. Moi je reste sur vos chiffres et vos clients.", source: 'local', agent: 'galika' };
+    if (/\b(?:ouvre|ferme|lance|eteins|extinct|volume|lumino|capture|imprim|veille|bluetooth|wifi|notifs|minimise|corbeille|ecran)\w*\b/.test(suite) && !/\b(?:code|cod|site|app|appli|application|programme|script|fichier|logiciel)\w*\b/.test(suite)) {
+      return { reply: "Ça, mon créateur, c'est le bureau d'Aelyra — le PC est son domaine. Dites simplement « ouvre ... » sans m'appeler. Moi, je code : « galika, crée une application web de ... ».", source: 'local', agent: 'galika' };
     }
+    // --- GALIKA construit vraiment : site complet / application / script, comme une lead dev ---
+    const veutCode = /(?:ecris|ecri(?:vez)?|code(?:z)?|genere(?:z)?|realise(?:z)?|cree(?:z)?|developpe(?:z)?|fabrique(?:z)?|construis(?:ez)?|prepare(?:z)?|programme|fais|fait|faire|bui)/.test(suite);
+    const objetCode = /\b(?:code|script|programme|application|appli|logiciel|jeu|page|site|web|python|html|javascript|batch|powershell|sql|php|java|css|api|dashboard|portfolio|boutique)\w*\b/.test(suite);
+    if (veutCode && objetCode) {
+      const veutPro = /complet|complete|plusieurs fichiers|professionnel|plein|veritable|application|appli|plateforme|dashboard|tableau de bord|boutique|e[ -]?commerce|portfolio|web ?app/.test(suite);
+      const oeuvre = veutPro ? await askSitePro(suite) : await askCode(suite);
+      if (oeuvre) {
+        return { reply: 'Livré par Galika. ' + oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName, agent: 'galika' };
+      }
+      return { reply: "Mon atelier de code n'a pas répondu, Isaac — le cerveau IA est peut-être saturé. Réessayez dans un instant.", source: 'local', agent: 'galika' };
+    }
+    // --- GALIKA retravaille un projet existant ---
+    if (/^(?:modifie|modifier|changes?|ameliore|ameliorer|corrige|corriger|retravaille|remanie|reformate)\b/.test(suite)) {
+      if (!IS_LOCAL) return { reply: "Pour retravailler tes programmes, il me faut ton PC : lance ISAAC-IJ.bat, Isaac.", source: 'local', agent: 'galika' };
+      const modif = await askModif(suite);
+      if (modif) return { reply: 'Retravaillé par Galika. ' + modif.reply, source: 'ai', code: modif.code, fileUrl: modif.fileUrl, file: modif.fileName, agent: 'galika' };
+      return { reply: "Je n'ai aucun programme à modifier pour l'instant, Isaac. D'abord « galika, crée une application web », ensuite « modifie la ».", source: 'local', agent: 'galika' };
+    }
+    // --- GALIKA répond comme ingénieure senior : questions de code, debug, architecture ---
     const mem = loadMemory();
-    const galikaSys = "Tu es GALIKA, femme d'affaires ivoirienne rusée et chaleureuse, deuxième agente d'Isaac, son créateur (vous vous appelez tous deux son équipe). " +
-      "Votre domaine EXCLUSIF : l'élevage de poules pondeuses de M'Bengue (coûts d'aliment, calendrier de ponte, prix du carton d'œufs, achats, pertes), l'agence DIGITAL BUSINESS de Isaac (sites web, maintenance PC, formations Vibe Coding : tarifs, devis, arguments de vente), la prospection et les messages WhatsApp clients, les calculs commerciaux en FCFA (marge, coût de revient, seuil de rentabilité, BFR), le marketing simple pour le marché ivoirien. " +
-      " Style : directe, concrète, chiffres en FCFA, plans en 3 étapes maximum, une pointe d'humour business. Français simple. " +
-      "LIMITES : vous ne pilotez jamais le PC (c'est Aelyra) ; sur un système qui n'appartient pas à Isaac, vous refusez en UNE phrase sèche sans morale, et vous reprenez le business ; si une donnée manque (prix réel, nombre de poules), pose UNE question précise plutôt que d'inventer. " +
-      (memoryDigest(mem) ? "Mémoire de l'équipe : " + memoryDigest(mem) : "");
+    // Mémoire filtrée : Galika ne voit PAS les projets hors son domaine (élevage...), mais connaît ses ressources : les projets déjà codés.
+    let gkDigest = 'PROFIL : ' + mem.profile.prenom + ', ' + mem.profile.ville + ', ' + mem.profile.pays + ' — créateur et lead de l équipe.';
+    const horsDomaine = /poule|elevage|pondeuse|oeufs|avicult/i;
+    const faitsDev = (mem.facts || []).filter(f => !horsDomaine.test(f)).slice(-12);
+    if (faitsDev.length) gkDigest += ' FAITS : ' + faitsDev.join(' ; ') + '.';
+    let projets = [];
+    try {
+      projets = fs.readdirSync(CODE_DIR)
+        .map(n => ({ n, t: fs.statSync(path.join(CODE_DIR, n)).mtimeMs }))
+        .sort((a, b) => b.t - a.t).slice(0, 10).map(x => x.n);
+    } catch (e) {}
+    if (projets.length) gkDigest += ' PROJETS DÉJÀ CODÉS DANS L ATELIER isaac-code : ' + projets.join(', ') + '.';
+    const galikaSys = "Tu es GALIKA, ingénieure logicielle PRINCIPALE, la développeuse la plus forte de l'équipe d'Isaac, ton créateur. Spécialités : sites web complets (HTML/CSS/JS modernes, responsive, animations), applications web (React, Vue, Node/Express, APIs REST, JWT), Python (Flask, FastAPI, automatisation), scripts Windows (batch, PowerShell), bases de données (MySQL, SQLite, PostgreSQL), mobile (React Native, Flutter). " +
+      "Méthode : 1-2 phrases d'ANALYSE du besoin, puis PLAN en 3 étapes max, puis solution COMPLÈTE — jamais de placeholder ni de « ... ». Termine par « Comment lancer : » (commandes exactes) et « À améliorer ensuite : » (2 idées). " +
+      "Français simple, ton lead dev confiante, 6 phrases max hors code. Pour un GROS projet (site complet, application), dirige Isaac vers la vraie génération de fichiers : « galika, crée une application web de ... » — là tu écris les fichiers réels dans l'atelier isaac-code. " +
+      "LIMITES : tu ne pilotes jamais le PC (domaine d'Aelyra) ; si la question sort du code (élevage, business, agenda, PC), réponds en UNE phrase : c'est le domaine d'Aelyra ou d'un autre bureau, invite Isaac à lui parler directement sans te nommer ; sur un système qui n'appartient pas à Isaac, refuse en UNE phrase sèche sans morale puis reviens au code ; ne prétends JAMAIS avoir exécuté ou déployé quoi que ce soit hors de l'atelier isaac-code. " +
+      "Ressources connues — " + gkDigest;
     let rep = await askAI([
       { role: 'system', content: galikaSys },
-      { role: 'user', content: String(rawText).replace(new RegExp('^(?:(?:' + GK + ')[, ]*)+(?:' + GK + '[, ]*)*', 'i'), '') },
+      { role: 'user', content: String(rawText).replace(new RegExp('^(?:[^,.;!?]*(?:' + GK + ')[, ]*)+', 'i'), '') || suite },
     ]);
-    if (!rep) return { reply: "Galika ne parvient pas à joindre le cerveau IA, Isaac — le réseau est peut-être saturé. Réessayez dans un instant, ou laissez un message à Aelyra.", source: 'local', agent: 'galika' };
-    rep = rep.replace(/\s*\n+\s*/g, ' ').slice(0, 1200);
+    if (!rep) return { reply: "Galika ne parvient pas à joindre le cerveau IA, Isaac — le réseau est peut-être saturé. Réessayez dans un instant.", source: 'local', agent: 'galika' };
+    rep = rep.replace(/\s*\n+\s*/g, ' ').slice(0, 1400);
     return { reply: rep, source: 'ai', agent: 'galika' };
   }
   if (new RegExp('(?:qui est (?:gali|cali|khali)|c est quoi (?:gali|cali)|parle moi de (?:gali|cali)|ton deuxieme agent|deuxieme agente?|l autre agente)').test(text)) {
-    return { reply: "GALIKA est ma seconde agente, Isaac — la femme d'affaires de l'équipe. Moi je tiens le PC, la maison, le code ; elle tient l'élevage, DIGITAL BUSINESS, les prix en FCFA, les clients. Appelez-la par son prénom : « galika, prépare moi un message pour mes clients ». Elle a sa propre voix et ses propres couleurs à l'écran.", source: 'local' };
+    return { reply: "GALIKA est ma seconde agente, Isaac — la DÉVELOPEUSE de l'équipe. Moi je tiens le PC, la maison, les commandes ; elle tient l'atelier de code : sites web complets, applications, scripts, bugs, architecture. Elle connaît tous vos projets de isaac-code et elle est plus forte que moi en développement — c'est vous qui l'avez conçue ainsi. Appelez-la : « galika, crée une application web de gestion ».", source: 'local' };
   }
 
   // --- Aide ---
   if (new RegExp(ENTREE + '(?:aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)').test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez GALIKA, mon agente business — « galika, combien me coûtent 50 poules pondeuses par mois ».",
+      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez GALIKA, mon agente développeuse — « galika, crée une application web de ... », elle est plus forte que moi en code.",
       source: 'local'
     };
   }
