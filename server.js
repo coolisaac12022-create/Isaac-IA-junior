@@ -618,6 +618,34 @@ async function handleCommand(rawText) {
         return { reply: `J'ouvre ${key}, Isaac. Si rien n'apparait, le logiciel n'est peut-etre pas installe sur votre PC.`, source: 'system' };
       }
     }
+    // « ouvre mon site », « ouvre la page elevage » → les pages que j'ai construites pour Isaac
+    if (IS_LOCAL && /\b(?:site|page)\b/.test(target)) {
+      let pages = [];
+      try { pages = fs.readdirSync(CODE_DIR).filter(f => /\.html$/i.test(f)); } catch (e) {}
+      if (pages.length) {
+        const mots = nettoieCible(target).split(/[^a-z0-9]+/).filter(w => w.length > 3 && !/^(?:site|sites|web|page|pages|ouvre|ton|votre)$/.test(w));
+        const classe = f => {
+          const s = normalize(f);
+          let n = 0;
+          for (const w of mots) if (s.includes(w)) n++;
+          if (n === 0) { // le mot n'est pas dans le nom du fichier : on regarde DANS la page
+            try {
+              const corps = normalize(fs.readFileSync(path.join(CODE_DIR, f), 'utf8').slice(0, 6000));
+              for (const w of mots) if (corps.includes(w)) n++;
+            } catch (e) {}
+          }
+          return n;
+        };
+        const ages = f => { try { return fs.statSync(path.join(CODE_DIR, f)).mtimeMs; } catch (e) { return 0; } };
+        const choix = mots.length
+          ? pages.filter(f => classe(f) > 0).sort((a, b) => classe(b) - classe(a) || ages(b) - ages(a))[0]
+          : pages.sort((a, b) => ages(b) - ages(a))[0];
+        if (choix) {
+          run(`start "" "${path.join(CODE_DIR, choix)}"`);
+          return { reply: `J'ouvre votre page « ${choix} », Isaac.`, source: 'system' };
+        }
+      }
+    }
     // Peut-être un nom de domaine direct
     if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(target.replace(/\s/g, ''))) {
       return { reply: `J'ouvre le site ${target}, Isaac.`, source: 'system', open: 'https://' + target.replace(/\s/g, '') };
