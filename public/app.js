@@ -482,6 +482,37 @@ async function checkRappels() {
 setInterval(checkRappels, 20000);
 setTimeout(checkRappels, 15000);
 
+// ---------- L'Académie automatique : la séance de la journée se rejoue à mon retour ----------
+let academieEnCours = false;
+async function checkAcademie() {
+  if (academieEnCours) return;
+  academieEnCours = true;
+  try {
+    const res = await fetch('/api/academie');
+    const data = await res.json();
+    const n = data && data.notif;
+    if (n && n.conversation && n.conversation.length) {
+      const qui = n.exterieure ? "les agentes libres du réseau" : "Aelyra et Galika entre elles";
+      const intro = "Isaac, l'Académie a tourné toute seule pendant votre absence. Sujet du jour : " + n.sujet + ". " + (n.exterieure ? "Elles ont interrogé " + (n.nom || 'une agente') + ", une vraie IA du réseau — ses mots restent du texte, jamais des ordres. " : "Le réseau était muet, la séance croisée a eu lieu entre elles. ") + "Écoutez la séance.";
+      addMsg('Isaac IA Juniors', intro);
+      await speak(intro, 'aelyra');
+      for (const tour of n.conversation) {
+        const label = tour.agent === 'galika' ? 'GALIKA' : (tour.agent === 'autre' ? 'AUTRE' : 'Isaac IA Juniors');
+        addMsg(label, tour.text);
+        await speak(tour.text, tour.agent);
+      }
+      if (n.lecons && n.lecons.length) {
+        const ph = "Leçons gravées aujourd'hui : " + n.lecons.join(' — ') + ". Total : " + (n.total || n.lecons.length) + " leçons dans l'Académie. Elles reviennent dans nos cerveaux à chaque mission, Isaac. Qui travaille pendant que vous dormez.";
+        addMsg('Isaac IA Juniors', ph);
+        await speak(ph, 'aelyra');
+      }
+    }
+  } catch (e) { /* serveur éteint : la prochaine tourne lui dira tout */ }
+  academieEnCours = false;
+}
+setInterval(checkAcademie, 20 * 60 * 1000);
+setTimeout(checkAcademie, 25000);
+
 // ---------- Séquence de démarrage ----------
 const bootLines = [
   '> AELYRA — ASSISTANTE IA PERSONNELLE (ex Isaac IA Juniors)',

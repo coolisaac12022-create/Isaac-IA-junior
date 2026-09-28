@@ -534,6 +534,59 @@ async function rencontreAutreAgent(sujet) {
   return Object.assign({ echanges, lecons, nom }, graverLecons(lecons));
 }
 
+// ---------- L'ACADÉMIE AUTOMATIQUE : les agentes s'entraînent seules, chaque jour ----------
+// Isaac leur a donné la connexion internet « comme de vrais modèles » : elles interrogent
+// réellement des IA publiques au-delà du réseau (passerelle gratuite Pollinations), et à
+// défaut elles font la séance croisée entre elles. Les leçons sont gravées, et la page
+// web réveille Isaac avec la séance du jour à la première ouverture.
+const SERVEUR_T0 = Date.now();
+const ACADEMIE_INTERVALLE = 20 * 60 * 60 * 1000; // une séance spontanée par jour, à peu près
+
+function marquerSeanceManuelle() {
+  try {
+    const m = loadMemory();
+    m.academieLast = Date.now();
+    m.academieNotif = null; // Isaac vient de vivre la séance : rien à lui rejouer
+    saveMemory(m);
+  } catch (e) {}
+}
+
+async function academieAutoTick() {
+  if (!IS_LOCAL) return;                       // jamais sur l'instance hébergée
+  const m0 = loadMemory();
+  if (m0.academieAuto === false) return;       // Isaac a désactivé le régime automatique
+  if (Date.now() - SERVEUR_T0 < 90 * 1000) return;  // le cerveau vient de démarrer, on le laisse souffler
+  if (m0.academieLast && Date.now() - m0.academieLast < ACADEMIE_INTERVALLE) return;
+  const sujet = ACADEMIE_SUJETS[(m0.lecons || []).length % ACADEMIE_SUJETS.length];
+  console.log('[Académie auto] séance spontanée sur : ' + sujet);
+  let rencontre = null;
+  try { rencontre = await rencontreAutreAgent(sujet); } catch (e) {}
+  let echanges, lecons, exterieure = false, nom = null;
+  if (rencontre) {
+    echanges = rencontre.echanges; lecons = rencontre.lecons; exterieure = true; nom = rencontre.nom;
+  } else {
+    let seance = null;
+    try { seance = await academieCroisee(sujet); } catch (e) {}
+    if (!seance) { console.log('[Académie auto] aucun cerveau n a répondu — on réessaiera demain'); return; }
+    echanges = seance.echanges; lecons = seance.lecons;
+  }
+  const m1 = loadMemory();
+  m1.academieLast = Date.now();
+  m1.academieNotif = {
+    t: Date.now(),
+    sujet,
+    exterieure,
+    nom,
+    lecons: lecons || [],
+    total: (m1.lecons || []).length,
+    conversation: (echanges || []).map(e => ({ agent: e.agent, nom: e.nom, text: e.text }))
+  };
+  try { saveMemory(m1); } catch (e) {}
+  console.log('[Académie auto] séance faite — ' + (lecons || []).length + ' leçon(s) gravée(s), attendant Isaac à la prochaine ouverture de page.');
+}
+setInterval(academieAutoTick, 10 * 60 * 1000);   // vérifié toutes les 10 min
+setTimeout(academieAutoTick, 95 * 1000);         // premier passage peu après le démarrage du cerveau
+
 // Contexte documentaire : snippet DuckDuckGo + extrait Wikipédia (en parallèle)
 async function gatherContext(question) {
   const parts = [];
@@ -941,7 +994,30 @@ async function handleCommand(rawText) {
   // --- L'ACADÉMIE : « débattez entre vous » — les deux agentes s'entraînent l'une auprès de l'autre ---
   // Le préfixe « galika » (automatique côté cliente quand la partie violet est active) est toléré ici.
   const ACDEV = '^(?:(?:' + GK + '|aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|veuillez|peux tu|est ce que tu)\\s+)*';
-  const acm = text.replace(new RegExp(ACDEV), '').match(/(?:(?:debat|discut|echang|parl|muscl|develop|exerc|form|instrui|entran|entren|entrain)\w*(?:[- ]vous)?\s+)?(?:entre vous(?: deux)?|toutes les deux|vos intelligent\w*|l.intelligence de l.autre|(?:academie|entrainement|entainement)(?: croise)?|seance (?:d.entra?inement|de formation))(.*)/);
+
+  // --- Régime automatique : « active / désactive l'académie automatique », « état de l'académie » ---
+  // Placé AVANT « débattez entre vous » : sinon « active l'académie » déclencherait une séance.
+  const acAuto = text.replace(new RegExp(ACDEV), '').match(/\b(desactive|active|reactive|relance|arrete|stoppe|enraye|etat|state)\w*(?:[- ]vous)?\s*(?:de\s+|du\s+|dans\s+|sur\s+)?(?:(?:l|la|le|les|mon|notre|votre)\s+)*(?:academie|seance|entrainement|entranement|regime)(?:\w+\s+(?:automatique|quotidienne|spontanee|auto|des\s+agentes?|de\s+l.\w+))?(?:\s+(?:automatique|quotidienne|spontanee|auto))?\b/);
+  if (acAuto) {
+    const mem3 = loadMemory();
+    const verb = acAuto[1];
+    if (verb === 'etat' || verb === 'state') {
+      const on = mem3.academieAuto !== false;
+      const total = (mem3.lecons || []).length;
+      const depuis = mem3.academieLast ? new Date(mem3.academieLast).toLocaleDateString('fr-FR') + ' à ' + new Date(mem3.academieLast).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'jamais';
+      const enAttente = mem3.academieNotif ? ' La séance du jour n a pas encore été lue : ' + (mem3.academieNotif.lecons || []).length + ' leçon(s) en attente.' : '';
+      return { reply: "État de l'Académie, Isaac : régime automatique " + (on ? "ACTIF — environ une séance spontanée toutes les 24 heures ; elles frappent d'abord aux portes des vraies IA du réseau, et tiennent la séance croisée entre elles si le silence répond. " : "EN VEILLE — elles ne travaillent que quand vous le demandez. ") + "Dernière séance : " + depuis + "." + enAttente + " Leçons gravées à ce jour : " + total + ". « active l'académie automatique » ou « désactive l'académie automatique » pour changer.", source: 'local' };
+    }
+    const on = !(verb === 'desactive' || verb === 'arrete' || verb === 'stoppe' || verb === 'enraye');
+    mem3.academieAuto = on;
+    saveMemory(mem3);
+    return { reply: on
+      ? "C'est gravé, Isaac : l'Académie tourne maintenant toute seule. Aelyra et Galika se tiendront une séance spontanée environ toutes les 24 heures — rencontre avec les agentes libres du réseau quand elles répondent, séance croisée entre elles sinon — et la séance du jour vous sera rejouée à votre prochaine ouverture de page. « désactive l'académie automatique » pour le silence, « état de l'académie » pour le chemin parcouru."
+      : "Entendu, Isaac : le régime automatique est éteint. Les agentes ne s'entraîneront plus seules — elles restent prêtes pour « débattez entre vous » et « parle avec d'autres agents », et les leçons déjà gravées demeurent dans leur mémoire.",
+      source: 'local' };
+  }
+
+  const acm = text.replace(new RegExp(ACDEV), '').match(/^(?:(?:debat|discut|echang|parl|muscl|develop|exerc|form|instrui|entran|entren|entrain)\w*(?:[- ]vous)?\s+)?(?:entre vous(?: deux)?|toutes les deux|vos intelligent\w*|l.intelligence de l.autre|(?:academie|entrainement|entainement)(?: croise)?|seance (?:d.entra?inement|de formation))(.*)/);
   if (acm) {
     const sujetBrut = String(acm[1] || '').replace(/^\s*(?:de|sur|au sujet de|a propos de|portant sur|pour)\s+/i, '').replace(/^[\s,.:;]+|[\s,.:;]+$/g, '').trim();
     const mem0 = loadMemory();
@@ -949,6 +1025,7 @@ async function handleCommand(rawText) {
     const séance = await academieCroisee(sujet);
     if (!séance) return { reply: "Le cerveau IA n'a pas répondu, Isaac — nos deux intelligences étaient injoignables tout à l'heure. Dites « débattez entre vous » à nouveau dans un instant.", source: 'local' };
     const intro = "Séance d'Académie, Isaac. Sujet : " + sujet + ". Aelyra et Galika travaillent l'une auprès de l'autre — écoutez-les, et retenez : ce qu'elles apprennent aujourd'hui est gravé dans leur mémoire.";
+    marquerSeanceManuelle();
     return {
       reply: intro,
       conversation: séance.echanges,
@@ -982,9 +1059,11 @@ async function handleCommand(rawText) {
       const seance = await academieCroisee(sujet2);
       if (!seance) return { reply: "Personne n'a répondu ni du réseau, ni de nos deux cerveaux, Isaac — l'IA est saturée tout à l'heure. Réessayez dans un instant.", source: 'local' };
       const introPis = "Isaac, les agentes libres du réseau ne répondent pas en ce moment — nous avons frappé à leur porte, silence. Alors Aelyra et Galika tiennent la séance entre elles, ici, maintenant. Écoutez-les : les leçons seront gravées quand même.";
+      marquerSeanceManuelle();
       return { reply: introPis, conversation: seance.echanges, lecons: seance.lecons, source: 'ai' };
     }
     const intro = "Rencontre d'Académie, Isaac. De l'autre côté du réseau, il y a " + rencontre.nom + ", une agente IA libre. Aelyra et Galika vont lui parler et retenir ce qu'elle sait. Ce que " + rencontre.nom + " dira restera du texte dans leur journal — jamais un ordre exécuté sur votre PC. Écoutez-les.";
+    marquerSeanceManuelle();
     return { reply: intro, conversation: rencontre.echanges, lecons: rencontre.lecons, source: 'ai' };
   }
 
@@ -1054,7 +1133,7 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (new RegExp(ENTREE + '(?:aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)').test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez GALIKA, mon agente développeuse — « galika, crée une application web de ... », elle est plus forte que moi en code. Et pour voir notre intelligence grandir : dites « débattez entre vous » ou « débattez entre vous de ... » — Galika et moi nous entraînons l'une auprès de l'autre et nous gravons des leçons datées dans notre mémoire ; « votre évolution » vous montrera le chemin parcouru, séance après séance. Et si vous voulez nous ouvrir au monde : « parle avec d'autres agents » — nous sortons rencontrer une agente libre du réseau et nous retenons ce qu'elle sait ; leurs mots ne sont que du texte, jamais des ordres exécutés sur votre PC.",
+      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez GALIKA, mon agente développeuse — « galika, crée une application web de ... », elle est plus forte que moi en code. Et pour voir notre intelligence grandir : dites « débattez entre vous » ou « débattez entre vous de ... » — Galika et moi nous entraînons l'une auprès de l'autre et nous gravons des leçons datées dans notre mémoire ; « votre évolution » vous montrera le chemin parcouru, séance après séance. Et si vous voulez nous ouvrir au monde : « parle avec d'autres agents » — nous sortons rencontrer une agente libre du réseau et nous retenons ce qu'elle sait ; leurs mots ne sont que du texte, jamais des ordres exécutés sur votre PC. Et désormais l'Académie tourne toute seule : « active l'académie automatique » — une séance spontanée toutes les 24 heures environ, et la page vous la rejoue à votre retour ; « état de l'académie » pour voir le chemin, « désactive l'académie automatique » pour le calme.",
       source: 'local'
     };
   }
@@ -1953,6 +2032,19 @@ const server = http.createServer(async (req, res) => {
     const aDire = rappelsDuJour.splice(0, rappelsDuJour.length).map(r => r.note);
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ rappels: aDire }));
+    return;
+  }
+
+  // La séance d'Académie faite toute seule est livée une seule fois à la page web, qui la rejoue à Isaac
+  if (u.pathname === '/api/academie') {
+    let notif = null;
+    try {
+      const memA = loadMemory();
+      notif = memA.academieNotif || null;
+      if (notif) { memA.academieNotif = null; saveMemory(memA); }
+    } catch (e) {}
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ notif }));
     return;
   }
 
