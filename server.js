@@ -43,6 +43,35 @@ function normalize(text) {
     .trim();
 }
 
+// Un extrait normalisé (suite de commande) retrouve son texte BRUT d'origine.
+// Les autres IA reçoivent un cahier des charges tel quel — avec ses accents, ses « », ses retours à la ligne.
+// Grâce à ceci, Galika et Aelyra lisent le projet ENTIER, plus une version mutilée par la reconnaissance vocale.
+function brutCorrespondant(rawText, extrait) {
+  const brut = String(rawText || '');
+  const e = String(extrait || '').trim();
+  if (!e) return brut.trim();
+  if (normalize(brut) === e) return brut.trim();
+  const mot = e.split(' ')[0];
+  if (mot.length >= 4) {
+    // on cherche le mot-clé dans le brut SANS se fier aux accents : « cree » doit retrouver « crée »
+    const idxs = [];
+    const reM = /\S+/g;
+    let mm;
+    while ((mm = reM.exec(brut))) {
+      if (normalize(mm[0]).split(' ')[0] === mot) idxs.push(mm.index);
+    }
+    for (let i = idxs.length - 1; i >= 0; i--) {           // fidélité parfaite si possible
+      const cand = brut.slice(idxs[i]).replace(/^[\s:,.!?;-]+/, '').trim();
+      if (normalize(cand) === e) return cand;
+    }
+    if (idxs.length) {                                      // sinon le candidat le plus proche reste le plus fidèle
+      const cand = brut.slice(idxs[idxs.length - 1]).replace(/^[\s:,.!?;-]+/, '').trim();
+      if (cand.length >= e.length * 0.6) return cand;
+    }
+  }
+  return e;
+}
+
 // Mode ESSAI (ISAAC_ESSAI=1) : on teste les intentions sans toucher le PC
 const ESSAI = process.env.ISAAC_ESSAI === '1';
 
@@ -687,7 +716,7 @@ function pickLang(desc) {
 }
 
 async function askCode(description) {
-  const lang = pickLang(description);
+  const lang = pickLang(normalize(description)); // les mots-clés de langue se cherchent sans accents
   const siteNote = lang.ext === 'html'
     ? "COMMANDE SPECIALE SITE WEB : produit une VRAIE page professionnelle dans un SEUL fichier HTML autonome (CSS et JavaScript inclus dans le fichier, aucune dépendance externe). Design moderne : en-tête avec navigation, grande section d'accueil, sections de contenu, couleurs harmonieuses, typographie soignée, responsive mobile, et de la fausse monnaie locale (FCFA) si pertinent. Sans photos externes : utilise des dégradés, des icônes emoji et des formes CSS."
     : '';
@@ -1233,7 +1262,8 @@ async function handleCommand(rawText) {
       const veutPro = /complet|complete|plusieurs fichiers|professionnel|plein|veritable|application|appli|plateforme|dashboard|tableau de bord|boutique|e[ -]?commerce|portfolio|web ?app/.test(suite);
       // Cahier des charges « un seul fichier » : jamais de dossier multi-fichiers, un SEUL oeuvre demandé
       const veutUnique = /(?:un|une|1|seul[e]?)\s+(?:seul[e]?\s+)?fichier|uniquement un fichier|pas de serveur|aucun serveur/.test(suite);
-      const oeuvre = (veutPro && !veutUnique) ? await askSitePro(suite) : await askCode(suite);
+      const suiteBrute = brutCorrespondant(rawText, suite); // le cahier des charges ENTIER, tel qu'écrit
+      const oeuvre = (veutPro && !veutUnique) ? await askSitePro(suiteBrute) : await askCode(suiteBrute);
       if (oeuvre) {
         return { reply: 'Livré par Galika. ' + oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName, agent: 'galika' };
       }
@@ -1242,7 +1272,7 @@ async function handleCommand(rawText) {
     // --- GALIKA retravaille un projet existant ---
     if (/^(?:modifie|modifier|changes?|ameliore|ameliorer|corrige|corriger|retravaille|remanie|reformate)\b/.test(suite)) {
       if (!IS_LOCAL) return { reply: "Pour retravailler tes programmes, il me faut ton PC : lance ISAAC-IJ.bat, Isaac.", source: 'local', agent: 'galika' };
-      const modif = await askModif(suite);
+      const modif = await askModif(brutCorrespondant(rawText, suite));
       if (modif) return { reply: 'Retravaillé par Galika. ' + modif.reply, source: 'ai', code: modif.code, fileUrl: modif.fileUrl, file: modif.fileName, agent: 'galika' };
       return { reply: "Je n'ai aucun programme à modifier pour l'instant, Isaac. D'abord « galika, crée une application web », ensuite « modifie la ».", source: 'local', agent: 'galika' };
     }
@@ -1270,7 +1300,7 @@ async function handleCommand(rawText) {
       "Ressources connues — " + gkDigest;
     let rep = await askAI([
       { role: 'system', content: galikaSys },
-      { role: 'user', content: String(rawText).replace(new RegExp('^(?:[^,.;!?]*(?:' + GK + ')[, ]*)+', 'i'), '') || suite },
+      { role: 'user', content: brutCorrespondant(rawText, suite) || suite },
     ]);
     if (!rep) return { reply: "Galika ne parvient pas à joindre le cerveau IA, Isaac — le réseau est peut-être saturé. Réessayez dans un instant.", source: 'local', agent: 'galika' };
     rep = rep.replace(/\s*\n+\s*/g, ' ').slice(0, 1400);
@@ -2032,7 +2062,8 @@ async function handleCommand(rawText) {
     // « site complet / plusieurs fichiers / appli web pro » → vrai projet multi-fichiers ; sinon fichier unique
     const veutPro = /complet|complete|plusieurs fichiers|professionnel|profess|plein|reel|veritable|application web|appli web|plateforme|dashboard|tableau de bord|boutique|e[ -]commerce|portfolio/.test(descCode)
                  && /site|web|appli|application|plateforme|boutique|portfolio|page|maquette/.test(descCode);
-    const oeuvre = veutPro ? await askSitePro(descCode) : await askCode(descCode);
+    const descBrute = brutCorrespondant(rawText, descCode); // cahier des charges tel qu'écrit, pas mutilé
+    const oeuvre = veutPro ? await askSitePro(descBrute) : await askCode(descBrute);
     if (oeuvre) return { reply: oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName };
     return { reply: "Je n'ai pas pu joindre mon atelier de code, Isaac. Réessayez dans un instant — le cerveau IA était peut-être saturé.", source: 'local' };
   }
@@ -2044,7 +2075,7 @@ async function handleCommand(rawText) {
       && /\b(?:fichier|site|page|script|programme|code|fonctionnalit\w*|design|connexion|interface|style\w*|css|html|maquette|bouton|couleur|texte|titre|menu|animation|logo|formulaire|dernier\w*)\b/.test(mm[1])
       && !/\b(?:mot de passe|mdp|wifi|reseau|bluetooth|notif|e[ -]?cran|luminosite|volume|heure|date|fond d|voix|langue|nom)\b/.test(mm[1])) {
     if (!IS_LOCAL) return { reply: "Pour retravailler tes programmes, il me faut ton PC : lance ISAAC-IJ.bat, Isaac.", source: 'local' };
-    const modif = await askModif(mm[1]);
+    const modif = await askModif(brutCorrespondant(rawText, mm[1]));
     if (modif) return { reply: modif.reply, source: 'ai', code: modif.code, fileUrl: modif.fileUrl, file: modif.fileName };
     return { reply: "Je n'ai aucun programme a modifier pour l'instant, Isaac. D'abord « genere un site », ensuite « modifie le ».", source: 'local' };
   }
