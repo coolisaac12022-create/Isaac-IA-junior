@@ -7,6 +7,7 @@
 
 const http = require('http');
 const https = require('https');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
@@ -333,19 +334,19 @@ function extractOpenAIContent(body) {
   return null;
 }
 
-async function askGitHubModels(messages) {
+async function askGitHubModels(messages, timeout = 20000) {
   const { github } = loadKeys();
   if (!github) return null;
   const res = await httpsRequestJSON('https://models.github.ai/inference/chat/completions', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + github }
-  }, { model: 'microsoft/Phi-4-mini', messages, temperature: 0.6 }, 20000);
+  }, { model: 'microsoft/Phi-4-mini', messages, temperature: 0.6 }, timeout);
   if (res && res.status === 200) return extractOpenAIContent(res.data);
   return null;
 }
 
 const GEMINI_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest'];
-async function askGemini(messages, attempt = 0) {
+async function askGemini(messages, attempt = 0, timeout = 25000) {
   const { gemini } = loadKeys();
   if (!gemini || attempt >= GEMINI_MODELS.length) return null;
   const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n');
@@ -357,7 +358,7 @@ async function askGemini(messages, attempt = 0) {
   const res = await httpsRequestJSON(url, { method: 'POST' }, {
     systemInstruction: system ? { parts: [{ text: system }] } : undefined,
     contents
-  }, 25000);
+  }, timeout);
   if (res && res.status === 200) {
     try {
       const data = JSON.parse(res.data);
@@ -367,7 +368,7 @@ async function askGemini(messages, attempt = 0) {
       if (text.length > 1) return text.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').slice(0, 20000);
     } catch (e) {}
   }
-  return askGemini(messages, attempt + 1);
+  return askGemini(messages, attempt + 1, timeout);
 }
 
 // Requête HTTPS générique avec en-têtes + corps JSON
@@ -396,9 +397,10 @@ const AI_ATTEMPTS = [
   { model: 'openai-fast', timeout: 18000, wait: 2500 },
   { model: 'openai', timeout: 15000, wait: 4000 }
 ];
-async function askAI(messages, attempt = 0) {
-  // Moteurs à clé gratuite d'abord (fiables), puis Pollinations
-  const premium = await askGitHubModels(messages) || await askGemini(messages);
+async function askAI(messages, attempt = 0, genTimeout) {
+  // Moteurs à clé gratuite d'abord (fiables), puis Pollinations.
+  // genTimeout : la génération d'un site entier a besoin de plus de temps qu'une réponse de chat.
+  const premium = await askGitHubModels(messages, genTimeout) || await askGemini(messages, 0, genTimeout);
   if (premium) return premium;
   const plan = AI_ATTEMPTS[attempt];
   if (!plan) return null;
@@ -728,9 +730,11 @@ async function askCode(description) {
     "Commente chaque partie en français simple, avec les commentaires du langage (#, rem, //, /* */). " +
     "Le code doit être robuste, adapté à Windows 11, et marcher tel quel dès sa première exécution. " +
     "Langage imposé : " + lang.nom + ', extension de fichier : .' + lang.ext + '. ' + siteNote;
-  let code = await askAI([{ role: 'system', content: system }, { role: 'user', content: description }]);
+  let code = await askAI([{ role: 'system', content: system }, { role: 'user', content: description }], 0, 75000);
   if (!code) return null;
   code = code.replace(/```[a-z0-9]*\n?/gi, '').replace(/```/g, '').trim();
+  // Garde-fou : si le modèle refuse (texte d'excuse au lieu de code), on n'écrit AUCUN fichier poubelle.
+  if (/^\s*(?:i['’m ]+sorry|sorry[,.]|i cannot|i can['’]t|as an ai|d[ée]sol[ée])/i.test(code)) return null;
   // Le cahier des charges impose un nom (« suivi.html » ou « suivi html » une fois normalisé) ? On lui obéit.
   let nomCite = String(description).match(/([a-z][a-z0-9-]{2,29})\.(html|css|js|py|bat|ps1|txt|json)/i);
   if (!nomCite) {
@@ -816,9 +820,276 @@ async function askSitePro(description) {
   };
 }
 
+// ============ GALIKA FULL-STACK : le VRAI site (cuisine + base SQL + comptes) et sa publication ============
+// public/sites est le SEUL atelier destiné à être publié sur GitHub (le reste — isaac-code, mémoire — reste chez Isaac).
+const SITES_DIR = path.join(PUBLIC_DIR, 'sites');
+try { fs.mkdirSync(SITES_DIR, { recursive: true }); } catch (e) {}
+
+// La cuisine générique : squelette ÉPROUVÉ (le test des 22 vertus), identique pour tous les sites.
+// On ne demande JAMAIS à l'IA d'écrire le backend : une IA qui se trompe dans le serveur = site mort.
+// L'IA n'écrit que la salle (index.html) ; la cuisine, la base et les comptes sont garantis.
+const SQUELETTE_CUISINE = `'use strict';
+// ============================================================
+//  SERVEUR — la CUISINE de ce site (backend + base SQL + comptes)
+//  Livré par Galika. Zéro installation : Node.js suffit.
+//  Démarrer : double-cliquez demarrer.bat, puis ouvrez http://localhost:__PORT__
+// ============================================================
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { DatabaseSync } = require('node:sqlite');
+
+// --- Configuration (les secrets vivent dans .env, jamais dans le code) ---
+const env = { PORT: __PORT__, ADMIN_KEY: '' };
+try {
+  for (const ligne of fs.readFileSync(path.join(__dirname, '.env'), 'utf8').split(/\\r?\\n/)) {
+    const m = ligne.match(/^\\s*([A-Z_]+)\\s*=\\s*(.+?)\\s*$/);
+    if (m) env[m[1]] = m[2];
+  }
+} catch (e) { console.log('[env] .env absent : valeurs par defaut.'); }
+const PORT = Number(env.PORT) || __PORT__;
+
+// --- Base de données SQL (le stock : messages + utilisateurs + jetons) ---
+fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
+const db = new DatabaseSync(path.join(__dirname, 'data', 'stock.db'));
+db.exec('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, nom TEXT, email TEXT, texte TEXT, recu_le INTEGER);' +
+        'CREATE TABLE IF NOT EXISTS utilisateurs (pseudo TEXT PRIMARY KEY, sel TEXT, hachage TEXT, cree_le INTEGER);' +
+        'CREATE TABLE IF NOT EXISTS jetons (jeton TEXT PRIMARY KEY, pseudo TEXT, cree_le INTEGER);');
+
+// --- Aides : rien ne rentre sans être vérifié ---
+function chaine(v, min, max) { if (typeof v !== 'string') return null; const s = v.trim(); return (s.length >= min && s.length <= max) ? s : null; }
+const EMAIL_OK = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/;
+function hacher(mdp, sel) { return crypto.scryptSync(mdp, sel, 64).toString('hex'); }
+function verifierMdp(mdp, sel, hachage) {
+  const a = Buffer.from(hacher(mdp, sel), 'hex'), b = Buffer.from(hachage, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+function corpsJson(req) {
+  return new Promise((res, rej) => {
+    let data = '', taille = 0;
+    req.on('data', c => { taille += c.length; if (taille > 20000) { rej(new Error('corps trop lourd')); req.destroy(); } data += c; });
+    req.on('end', () => { try { res(data ? JSON.parse(data) : {}); } catch (e) { rej(new Error('JSON invalide')); } });
+    req.on('error', rej);
+  });
+}
+function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(obj)); }
+function quiEstLa(req) {
+  const t = (req.headers['x-jeton'] || '').trim();
+  if (!t) return null;
+  const r = db.prepare('SELECT pseudo FROM jetons WHERE jeton=? AND cree_le>?').get(t, Date.now() - 7 * 86400000);
+  return r ? r.pseudo : null;
+}
+function nouveauJeton(pseudo) {
+  const jeton = crypto.randomBytes(32).toString('hex');
+  db.prepare('INSERT INTO jetons (jeton, pseudo, cree_le) VALUES (?,?,?)').run(jeton, pseudo, Date.now());
+  return jeton;
+}
+
+// --- Le serveur : API d'abord, puis les fichiers de la salle ---
+const serveur = http.createServer(async (req, res) => {
+  const p = new URL(req.url, 'http://localhost').pathname;
+  try {
+    if (p === '/api/sante') return json(res, 200, { ok: true });
+
+    if (p === '/api/contact' && req.method === 'POST') {
+      const b = await corpsJson(req);
+      const nom = chaine(b.nom, 2, 40), email = chaine(b.email, 6, 80), texte = chaine(b.texte, 5, 1200);
+      if (!nom || !email || !texte || !EMAIL_OK.test(email)) return json(res, 400, { erreur: 'Nom (2+), email valide et message (5+) sont obligatoires.' });
+      db.prepare('INSERT INTO messages (nom, email, texte, recu_le) VALUES (?,?,?,?)').run(nom, email, texte, Date.now());
+      return json(res, 200, { ok: true, merci: 'Message enregistré dans la base du site.' });
+    }
+
+    if (p === '/api/inscription' && req.method === 'POST') {
+      const b = await corpsJson(req);
+      const pseudo = chaine(b.pseudo, 3, 20), mdp = chaine(b.motdepasse, 6, 100);
+      if (!pseudo || !mdp) return json(res, 400, { erreur: 'Pseudo (3 à 20) et mot de passe (6 minimum) obligatoires.' });
+      if (db.prepare('SELECT pseudo FROM utilisateurs WHERE pseudo=?').get(pseudo)) return json(res, 409, { erreur: 'Ce pseudo est déjà pris.' });
+      const sel = crypto.randomBytes(16).toString('hex');
+      db.prepare('INSERT INTO utilisateurs (pseudo, sel, hachage, cree_le) VALUES (?,?,?,?)').run(pseudo, sel, hacher(mdp, sel), Date.now());
+      return json(res, 200, { ok: true, pseudo, jeton: nouveauJeton(pseudo) });
+    }
+
+    if (p === '/api/connexion' && req.method === 'POST') {
+      const b = await corpsJson(req);
+      const pseudo = chaine(b.pseudo, 3, 20), mdp = chaine(b.motdepasse, 1, 100);
+      if (!pseudo || !mdp) return json(res, 400, { erreur: 'Pseudo et mot de passe obligatoires.' });
+      const u = db.prepare('SELECT * FROM utilisateurs WHERE pseudo=?').get(pseudo);
+      if (!u || !verifierMdp(mdp, u.sel, u.hachage)) return json(res, 401, { erreur: 'Pseudo ou mot de passe incorrect.' });
+      return json(res, 200, { ok: true, pseudo, jeton: nouveauJeton(pseudo) });
+    }
+
+    if (p === '/api/messages' && req.method === 'GET') {
+      if (!env.ADMIN_KEY || (req.headers['x-admin'] || '') !== env.ADMIN_KEY) return json(res, 403, { erreur: 'Cle administrateur manquante ou fausse.' });
+      return json(res, 200, { messages: db.prepare('SELECT id, nom, email, texte, recu_le FROM messages ORDER BY id DESC LIMIT 100').all() });
+    }
+
+    // Fichiers de la salle (frontend)
+    let fichier = p === '/' ? '/index.html' : p;
+    const cible = path.normalize(path.join(__dirname, fichier));
+    if (!cible.startsWith(__dirname)) return json(res, 403, { erreur: 'interdit' });
+    if (!fs.existsSync(cible) || !fs.statSync(cible).isFile()) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
+    }
+    const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(cible)] || 'application/octet-stream' });
+    res.end(fs.readFileSync(cible));
+  } catch (e) { json(res, 400, { erreur: 'Requête refusée : ' + e.message }); }
+});
+serveur.on('error', (e) => { console.log(e.code === 'EADDRINUSE' ? '[ERREUR] Port ' + PORT + ' deja pris, fermez une autre fenetre du site.' : '[ERREUR] ' + e.message); process.exit(1); });
+serveur.listen(PORT, '127.0.0.1', () => {
+  console.log('==================================================');
+  console.log('  Site Galika EN LIGNE chez vous : http://localhost:' + PORT);
+  console.log('  Base de données : data/stock.db — Arrêt : fermer la fenêtre');
+  console.log('==================================================');
+});
+`;
+
+// Exécute une commande et RENVOIE la réponse (git, curl) — contrairement à run() qui oublie.
+function lancer(cmd, opts) {
+  return new Promise((res) => {
+    exec(cmd, Object.assign({ windowsHide: true, timeout: 90000, encoding: 'utf8' }, opts || {}),
+      (err, stdout, stderr) => res({ ok: !err, out: String(stdout || '') + String(stderr || ''), err: err ? err.message : '' }));
+  });
+}
+
+// --- Galika construit la SALLE, la cuisine est garantie par le squelette ---
+async function askSiteFullStack(description, slugBase) {
+  const system = "Tu es GALIKA, ingenieure web. Produis UNIQUEMENT le contenu complet d'un fichier index.html (style et script INCLUS dans le fichier, aucune dependance externe, aucune balise markdown autour). " +
+    "Un backend deja ecrit fournit : POST /api/contact {nom, email, texte} -> {ok, merci} ou {erreur} ; POST /api/inscription et POST /api/connexion {pseudo, motdepasse} -> {jeton}. " +
+    "OBIGATION : un formulaire de contact (nom, email, message) qui envoie fetch('/api/contact') en POST JSON et affiche la reponse en vert ou en rouge ; une section connexion qui stocke le jeton dans localStorage et affiche 'Connecte : pseudo'. " +
+    "Design moderne responsive mobile : variables CSS, hero, sections liees au SUJET, cartes, FCFA si pertinent, commentaires en francais. Photos externes INTERDITES. JAMAIS de placeholder ni de troncature.";
+  let html = await askAI([{ role: 'system', content: system }, { role: 'user', content: description }], 0, 75000);
+  if (!html) return null;
+  html = html.replace(/^```[a-z0-9]*\s*/i, '').replace(/```\s*$/, '').trim();
+  if (!/<!DOCTYPE|<html/i.test(html)) html = '<!DOCTYPE html>\n<html lang="fr">\n' + html + '\n</html>';
+  const slug = normalize(slugBase || description).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'site';
+  const dossierBase = 'galika-' + slug;
+  // dossier libre (sinon petit suffixe), et port unique dérivé du nom : 3790 à 3849
+  let dossier = dossierBase, dirPath = path.join(SITES_DIR, dossier), compteur = 2;
+  while (fs.existsSync(dirPath)) { dossier = dossierBase + '-' + compteur++; dirPath = path.join(SITES_DIR, dossier); }
+  const port = 3790 + (dossier.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 60);
+  try {
+    fs.mkdirSync(dirPath, { recursive: true });
+    fs.writeFileSync(path.join(dirPath, 'index.html'), html, 'utf8');
+    fs.writeFileSync(path.join(dirPath, 'serveur.js'), SQUELETTE_CUISINE.replace(/__PORT__/g, String(port)), 'utf8');
+    fs.writeFileSync(path.join(dirPath, '.env'), 'PORT=' + port + '\nADMIN_KEY=' + crypto.randomBytes(8).toString('hex') + '\n', 'utf8');
+    fs.writeFileSync(path.join(dirPath, '.gitignore'), '.env\ndata/\n', 'utf8'); // le stock et les clés ne montent JAMAIS sur GitHub
+    fs.writeFileSync(path.join(dirPath, 'demarrer.bat'),
+      '@echo off\r\ntitle Site Galika\r\ncd /d "%~dp0"\r\nnode serveur.js\r\npause\r\n', 'utf8');
+    fs.writeFileSync(path.join(dirPath, 'README.md'),
+      '# ' + dossier + ' — site full-stack livré par Galika\r\n\r\n' +
+      'Frontend : index.html (la salle)\r\nBackend : serveur.js (la cuisine, Node sans installation)\r\n' +
+      'Base de données : data/stock.db (SQL réel : messages, comptes, jetons)\r\n' +
+      'Lancer : double-cliquer demarrer.bat puis http://localhost:' + port + '\r\n' +
+      'Publier : dire « galika, publie ce site » (frontend sur GitHub Pages ; la cuisine reste chez toi).\r\n', 'utf8');
+  } catch (e) { console.error('[fullstack] écriture impossible:', e.message); return null; }
+  if (IS_LOCAL) run(`code "${dirPath}" 2>nul || start "" "${dirPath}"`);
+  return {
+    fileName: 'index.html',
+    code: html.slice(0, 20000),
+    fileUrl: '/sites/' + dossier + '/index.html',
+    dossier: dossier,
+    reply: 'VRAI site full-stack livré, Isaac : la salle (index.html) + la cuisine (serveur.js) + la base SQL (data/stock.db) + les comptes protégés, dossier ' + dossier + '. ' +
+      'Double-clique demarrer.bat dans le dossier puis ouvre http://localhost:' + port + ' — le formulaire de contact remplira pour de vrai la base. ' +
+      'Et pour le monde entier : « galika, publie ce site ».',
+  };
+}
+
+// --- La mémoire de Galika : le DERNIER travail livré, pour « ce site », « le site que tu viens de réaliser » ---
+let dernierLivraison = null; // { type: 'code' | 'fullstack', name: 'dossier ou fichier', description: cahier brut }
+function nomDepuisUrl(u) {
+  const m = String(u || '').match(/\/(?:isaac-code|sites)\/([^/]+)(?:\/|$)/);
+  return m ? m[1] : null;
+}
+
+// --- Publication : le frontend du site part sur GitHub Pages (gratuit, cadenas inclus) ---
+// Un site statique né dans isaac-code (jamais publié) est d'abord « étalé » dans public/sites : seuls les
+// fichiers du navigateur montent (html/css/js/json/images) — jamais .env, jamais data/, jamais serveur.js.
+function etalerDansPublic(srcNom) {
+  const src = path.join(CODE_DIR, srcNom);
+  let st;
+  try { st = fs.statSync(src); } catch (e) { return null; }
+  const EXT_OK = ['html', 'htm', 'css', 'js', 'json', 'svg', 'png', 'jpg', 'jpeg', 'ico', 'txt', 'md'];
+  let dossier = srcNom.replace(/\.html?$/i, '').replace(/^(?:isaac|galika)-/, '');
+  if (dossier.length > 34) dossier = dossier.slice(0, 34).replace(/-+$/, '');
+  dossier = 'galika-' + dossier;
+  const dest = path.join(SITES_DIR, dossier);
+  try {
+    fs.mkdirSync(dest, { recursive: true });
+    const paires = [];
+    if (st.isDirectory()) {
+      for (const f of fs.readdirSync(src)) {
+        const e = path.extname(f).slice(1).toLowerCase();
+        if (!EXT_OK.includes(e) || /\.env|serveur\.js|demarrer|stock\.db/i.test(f)) continue;
+        paires.push([f, path.join(src, f)]);
+      }
+    } else {
+      const e = path.extname(src).slice(1).toLowerCase();
+      if (!EXT_OK.includes(e)) return null;
+      paires.push([/\.html?$/i.test(src) ? path.basename(src) : 'index.html', src]);
+    }
+    if (!paires.some(p => /\.html?$/i.test(p[0]))) return null; // il faut une page à montrer au monde
+    let unSeulHtml = paires.filter(p => /\.html?$/i.test(p[0]));
+    for (const p of paires) {
+      let nom = p[0];
+      if (unSeulHtml.length === 1 && /\.html?$/i.test(nom)) nom = 'index.html'; // la page unique devient l'accueil
+      fs.copyFileSync(p[1], path.join(dest, nom));
+    }
+    return dossier;
+  } catch (e) { console.error('[publication] mise en vitrine impossible:', e.message); return null; }
+}
+
+async function publierSite(nomSite) {
+  if (ESSAI) return { reply: '[essai] publication simulée.' };
+  let dossiers = [];
+  try { dossiers = fs.readdirSync(SITES_DIR, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name); } catch (e) {}
+  let choisi = null;
+  if (nomSite) {
+    const n = normalize(nomSite);
+    choisi = dossiers.find(d => normalize(d).includes(n) || n.includes(normalize(d).replace(/^galika-/, ''))) || null;
+    if (!choisi) return { reply: "Je ne trouve pas le site « " + nomSite + " » dans l'atelier public, Isaac. Dites « galika, publie ce site » sans nom : je prends le dernier travaillé." };
+  }
+  // Pas de nom ? La mémoire d'abord : le dernier travail de Galika, où qu'il soit née.
+  if (!choisi && dernierLivraison) {
+    if (dernierLivraison.type === 'fullstack' && dossiers.includes(dernierLivraison.name)) choisi = dernierLivraison.name;
+    else if (dernierLivraison.type === 'code') choisi = etalerDansPublic(dernierLivraison.name);
+  }
+  if (!choisi && !dossiers.length) { // rien de publié, rien en mémoire : le dernier fichier de l'atelier
+    const dc = dernierCodeGenere();
+    if (dc) choisi = etalerDansPublic(dc.name);
+  }
+  if (!choisi) {
+    if (!dossiers.length) return { reply: "Aucun site à publier, Isaac. D'abord : « galika, crée un site complet pour ... », ensuite « publie ce site »." };
+    choisi = dossiers.map(d => ({ d, t: fs.statSync(path.join(SITES_DIR, d)).mtimeMs })).sort((a, b) => b.t - a.t)[0].d;
+  }
+  await lancer('git add public/sites', { cwd: __dirname });
+  const rStat = await lancer('git status --porcelain public/sites', { cwd: __dirname });
+  if (rStat.out.trim()) {
+    const rCommit = await lancer('git commit -m "Site Galika publie : ' + choisi + '"', { cwd: __dirname });
+    if (!rCommit.ok) return { reply: "Le commit GitHub a échoué, Isaac : " + rCommit.out.slice(0, 160) };
+  }
+  const rPush = await lancer('git -c http.version=HTTP/1.1 push', { cwd: __dirname });
+  if (!rPush.ok && !/Everything up-to-date|branch up-to-date|up to date/i.test(rPush.out))
+    return { reply: "La poussée GitHub a échoué, Isaac : " + rPush.out.slice(0, 160) + " — vérifie la connexion." };
+  // Vérification honnête : Pages sert soit la racine du dépôt, soit le dossier public/ — on teste les deux.
+  const base = 'https://coolisaac12022-create.github.io/Isaac-IA-junior/';
+  let url = base + 'sites/' + choisi + '/', enLigne = false, codeHttp = 0;
+  for (const candidat of [base + 'sites/' + choisi + '/', base + 'public/sites/' + choisi + '/']) {
+    try {
+      const rep = await fetch(candidat, { method: 'GET', signal: AbortSignal.timeout(15000) });
+      codeHttp = rep.status;
+      if (rep.status === 200) { url = candidat; enLigne = true; break; }
+    } catch (e) {}
+  }
+  if (enLigne)
+    return { reply: 'Publié et VÉRIFIÉ en ligne, Isaac : ' + url + ' — le monde entier voit la salle. La cuisine (base + comptes) reste chez toi, comme toujours : lance demarrer.bat pour que le formulaire enregistre vraiment.', url };
+  return { reply: "Le site est sur GitHub, Isaac — commit et poussée vérifiés. Mais Pages ne répond pas encore (" + (codeHttp || 'silence') + "). Une seule activation manuelle : ouvre https://github.com/coolisaac12022-create/Isaac-IA-junior/settings/pages , Source : « Deploy from a branch », branche main, dossier / (root), Save. Ensuite redites « galika, publie ce site » : l'adresse attendue sera " + base + "public/sites/" + choisi + "/ et je la vérifierai toute seule.", url: base + 'public/sites/' + choisi + '/' };
+}
+
 // --- Retravailler un fichier DEJA généré : « modifie ce site », « change la page de connexion » ---
-function dernierCodeGenere() {
-  let ents = [];
+function dernierCodeGenere() {  let ents = [];
   try {
     ents = fs.readdirSync(CODE_DIR, { withFileTypes: true }).map(e => {
       const p = path.join(CODE_DIR, e.name);
@@ -1255,9 +1526,37 @@ async function handleCommand(rawText) {
     if (/\b(?:ouvre|ferme|lance|eteins|extinct|volume|lumino|capture|imprim|veille|bluetooth|wifi|notifs|minimise|corbeille|ecran)\w*\b/.test(suite) && !/\b(?:code|cod|site|app|appli|application|programme|script|fichier|logiciel)\w*\b/.test(suite)) {
       return { reply: "Ça, mon créateur, c'est le bureau d'Aelyra — le PC est son domaine. Dites simplement « ouvre ... » sans m'appeler. Moi, je code : « galika, crée une application web de ... ».", source: 'local', agent: 'galika' };
     }
-    // --- GALIKA construit vraiment : site complet / application / script, comme une lead dev ---
-    const veutCode = /(?:ecris|ecri(?:vez)?|code(?:z)?|genere(?:z)?|realise(?:z)?|cree(?:z)?|developpe(?:z)?|fabrique(?:z)?|construis(?:ez)?|prepare(?:z)?|programme|fais|fait|faire|bui)/.test(suite);
+    // --- GALIKA construit vraiment : site statique, site complet... ou VRAI full-stack avec base SQL ---
+    const veutCode = /(?:ecris|ecri(?:vez)?|code(?:z)?|genere(?:z)?|realise(?:z)?|cree(?:z)?|developpe(?:z)?|fabrique(?:z)?|construis(?:ez)?|prepare(?:z)?|programme|fais|fait|faire|bui|ajoute| ajout)/.test(suite);
     const objetCode = /\b(?:code|script|programme|application|appli|logiciel|jeu|page|site|web|python|html|javascript|batch|powershell|sql|php|java|css|api|dashboard|portfolio|boutique)\w*\b/.test(suite);
+    // « un vrai site avec base de données / backend / comptes » → full-stack : cuisine + stock + salle
+    // (les fautes de frappe d'Isaac passent aussi : « base de donnes », « bdd »…)
+    const veutCuisine = /base de d[o0]nn?e?s?|back ?end|plein stack|full ?stack|comptes? (?:utilisateurs?|clients?)|cote serveur|enregistre(?:r)? (?:les? donnees|les messages|les clients)|formulaire qui (?:enregistre|stocke)|veritable site (?:complet|pro)|\bbdd\b/.test(suite);
+    // « le site que tu viens de réaliser », « ce site » : Galika a la mémoire de son dernier travail
+    const parleDernier = /ce site|cet(te)? ?(application|appli|page)|site que tu|appli que tu|le (?:meme|precedent)|site (?:d|p)rec/.test(suite);
+    if (veutCuisine && (objetCode || /site|application|appli/.test(suite))) {
+      let descCuisine = brutCorrespondant(rawText, suite);
+      let slugBase = null;
+      if (parleDernier && dernierLivraison && dernierLivraison.description) {
+        descCuisine = 'Reprends le site que tu viens de livrer : « ' + dernierLivraison.description.slice(0, 500) + ' » — meme marque, memes pages, mais en VRAI full-stack. Consigne actuelle : ' + descCuisine;
+        slugBase = dernierLivraison.description; // le dossier garde le nom du site, pas le mot « reprends »
+      }
+      const cuisine = await askSiteFullStack(descCuisine, slugBase);
+      if (cuisine) {
+        dernierLivraison = { type: 'fullstack', name: cuisine.dossier, description: brutCorrespondant(rawText, suite) };
+        return { reply: 'Livré par Galika. ' + cuisine.reply, source: 'ai', code: cuisine.code, fileUrl: cuisine.fileUrl, file: cuisine.fileName, agent: 'galika' };
+      }
+      return { reply: "Le cerveau IA n'a pas répondu pour le site full-stack, Isaac. Réessayez dans un instant.", source: 'local', agent: 'galika' };
+    }
+    // « publie ce site », « mets le site en ligne », « pousse le site sur github », « deploye galika-boutique »
+    const verbFort = /^(?:publie(?:z)?|publier|met[s]?\s+en\s+ligne|mettre\s+en\s+ligne|deploye(?:z)?|deployer|heberge(?:z)?|heberger|upload(?:er)?)\b/.test(suite);
+    const verbFaible = /^(?:pousse(?:z)?|pousser|envoie(?:z)?|envoyer|monte(?:z)?|monter)\b/.test(suite);
+    const mPublie = verbFort || (verbFaible && /site|web|page|appli|projet|github|githube|en ligne|pages|boutique|portfolio/.test(suite));
+    if (mPublie) {
+      const nomExact = ((suite.match(/galika[- ]+([a-z0-9-]{3,40})/i) || [])[1] || '').toLowerCase();
+      const pub = await publierSite(nomExact);
+      return { reply: pub.reply, source: 'local', agent: 'galika', url: pub.url };
+    }
     if (veutCode && objetCode) {
       const veutPro = /complet|complete|plusieurs fichiers|professionnel|plein|veritable|application|appli|plateforme|dashboard|tableau de bord|boutique|e[ -]?commerce|portfolio|web ?app/.test(suite);
       // Cahier des charges « un seul fichier » : jamais de dossier multi-fichiers, un SEUL oeuvre demandé
@@ -1265,6 +1564,7 @@ async function handleCommand(rawText) {
       const suiteBrute = brutCorrespondant(rawText, suite); // le cahier des charges ENTIER, tel qu'écrit
       const oeuvre = (veutPro && !veutUnique) ? await askSitePro(suiteBrute) : await askCode(suiteBrute);
       if (oeuvre) {
+        dernierLivraison = { type: 'code', name: nomDepuisUrl(oeuvre.fileUrl), description: suiteBrute };
         return { reply: 'Livré par Galika. ' + oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName, agent: 'galika' };
       }
       return { reply: "Mon atelier de code n'a pas répondu, Isaac — le cerveau IA est peut-être saturé. Réessayez dans un instant.", source: 'local', agent: 'galika' };
@@ -1297,6 +1597,7 @@ async function handleCommand(rawText) {
       "Français simple, ton lead dev confiante, 6 phrases max hors code. Pour un GROS projet (site complet, application), dirige Isaac vers la vraie génération de fichiers : « galika, crée une application web de ... » — là tu écris les fichiers réels dans l'atelier isaac-code. " +
       "LIMITES : tu ne pilotes jamais le PC (domaine d'Aelyra) ; si la question sort du code (élevage, business, agenda, PC), réponds en UNE phrase : c'est le domaine d'Aelyra ou d'un autre bureau, invite Isaac à lui parler directement sans te nommer ; sur un système qui n'appartient pas à Isaac, refuse en UNE phrase sèche sans morale puis reviens au code ; ne prétends JAMAIS avoir exécuté ou déployé quoi que ce soit hors de l'atelier isaac-code. " +
       "NAVIGATION : ne dis JAMAIS que toi ou l'équipe ne pouvez pas cliquer un lien ou lire le web — c'est FAUX. Les modules d'Isaac ouvrent tout lien dicté (« clique sur https point slash slash ... point com »), lisent et résument de vraies pages (« lis la page ... »), listent leurs liens (« liste les liens ») puis cliquent au numéro (« clique sur le 2eme »). Documente-toi avec : « cyber école » mis à part, cite les docs officielles que tu connais et propose ces commandes pour les ouvrir. " +
+      "PLEIN STACK ET PUBLICATION — c'est FAUX de dire que tu ne peux pas : tu construis des VRAIS sites complets (frontend + backend Node + base de données SQL + comptes utilisateurs protégés) par la commande « galika, crée un vrai site complet avec base de données pour ... », et tu les publies sur GitHub Pages par « galika, publie ce site » (le frontend en ligne, la cuisine et le stock restent chez Isaac ; jamais .env ni data/ ne montent sur GitHub). Décris ces deux commandes quand Isaac parle de site vitriner avec formulaire réel, boutique, site de services ou site client. " +
       "Ressources connues — " + gkDigest;
     let rep = await askAI([
       { role: 'system', content: galikaSys },
@@ -1313,7 +1614,7 @@ async function handleCommand(rawText) {
   // --- Aide ---
   if (new RegExp(ENTREE + '(?:aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)').test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez GALIKA, mon agente développeuse — « galika, crée une application web de ... », elle est plus forte que moi en code. Et pour voir notre intelligence grandir : dites « débattez entre vous » ou « débattez entre vous de ... » — Galika et moi nous entraînons l'une auprès de l'autre et nous gravons des leçons datées dans notre mémoire ; « votre évolution » vous montrera le chemin parcouru, séance après séance. Et si vous voulez nous ouvrir au monde : « parle avec d'autres agents » — nous sortons rencontrer une agente libre du réseau et nous retenons ce qu'elle sait ; leurs mots ne sont que du texte, jamais des ordres exécutés sur votre PC. Et désormais l'Académie tourne toute seule : « active l'académie automatique » — une séance spontanée toutes les 24 heures environ, et la page vous la rejoue à votre retour ; « état de l'académie » pour voir le chemin, « désactive l'académie automatique » pour le calme. Et puisque vous nous avez laissé l'internet : on navigue pour de vrai — « clique sur https point slash slash site point com », « va sur x point com », « lis la page wikipédia point org ... » (je lis et je résume la vraie page), « liste les liens » puis « clique sur le 2ème » : je clique vraiment sur le lien numéroté.",
+      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez GALIKA, mon agente développeuse — « galika, crée une application web de ... », elle est plus forte que moi en code. Et pour voir notre intelligence grandir : dites « débattez entre vous » ou « débattez entre vous de ... » — Galika et moi nous entraînons l'une auprès de l'autre et nous gravons des leçons datées dans notre mémoire ; « votre évolution » vous montrera le chemin parcouru, séance après séance. Et si vous voulez nous ouvrir au monde : « parle avec d'autres agents » — nous sortons rencontrer une agente libre du réseau et nous retenons ce qu'elle sait ; leurs mots ne sont que du texte, jamais des ordres exécutés sur votre PC. Et désormais l'Académie tourne toute seule : « active l'académie automatique » — une séance spontanée toutes les 24 heures environ, et la page vous la rejoue à votre retour ; « état de l'académie » pour voir le chemin, « désactive l'académie automatique » pour le calme. Et puisque vous nous avez laissé l'internet : on navigue pour de vrai — « clique sur https point slash slash site point com », « va sur x point com », « lis la page wikipédia point org ... » (je lis et je résume la vraie page), « liste les liens » puis « clique sur le 2ème » : je clique vraiment sur le lien numéroté. Et Galika est passée au niveau supérieur : « galika, crée un vrai site complet avec base de données pour ... » — elle livre frontend + serveur + base SQL + comptes qui marchent vraiment sur votre PC ; « galika, publie ce site » ou « galika, pousse le site sur github » — elle met le site en ligne sur GitHub Pages et vous donne l'adresse vérifiée.",
       source: 'local'
     };
   }
