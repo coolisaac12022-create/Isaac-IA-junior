@@ -702,8 +702,19 @@ async function askCode(description) {
   let code = await askAI([{ role: 'system', content: system }, { role: 'user', content: description }]);
   if (!code) return null;
   code = code.replace(/```[a-z0-9]*\n?/gi, '').replace(/```/g, '').trim();
-  const slug = normalize(description).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 35) || 'programme';
-  const fileName = 'isaac-' + slug + '-' + Date.now().toString(36).slice(-4) + '.' + lang.ext;
+  // Le cahier des charges impose un nom (« suivi.html » ou « suivi html » une fois normalisé) ? On lui obéit.
+  let nomCite = String(description).match(/([a-z][a-z0-9-]{2,29})\.(html|css|js|py|bat|ps1|txt|json)/i);
+  if (!nomCite) {
+    const mots = String(description).match(/\b([a-z][a-z0-9-]{2,29}) (html|css|js|py|bat|ps1|txt|json)\b/i);
+    if (mots) nomCite = [mots[0], mots[1], mots[2]];
+  }
+  let fileName;
+  if (nomCite && nomCite[2].toLowerCase() === lang.ext) fileName = nomCite[1].toLowerCase() + '.' + lang.ext;
+  else {
+    const slug = normalize(description).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 35) || 'programme';
+    fileName = 'isaac-' + slug + '-' + Date.now().toString(36).slice(-4) + '.' + lang.ext;
+  }
+  if (fs.existsSync(path.join(CODE_DIR, fileName))) fileName = fileName.replace(/\.(.+)$/, '-' + Date.now().toString(36).slice(-4) + '.$1');
   const fullPath = path.join(CODE_DIR, fileName);
   try { fs.writeFileSync(fullPath, code, 'utf8'); } catch (e) { console.error('[code] écriture impossible:', e.message); }
   if (IS_LOCAL) run(`code "${fullPath}" 2>nul || start "" "${fullPath}"`);
@@ -1188,8 +1199,24 @@ async function handleCommand(rawText) {
   }
 
   let gk = text.match(new RegExp('^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|peux tu|est ce que tu)\\s+)*(?:(?:appelle(?:z)?|invoque(?:z)?|rejoins|contacte(?:z)?|parle(?:z)? a|demande(?:z)? a|dis a)\\s+(?:notre |mon |la |l.agente? )?)?(' + GK + ')\\b[, ]*\\s*(?:stp |s il te plait |peux tu |est ce que tu |pourrais tu )?(.*)'));
+  // « PROJET POUR GALIKA : <cahier des charges collé> » — le prénom est au milieu d'une longue phrase :
+  // on prend tout ce qui suit la DERNIÈRE mention de Galika. Sans ça, le pavé tombait dans la conversation générale.
+  if (!gk && /galika/.test(text)) {
+    const li = text.lastIndexOf('galika');
+    const apres = text.slice(li + 6).replace(/^[\s:,.!?-]+/, '');
+    if (/projet|application|appli|site|code|html|css|javascript|objectif|contrainte|fonction|cahier/.test(text) && apres.length >= 8) {
+      gk = [null, 'galika', apres];
+    }
+  }
   if (gk) {
-    const suite = String(gk[2] || '').trim();
+    let suite = String(gk[2] || '').trim();
+    // « GALIKA EST UNE MARIONNETTE... PROJET POUR GALIKA : <cahier> » : on ne garde que le cahier, après la dernière mention.
+    if (/projet\s+pour\s+gal/i.test(suite)) {
+      const mmG = Array.from(suite.matchAll(new RegExp(GK, 'gi')));
+      const lastG = mmG[mmG.length - 1];
+      const propre = suite.slice(lastG.index + lastG[0].length).replace(/^[\s:,.!?-]+/, '');
+      if (propre.length >= 8) suite = propre;
+    }
     if (/^(?:qui es tu|ton nom|presente toi|c est quoi|tu fais quoi|que sais tu faire|tes capacites?|aide)\b/.test(suite) || !suite) {
       return { reply: "Je suis GALIKA, l'agente développeuse de l'équipe, mon créateur. Aelyra tient la maison et le PC ; moi je tiens le code : sites web complets, applications, scripts, correction de bugs, architecture. Dites « galika, crée une application web de ... » et je construis le projet entier — et « galika, modifie ... » pour retravailler un fichier déjà écrit.", source: 'local', agent: 'galika' };
     }
@@ -1204,7 +1231,9 @@ async function handleCommand(rawText) {
     const objetCode = /\b(?:code|script|programme|application|appli|logiciel|jeu|page|site|web|python|html|javascript|batch|powershell|sql|php|java|css|api|dashboard|portfolio|boutique)\w*\b/.test(suite);
     if (veutCode && objetCode) {
       const veutPro = /complet|complete|plusieurs fichiers|professionnel|plein|veritable|application|appli|plateforme|dashboard|tableau de bord|boutique|e[ -]?commerce|portfolio|web ?app/.test(suite);
-      const oeuvre = veutPro ? await askSitePro(suite) : await askCode(suite);
+      // Cahier des charges « un seul fichier » : jamais de dossier multi-fichiers, un SEUL oeuvre demandé
+      const veutUnique = /(?:un|une|1|seul[e]?)\s+(?:seul[e]?\s+)?fichier|uniquement un fichier|pas de serveur|aucun serveur/.test(suite);
+      const oeuvre = (veutPro && !veutUnique) ? await askSitePro(suite) : await askCode(suite);
       if (oeuvre) {
         return { reply: 'Livré par Galika. ' + oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName, agent: 'galika' };
       }
@@ -1260,11 +1289,14 @@ async function handleCommand(rawText) {
   }
 
   // --- Heure / date ---
-  if (/\bheure\b/.test(text) && !/rappelle| reveille |reveil|minuteur|alarme|timer/.test(text)) {
+  // Un long pavé (cahier des charges collé) qui contient le mot « date » N'EST PAS une demande de date :
+  // c'est exactement comme ça que le projet de Galika avait été détourné (« Nous sommes le... »).
+  const estGrosCahier = text.length > 160 && /projet|application|objectif|contrainte|fonction|html|css|javascript|code|formulaire|tableau|localstorage/.test(text);
+  if (!estGrosCahier && /\bheure\b/.test(text) && !/rappelle| reveille |reveil|minuteur|alarme|timer/.test(text)) {
     const now = new Date();
     return { reply: `Il est ${now.getHours()} heures ${String(now.getMinutes()).padStart(2, '0')}, Isaac.`, source: 'local' };
   }
-  if (/\b(date|quel jour|on est quel jour)\b/.test(text)) {
+  if (!estGrosCahier && /\b(date|quel jour|on est quel jour)\b/.test(text) && !/projet|galika|aelyra|code|site|fichier/.test(text)) {
     const now = new Date();
     const s = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     return { reply: `Nous sommes le ${s}, Isaac.`, source: 'local' };

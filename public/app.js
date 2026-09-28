@@ -268,8 +268,12 @@ async function processCommand(text) {
   // Réponses instantanées côté client
   const t = text.toLowerCase();
   const estGK = GK_MOTS.test(t);
+  // Un vrai travail (projet, application, cahier des charges) ne se laisse JAMAIS détourner
+  // par une réponse instantanée : le mot « date » tout seul ne doit pas déclencher la date du jour.
+  const estTravail = /(?:projet|application|appli|site|page|code|html|css|javascript|localstorage|objectif|contrainte|fonction|tableau|formulaire|marionnette)/.test(t) || t.length > 140;
   let local = null;
-  if (/^(bonjour|salut|hello|bonsoir)\b/.test(t)) local = 'Bonjour Isaac, mon créateur. Tous les systèmes sont opérationnels. Que puis-je faire pour vous ?';
+  if (estTravail) { /* rien d'instantané — commande complète au cerveau */ }
+  else if (/^(bonjour|salut|hello|bonsoir)\b/.test(t)) local = 'Bonjour Isaac, mon créateur. Tous les systèmes sont opérationnels. Que puis-je faire pour vous ?';
   else if (/comment (tu t appelles|vous appelez|t appelles tu)|quel est ton nom|qui es.?tu/.test(t)) local = "Je suis Aelyra, votre assistante personnelle, Isaac. Vous m'avez donné ce prénom et je le porte avec fierté — c'est vous, Isaac, mon créateur.";
   else if (/qui (est|es) ton cr[ée]ateur|qui t a cr[ée]e|qui est ton (p[èe]re|ma[îi]tre|createur)|mon nom/.test(t)) local = "C'est vous, Isaac ! Vous êtes mon créateur. Je suis Aelyra, née de votre imagination.";
   else if (/^(merci)/.test(t)) local = 'Avec plaisir, Isaac. C est mon rôle auprès de mon créateur.';
