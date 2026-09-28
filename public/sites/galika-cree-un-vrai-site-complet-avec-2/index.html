@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digital Business | Stratégies Numériques</title>
+<style>
+:root {
+    --primary: #2563eb;
+    --dark: #1e293b;
+    --light: #f8fafc;
+    --accent: #10b981;
+    --error: #ef4444;
+}
+body { font-family: system-ui, sans-serif; margin: 0; background: var(--light); color: var(--dark); line-height: 1.6; }
+header { background: var(--dark); color: white; padding: 1rem; display: flex; justify-content: space-between; align-items: center; }
+.hero { padding: 4rem 1rem; text-align: center; background: linear-gradient(to right, #2563eb, #7c3aed); color: white; }
+.container { max-width: 900px; margin: auto; padding: 2rem; }
+.card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 2rem; }
+input, textarea, button { width: 100%; padding: 0.8rem; margin: 0.5rem 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+button { background: var(--primary); color: white; cursor: pointer; border: none; font-weight: bold; }
+#status { margin-top: 1rem; padding: 1rem; display: none; border-radius: 4px; }
+.price { font-size: 1.5rem; font-weight: bold; color: var(--primary); }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>Digital Business</h1>
+    <div id="user-auth">
+        <span id="user-status">Non connecté</span>
+    </div>
+</header>
+
+<section class="hero">
+    <h2>Dominez le marché digital</h2>
+    <p>Solutions de transformation numérique pour entreprises performantes.</p>
+</section>
+
+<div class="container">
+    <section id="services" class="card">
+        <h3>Nos Tarifs</h3>
+        <p>Audit Stratégique : <span class="price">150 000 FCFA</span></p>
+        <p>Développement Web : <span class="price">450 000 FCFA</span></p>
+    </section>
+
+    <section id="auth" class="card">
+        <h3>Espace Membre</h3>
+        <input type="text" id="pseudo" placeholder="Pseudo">
+        <input type="password" id="mdp" placeholder="Mot de passe">
+        <button onclick="handleAuth('/api/inscription')">Inscription</button>
+        <button onclick="handleAuth('/api/connexion')" style="background: var(--accent);">Connexion</button>
+    </section>
+
+    <section id="contact" class="card">
+        <h3>Contactez nos experts</h3>
+        <form id="contactForm">
+            <input type="text" id="nom" placeholder="Votre nom" required>
+            <input type="email" id="email" placeholder="Votre email" required>
+            <textarea id="texte" placeholder="Votre message" required></textarea>
+            <button type="submit">Envoyer le message</button>
+        </form>
+        <div id="status"></div>
+    </section>
+</div>
+
+<script>
+const statusDiv = document.getElementById('status');
+
+async function handleAuth(endpoint) {
+    const pseudo = document.getElementById('pseudo').value;
+    const motdepasse = document.getElementById('mdp').value;
+    const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pseudo, motdepasse })
+    });
+    const data = await res.json();
+    if (data.jeton) {
+        localStorage.setItem('token', data.jeton);
+        document.getElementById('user-status').innerText = 'Connecté : ' + pseudo;
+    }
+}
+
+document.getElementById('contactForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+        nom: document.getElementById('nom').value,
+        email: document.getElementById('email').value,
+        texte: document.getElementById('texte').value
+    };
+    
+    try {
+        const res = await fetch('/api/contact', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        statusDiv.style.display = 'block';
+        statusDiv.style.backgroundColor = data.ok ? '#d1fae5' : '#fee2e2';
+        statusDiv.style.color = data.ok ? '#065f46' : '#991b1b';
+        statusDiv.innerText = data.merci || 'Erreur lors de l envoi';
+    } catch (err) {
+        statusDiv.style.display = 'block';
+        statusDiv.innerText = 'Service indisponible';
+    }
+});
+
+window.onload = () => {
+    if (localStorage.getItem('token')) {
+        document.getElementById('user-status').innerText = 'Connecté';
+    }
+};
+</script>
+</body>
+</html>
