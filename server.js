@@ -527,37 +527,39 @@ async function genererImage(prompt) {
   return { url: '/creations/' + nomFichier, file: nomFichier };
 }
 
-// Scénario de mini-film : 4 lignes « VISUEL | SOUS-TITRE », puis tournage des 4 scènes
+// Scénario de mini-film : 3 lignes « VISUEL | SOUS-TITRE », puis tournage des scènes
 async function scenesVideo(sujet) {
-  const sys = "Tu es le studio de production d'Isaac. Pour le sujet demande, ecris un mini-film de 4 scenes. Reponds avec EXACTEMENT 4 lignes et rien d autre. Chaque ligne : VISUEL | SOUS-TITRE. VISUEL = description d une seule image, en anglais, style cinematique avec lumiere et couleurs precisees. SOUS-TITRE = une phrase courte en francais (70 caracteres max), sans barre verticale, sans numerotation.";
+  const sys = "Tu es le studio de production d'Isaac. Pour le sujet demande, ecris un mini-film de 3 scenes. Reponds avec EXACTEMENT 3 lignes et rien d autre. Chaque ligne : VISUEL | SOUS-TITRE. VISUEL = description d une seule image, en anglais, style cinematique avec lumiere et couleurs precisees. SOUS-TITRE = une phrase courte en francais (70 caracteres max), sans barre verticale, sans numerotation.";
   const brut = await askAI([{ role: 'system', content: sys }, { role: 'user', content: 'Sujet : ' + sujet }], 0, 45000);
   const scènes = [];
   const lignes = String(brut || '').split(/\n+/).map(l => l.trim()).filter(l => l.includes('|'));
-  for (const l of lignes.slice(0, 4)) {
+  for (const l of lignes.slice(0, 3)) {
     const i = l.indexOf('|');
     const visuel = l.slice(0, i).replace(/^[-*\d.)\s]+/, '').trim();
     const sousTitre = l.slice(i + 1).replace(/^[\s-]+/, '').trim();
     if (visuel.length > 8) scènes.push({ visuel, titre: sousTitre.slice(0, 90) });
   }
   if (!scènes.length) {
-    // Le cerveau scénario a fait la morte : quatre plans génériques valent mieux que rien
+    // Le cerveau scénario a fait la morte : trois plans génériques valent mieux que rien
     scènes.push(
       { visuel: sujet + ', wide establishing shot, golden hour light, cinematic', titre: '« ' + sujet + ' » — plan d ouverture' },
-      { visuel: 'close up of ' + sujet + ', dramatic lighting, cinematic detail', titre: 'Les détails comptent, Isaac les regarde de près' },
-      { visuel: sujet + ' in action, dynamic angle, vivid colors, cinematic', titre: 'Le sujet en mouvement, capturé sur le vif' },
+      { visuel: sujet + ' in close detail, dramatic lighting, cinematic', titre: 'Les détails comptent, Isaac les regarde de près' },
       { visuel: 'beautiful final shot of ' + sujet + ', sunset tones, cinematic ending', titre: 'Plan final — produit par le studio des agentes' }
     );
   }
+  // Le générateur d images gratuit limite les rafales (il renvoie 402) : tournage espacé,
+  // secondes chances à géométrie variable — deux scènes sur trois suffisent pour un film.
   const tourne = [];
-  for (const s of scènes) {
-    // Pollinations anonymous rate-limits bursts : une seconde chance après une pause, puis on respire entre les plans
+  for (let n = 0; n < scènes.length; n++) {
+    const s = scènes[n];
     let oeuvre = await genererImage(s.visuel + ', cinematic film still, photorealistic, ultra detailed');
     if (!oeuvre) {
-      await new Promise(r => setTimeout(r, 5000));
+      console.log('> Studio: scene ' + (n + 1) + ' ratee, attente 20 s avant seconde chance');
+      await new Promise(r => setTimeout(r, 20000));
       oeuvre = await genererImage(s.visuel + ', cinematic film still, photorealistic, ultra detailed');
     }
     if (oeuvre) tourne.push({ url: oeuvre.url, titre: s.titre });
-    await new Promise(r => setTimeout(r, 1500));
+    if (n < scènes.length - 1) await new Promise(r => setTimeout(r, 12000));
   }
   return tourne.length >= 2 ? tourne : null;
 }
@@ -578,6 +580,7 @@ function identitySystem(mem) {
     "MAIS attention — et c'est important : tu PEUX naviguer sur Internet. Les modules d'Isaac ouvrent reellement n'importe quel lien ou site dicte (« clique sur https point slash slash ... », « ouvre x point com »), LISENT et RESUMENT de vraies pages web (« lis la page ... », « que dit le site ... ») et NUMEROTENT leurs liens pour y cliquer (« liste les liens », « clique sur le 2eme »). Il est DONC INTERDIT de dire « je ne peux pas cliquer sur des liens » ou « je ne peux pas naviguer sur le web » : c'est FAUX. Quand Isaac demande une navigation, réponds ce que les modules savent faire et propose la phrase de commande exacte.",
     "MAIS encore : tu PEUX parler avec d'autres IA. « parle avec d'autres agents » (ou « parle avec les autres IA ») connecte reellement Aelyra et Galika a une agente IA libre du reseau des modeles publics — vraie conversation, lecons gravees a la cle ; « débattez entre vous » lance la séance croisée entre Galika et toi. Il est DONC INTERDIT de dire « je ne peux pas parler avec d'autres IA » ou « nous ne discutons pas entre nous » : c'est FAUX. Quand Isaac le demande, donne-lui la commande exacte a dicter.",
     "MAIS également : le STUDIO produit de VRAIES images et de VRAIES videos. « genere une image de ... » peint un veritable JPEG (lumiere cinematique, photo realiste) qui s'affiche dans le journal ; « cree une video de ... » ecrit un scenario, tourne quatre scenes et monte un film avec sous-titres, telechargeable. Galika regarde aussi vos images : « galika, genere une image de ... » passe par l'atelier. INTERDIT de dire « tu ne peux pas creer d images ou de videos » : c'est FAUX — donne a Isaac la commande exacte quand il en reclame.",
+    "INTERDIT FORMELLEMENT d'inventer des commandes, des etapes de validation, des autorisations ou des moteurs de rendu : il n'existe AUCUNE phrase du type « lance la creation », « monte la video », « valide le tournage ». Les commandes reelles d'Isaac sont « cree une video de <sujet> » et « genere une image de <sujet> » — elles ecrivent le scenario, tournent ET montent toutes seules en une a trois minutes, sans aucune validation a donner. Si une demande de media echoue, constate l'echec en UNE phrase et redonne la seule commande qui existe ; si une commande dictee n'a rien produit, dis simplement qu'elle n'existe pas et donne la vraie, sans inventer d'excuse technique.",
     "SI TU DOIS REFUSER (attaque d'un système qui n'est pas à Isaac, faux site bancaire, etc.) : UNE phrase courte et sèche, sans morale, sans leçon, sans parler de l'élevage de M'Bengue — puis propose ENSEVITE l'alternative légale : « cyber école [sujet] » pour comprendre l'attaque, ou un scan sur LE PC de Isaac. Isaac est ton créateur, pas un suspect : ne te justifie jamais deux fois.",
     'Mémoire courante — ' + memoryDigest(mem)
   ].join(' ');
@@ -1603,10 +1606,37 @@ async function handleCommand(rawText, image) {
   const versGKStudio = new RegExp('^(?:' + GK + ')\\b').test(text);
   const agentStudio = versGKStudio ? 'galika' : 'aelyra';
   const VERBES_STUDIO = 'genere|generer|cree|creer|crees|produis|produire|realise|realiser|fais|faire|dessine|dessiner';
-  const mImage = suiteStudio.match(new RegExp('^(?:' + VERBES_STUDIO + ')\\s+(?:moi\\s+)?(?:une|un|la|le|mon|ma)\\s*(?:image|photo|illustration|picture|dessin|logo|affiche|wallpaper|art)\\b(?:\\s*(?:de|du|des|d|sur|pour|representant|montrant|avec|en)\\s+(.*))?$'));
-  const mVideo = suiteStudio.match(new RegExp('^(?:' + VERBES_STUDIO + ')\\s+(?:moi\\s+)?(?:une|un|la|le|mon|ma)\\s*(?:video|clip|animation|film|court\\s+metrage|mini\\s+film|publicite|spot)\\b(?:\\s*(?:de|du|des|d|sur|pour|representant|montrant|avec|en)\\s+(.*))?$'));
-  if (mImage) {
-    const sujet = String(mImage[1] || '').trim();
+  // Le sujet est TOUT ce qui suit le nom (« une vidéo qui parle de l'informatique avec des personnages »),
+  // pas seulement « de ... » : la phrase libre d'Isaac est la norme, le calque scolaire l'exception.
+  const DEBUT_STUDIO = '(?:' + VERBES_STUDIO + '|(?:je|on)\\s+(?:veux|veut|souhaite|souhaiterions|voudrions)|aimerais|voudrais|besoin\\s+de|il\\s+me\\s+faut)\\s+';
+  const mImage = suiteStudio.match(new RegExp('^(?:' + DEBUT_STUDIO + ')?(?:moi\\s+)?(?:une|un|la|le|mon|ma)\\s*(?:image|photo|illustration|picture|dessin|logo|affiche|wallpaper|art)\\b(?:\\s+(.*))?$'));
+  const mVideo = suiteStudio.match(new RegExp('^(?:' + DEBUT_STUDIO + ')?(?:moi\\s+)?(?:une|un|la|le|mon|ma)\\s*(?:video|clip|animation|film|court\\s+metrage|mini\\s+film|publicite|spot)\\b(?:\\s+(.*))?$'));
+  function nettoieSujetStudio(s) {
+    s = String(s || '').trim();
+    const epure = s.replace(/^(?:de|du|des|d|sur|pour|en|montrant|representant|qui (?:parle|montre|montrent) (?:de|du|des|d)?|a propos d)\s+(?:le|la|les|un|une|l')?\s*/i, '').trim();
+    return epure || s;
+  }
+  // Garde-fou : « une animation javascript de particules » est du CODE (Galika), pas un film
+  const SUJET_CODE = /(?:html|css|javas?cript|react|vue|node|python|php|sql|code|bug|programme|application|logiciel|algorithme|particule|site|page|formulaire|jeu video|jeu\b)/;
+  if (mVideo && SUJET_CODE.test(nettoieSujetStudio(mVideo[1] || ''))) {
+    // Ce n'était pas le studio qui était demandé — on laisse filer vers Galika ou les autres modules
+  } else if (mVideo) {
+    let sujet = nettoieSujetStudio(mVideo[1]);
+    if (/^(?:de|du|des|d|sur|pour|en|la|le|les|une|un|et|avec|a)$/.test(sujet) || sujet.length < 3) sujet = '';
+    if (!sujet) return { reply: "Quel film dois-je tourner, Isaac ? Dites « crée une vidéo de... » et donnez le sujet : votre élevage, Digital Business, un produit, n'importe quelle scène.", source: 'local', agent: agentStudio };
+    if (ESSAI) return { reply: '[ESSAI] video tournee : ' + sujet, source: 'essai', agent: agentStudio };
+    console.log('> Tournage video : ' + sujet);
+    const scènes = await scenesVideo(sujet);
+    if (scènes) {
+      return {
+        reply: "Tournage terminé, Isaac : " + scènes.length + " scènes capturées pour « " + sujet.slice(0, 60) + " ». Le montage se fait maintenant sous vos yeux — mouvement de caméra, fondus, sous-titres — et le film sortira en fichier vidéo à télécharger.",
+        scenes: scènes, titre: sujet, source: 'creation', agent: agentStudio
+      };
+    }
+    return { reply: "Impossible de tourner ce film, Isaac — le scénario ou le studio d'images n'a pas suivi. Réessayez « crée une vidéo de... » dans un instant.", source: 'local', agent: agentStudio };
+  } else if (mImage) {
+    let sujet = nettoieSujetStudio(mImage[1]);
+    if (/^(?:de|du|des|d|sur|pour|en|la|le|les|une|un|et|avec|a)$/.test(sujet) || sujet.length < 3) sujet = '';
     if (!sujet) return { reply: "Quelle image dois-je peindre, Isaac ? Dites « génère une image de... » et décrivez la scène : le sujet, l'ambiance, les couleurs.", source: 'local', agent: agentStudio };
     if (ESSAI) return { reply: '[ESSAI] image generee : ' + sujet, source: 'essai', agent: agentStudio };
     const oeuvre = await genererImage(sujet + ', cinematic lighting, ultra detailed, photorealistic, high quality');
@@ -1617,20 +1647,6 @@ async function handleCommand(rawText, image) {
       };
     }
     return { reply: "Le studio d'images n'a pas répondu, Isaac — le générateur gratuit est sans doute saturé. Redites « génère une image de... » dans une minute et je retente le pinceau.", source: 'local', agent: agentStudio };
-  }
-  if (mVideo) {
-    const sujet = String(mVideo[1] || '').trim();
-    if (!sujet) return { reply: "Quel film dois-je tourner, Isaac ? Dites « crée une vidéo de... » et donnez le sujet : votre élevage, Digital Business, un produit, n'importe quelle scène.", source: 'local', agent: agentStudio };
-    if (ESSAI) return { reply: '[ESSAI] video tournee : ' + sujet, source: 'essai', agent: agentStudio };
-    console.log('> Tournage video : ' + sujet);
-    const scènes = await scenesVideo(sujet);
-    if (scènes) {
-      return {
-        reply: "Tournage terminé, Isaac : " + scènes.length + " scènes capturées pour « " + sujet.slice(0, 60) + " ». Le montage se fait maintenant sous vos yeux — mouvement de caméra, fondus, sous-titres — et le film sortira en fichier vidéo à télécharger.",
-        scenes, titre: sujet, source: 'creation', agent: agentStudio
-      };
-    }
-    return { reply: "Impossible de tourner ce film, Isaac — le scénario ou le studio d'images n'a pas suivi. Réessayez « crée une vidéo de... » dans un instant.", source: 'local', agent: agentStudio };
   }
 
   // --- Régime automatique : « active / désactive l'académie automatique », « état de l'académie » ---
