@@ -75,7 +75,7 @@ html, body {
 .hud-left, .hud-right { display: flex; align-items: center; gap: 8px; min-width: 200px; }
 .hud-right { justify-content: flex-end; font-size: 15px; letter-spacing: 2px; }
 
-/* ---------- Choix de l'agente active (Aelyra / Galika) ---------- */
+/* ---------- Choix de l'agente active (Aelyra / Jeanette) ---------- */
 .agent-switch { display: flex; gap: 6px; }
 .sw {
   background: transparent; cursor: pointer; font-family: inherit;
@@ -102,8 +102,8 @@ html, body {
 .sound-btn:hover { background: var(--cyan-dim); }
 .sound-btn.muted { border-color: rgba(255,80,110,.6); color: #ff506e; }
 
-/* ---------- Mode GALIKA : tout le HUD passe au violet ---------- */
-body.mode-galika {
+/* ---------- Mode JEANETTE : tout le HUD passe au violet ---------- */
+body.mode-jeanette {
   --cyan: #c084fc;
   --cyan-soft: rgba(168, 85, 247, .45);
   --cyan-dim: rgba(168, 85, 247, .13);
@@ -236,15 +236,15 @@ body.speaking .core-center { animation: speakWave .35s ease-in-out infinite; }
   border: 1px solid var(--cyan-soft);
   border-left: 3px solid var(--cyan);
 }
-/* GALIKA — seconde agente :-messages pourpres, distincts d'Aelyra */
-.msg.galika {
+/* JEANETTE — seconde agente :-messages pourpres, distincts d'Aelyra */
+.msg.jeanette {
   align-self: flex-start;
   background: rgba(168, 85, 247, .10);
   border: 1px solid rgba(168, 85, 247, .38);
   border-left: 3px solid #c084fc;
   color: #e9d5ff;
 }
-.msg.galika .who { color: #c084fc; }
+.msg.jeanette .who { color: #c084fc; }
 /* Agente libre rencontrée sur le réseau (séances d'Académie extérieures) : ambre pointillé */
 .msg.autre {
   align-self: flex-start;

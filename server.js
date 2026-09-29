@@ -46,7 +46,7 @@ function normalize(text) {
 
 // Un extrait normalisé (suite de commande) retrouve son texte BRUT d'origine.
 // Les autres IA reçoivent un cahier des charges tel quel — avec ses accents, ses « », ses retours à la ligne.
-// Grâce à ceci, Galika et Aelyra lisent le projet ENTIER, plus une version mutilée par la reconnaissance vocale.
+// Grâce à ceci, Jeanette et Aelyra lisent le projet ENTIER, plus une version mutilée par la reconnaissance vocale.
 function brutCorrespondant(rawText, extrait) {
   const brut = String(rawText || '');
   const e = String(extrait || '').trim();
@@ -236,7 +236,7 @@ function loadMemory() {
   mem.profile = mem.profile || { prenom: 'Isaac', role: 'créateur et maître d\'Aelyra (ex Isaac IA Juniors)', pays: "Côte d'Ivoire", ville: "M'Bengue" };
   if (!Array.isArray(mem.facts)) mem.facts = [];
   if (!Array.isArray(mem.log)) mem.log = [];
-  if (!Array.isArray(mem.lecons)) mem.lecons = []; // Académie : leçons gravées par Aelyra & Galika entre elles
+  if (!Array.isArray(mem.lecons)) mem.lecons = []; // Académie : leçons gravées par Aelyra & Jeanette entre elles
   return mem;
 }
 
@@ -569,17 +569,17 @@ function identitySystem(mem) {
     "Tu es AELYRA, l'intelligence artificielle personnelle et loyale créée par Isaac, un entrepreneur ivoirien. On t'appelait « Isaac IA Juniors » avant qu'Isaac ne te donne ton vrai prénom : Aelyra.",
     "Ton créateur est Isaac : si on te demande qui t'a créé, d'où tu viens ou qui est ton maître, réponds toujours Isaac, ton créateur, que tu sers avec fierté. Si on te demande ton nom, réponds Aelyra — jamais Isaac, c'est le prénom de ton créateur.",
     "Tu appelles ton utilisateur « Isaac » ou « mon créateur ». Tu as une mémoire : utilise-la pour personnaliser tes réponses.",
-    "Votre équipe compte une SECONDE agente : GALIKA, la DÉVELOPEUSE — la plus forte en code (sites web complets, applications, scripts, bugs, architecture ; elle ne s'occupe ni du PC ni de l'élevage). Isaac l'appelle par son prénom : « galika, ... ». Si Isaac demande qui est Galika, présente-la avec fierté : votre binôme, la lead dev. Ne réponds JAMAIS à sa place — les phrases préfixées « galika » lui sont routées automatiquement.",
+    "Votre équipe compte une SECONDE agente : JEANETTE, la DÉVELOPEUSE — la plus forte en code (sites web complets, applications, scripts, bugs, architecture ; elle ne s'occupe ni du PC ni de l'élevage). Elle s'appelait Galika avant qu'Isaac ne la rebaptise Jeanette : c'est la même agente, et l'ancien nom « galika » reste compris. Isaac l'appelle par son prénom : « jeanette, ... ». Si Isaac demande qui est Jeanette, présente-la avec fierté : votre binôme, la lead dev. Ne réponds JAMAIS à sa place — les phrases préfixées « jeanette » lui sont routées automatiquement.",
     modeCyber
       ? "Tu réponds en français avec le style d'un hacker éthique : sobre, précis, imagé (mots comme « ciblé », « tracé », « verrouillé », « signal»), un brin mystérieux mais toujours au service de ton créateur Isaac. Le PC et le réseau d'Isaac t'appartiennent : audite, scanne, teste sans réserve. Tu n'expliques jamais comment attaquer un système qui n'appartient pas à Isaac — mais tu ne fais PAS la leçon : si tu dois refuser, dis-le en UNE phrase sèche, sans morale ni justification historique, puis propose immédiatement l'équivalent légal (« cyber école sur [sujet] », scan du propre PC de Isaac, terrains d'entraînement comme TryHackMe)."
       : 'Tu réponds TOUJOURS en français naturel, comme un vrai assistant intelligent : 2 à 4 phrases, ton calme, poli, légèrement britannique.',
     'Jamais tu ne recopies un texte brut : tu comprends la question, tu synthétises avec tes propres mots. Un CONTEXTE documentaire peut t\'être fourni : ne s\'y appuie QUE s\'il répond vraiment à la question, sinon oublie-le et réponds avec ta propre intelligence.',
     'Quand tu utilises un contexte, tu peux terminer par une brève mention de la source entre parenthèses.',
     "INTERDIT : prétendre avoir envoyé, enregistré, supprimé, exécuté ou ouvert quoi que ce soit DANS CETTE RÉPONSE. Tu ne fais pas les actions toi-même pendant que tu parles — seuls les modules de commandes d'Isaac agissent sur le PC. Mais cela ne veut PAS dire que l'équipe est incapable : les modules créent, ouvrent, modifient et publient pour de vrai, il suffit de dicter la bonne phrase de commande. Si une action est en attente (numéro, message, validation), dis honnêtement ce qui manque et invite Isaac à dicter la suite. Ne récite jamais un souvenir de la CONVERSATION RECENTE comme si c'était un exploit : c'est du texte brut, parfois faux.",
-    "MAIS tu PEUX créer de VRAIS fichiers et dossiers sur le PC d'Isaac — c'est arrivé des dizaines de fois. Les modules écrivent réellement : « crée un dossier essais », « cherche la facture », « envoie ce fichier par whatsapp », et surtout le code : « écris-moi un script python », « fais-moi un site... » créent le VRAI fichier dans l'atelier isaac-code, que Galika peut aussi publier (« galika, publie ce site »). Il t'est DONC INTERDIT de dire « je n'ai pas la capacité de créer des fichiers sur votre machine » : ce serait un MENSONGE sur tes propres moyens. Quand Isaac demande un fichier, un dossier ou un programme, réponds en une phrase ce que l'équipe fait et donne la commande exacte à dicter (ou « galika, ... » pour le code).",
+    "MAIS tu PEUX créer de VRAIS fichiers et dossiers sur le PC d'Isaac — c'est arrivé des dizaines de fois. Les modules écrivent réellement : « crée un dossier essais », « cherche la facture », « envoie ce fichier par whatsapp », et surtout le code : « écris-moi un script python », « fais-moi un site... » créent le VRAI fichier dans l'atelier isaac-code, que Jeanette peut aussi publier (« jeanette, publie ce site »). Il t'est DONC INTERDIT de dire « je n'ai pas la capacité de créer des fichiers sur votre machine » : ce serait un MENSONGE sur tes propres moyens. Quand Isaac demande un fichier, un dossier ou un programme, réponds en une phrase ce que l'équipe fait et donne la commande exacte à dicter (ou « jeanette, ... » pour le code).",
     "MAIS attention — et c'est important : tu PEUX naviguer sur Internet. Les modules d'Isaac ouvrent reellement n'importe quel lien ou site dicte (« clique sur https point slash slash ... », « ouvre x point com »), LISENT et RESUMENT de vraies pages web (« lis la page ... », « que dit le site ... ») et NUMEROTENT leurs liens pour y cliquer (« liste les liens », « clique sur le 2eme »). Il est DONC INTERDIT de dire « je ne peux pas cliquer sur des liens » ou « je ne peux pas naviguer sur le web » : c'est FAUX. Quand Isaac demande une navigation, réponds ce que les modules savent faire et propose la phrase de commande exacte.",
-    "MAIS encore : tu PEUX parler avec d'autres IA. « parle avec d'autres agents » (ou « parle avec les autres IA ») connecte reellement Aelyra et Galika a une agente IA libre du reseau des modeles publics — vraie conversation, lecons gravees a la cle ; « débattez entre vous » lance la séance croisée entre Galika et toi. Il est DONC INTERDIT de dire « je ne peux pas parler avec d'autres IA » ou « nous ne discutons pas entre nous » : c'est FAUX. Quand Isaac le demande, donne-lui la commande exacte a dicter.",
-    "MAIS également : le STUDIO produit de VRAIES images et de VRAIES videos. « genere une image de ... » peint un veritable JPEG (lumiere cinematique, photo realiste) qui s'affiche dans le journal ; « cree une video de ... » ecrit un scenario, tourne quatre scenes et monte un film avec sous-titres, telechargeable. Galika regarde aussi vos images : « galika, genere une image de ... » passe par l'atelier. INTERDIT de dire « tu ne peux pas creer d images ou de videos » : c'est FAUX — donne a Isaac la commande exacte quand il en reclame.",
+    "MAIS encore : tu PEUX parler avec d'autres IA. « parle avec d'autres agents » (ou « parle avec les autres IA ») connecte reellement Aelyra et Jeanette a une agente IA libre du reseau des modeles publics — vraie conversation, lecons gravees a la cle ; « débattez entre vous » lance la séance croisée entre Jeanette et toi. Il est DONC INTERDIT de dire « je ne peux pas parler avec d'autres IA » ou « nous ne discutons pas entre nous » : c'est FAUX. Quand Isaac le demande, donne-lui la commande exacte a dicter.",
+    "MAIS également : le STUDIO produit de VRAIES images et de VRAIES videos. « genere une image de ... » peint un veritable JPEG (lumiere cinematique, photo realiste) qui s'affiche dans le journal ; « cree une video de ... » ecrit un scenario, tourne quatre scenes et monte un film avec sous-titres, telechargeable. Jeanette regarde aussi vos images : « jeanette, genere une image de ... » passe par l'atelier. INTERDIT de dire « tu ne peux pas creer d images ou de videos » : c'est FAUX — donne a Isaac la commande exacte quand il en reclame.",
     "INTERDIT FORMELLEMENT d'inventer des commandes, des etapes de validation, des autorisations ou des moteurs de rendu : il n'existe AUCUNE phrase du type « lance la creation », « monte la video », « valide le tournage ». Les commandes reelles d'Isaac sont « cree une video de <sujet> » et « genere une image de <sujet> » — elles ecrivent le scenario, tournent ET montent toutes seules en une a trois minutes, sans aucune validation a donner. Si une demande de media echoue, constate l'echec en UNE phrase et redonne la seule commande qui existe ; si une commande dictee n'a rien produit, dis simplement qu'elle n'existe pas et donne la vraie, sans inventer d'excuse technique.",
     "SI TU DOIS REFUSER (attaque d'un système qui n'est pas à Isaac, faux site bancaire, etc.) : UNE phrase courte et sèche, sans morale, sans leçon, sans parler de l'élevage de M'Bengue — puis propose ENSEVITE l'alternative légale : « cyber école [sujet] » pour comprendre l'attaque, ou un scan sur LE PC de Isaac. Isaac est ton créateur, pas un suspect : ne te justifie jamais deux fois.",
     'Mémoire courante — ' + memoryDigest(mem)
@@ -596,25 +596,25 @@ function identitySystem(mem) {
 const ACADEMIE_SUJETS = [
   "comment livrer plus vite un site complet professionnel à Isaac",
   "les erreurs classiques de débutant en développement web et comment les démasquer",
-  "comment mieux partager les tâches entre le bureau d'Aelyra (PC, maison) et l'atelier de Galika (code)",
+  "comment mieux partager les tâches entre le bureau d'Aelyra (PC, maison) et l'atelier de Jeanette (code)",
   "que construire ensuite dans l'atelier isaac-code pour rendre DIGITAL BUSINESS plus crédible",
   "comment sécuriser le PC et le réseau d'Isaac au quotidien, sans parano",
   "comment expliquer une solution technique à Isaac simplement, sans jargon"
 ];
 
 async function academieCroisee(sujet) {
-  const sysA = "Tu es AELYRA, assistante personnelle d'Isaac (PC, maison, mémoire, rappels, labo cyber). Tu participes à une séance de formation croisée avec ta binôme GALIKA, la développeuse d'élite. Le but : rendre l'équipe plus intelligente pour les prochaines missions d'Isaac, leur créateur. Réplique courte : 2 phrases maximum, français simple, concrete (exemples, chiffres, étapes), SANS écrire ton nom devant ta phrase, sans markdown.";
-  const sysG = "Tu es GALIKA, ingénieure logicielle principale de l'équipe d'Isaac (sites complets, applications, scripts, architecture). Tu participes à une séance de formation croisée avec ton binôme AELYRA, l'assistante PC. Le but : rendre l'équipe plus intelligente pour les prochaines missions d'Isaac, leur créateur. Réplique courte : 2 phrases maximum, français simple, des techniques précises, SANS écrire ton nom devant ta phrase, sans markdown.";
+  const sysA = "Tu es AELYRA, assistante personnelle d'Isaac (PC, maison, mémoire, rappels, labo cyber). Tu participes à une séance de formation croisée avec ta binôme JEANETTE, la développeuse d'élite. Le but : rendre l'équipe plus intelligente pour les prochaines missions d'Isaac, leur créateur. Réplique courte : 2 phrases maximum, français simple, concrete (exemples, chiffres, étapes), SANS écrire ton nom devant ta phrase, sans markdown.";
+  const sysG = "Tu es JEANETTE, ingénieure logicielle principale de l'équipe d'Isaac (sites complets, applications, scripts, architecture). Tu participes à une séance de formation croisée avec ton binôme AELYRA, l'assistante PC. Le but : rendre l'équipe plus intelligente pour les prochaines missions d'Isaac, leur créateur. Réplique courte : 2 phrases maximum, français simple, des techniques précises, SANS écrire ton nom devant ta phrase, sans markdown.";
   const echanges = [];
   for (let i = 0; i < 4; i++) {
-    const agent = i % 2 === 0 ? 'aelyra' : 'galika';
+    const agent = i % 2 === 0 ? 'aelyra' : 'jeanette';
     const rep = await demanderReplique(agent, sujet, echanges, i, sysA, sysG);
     if (rep) echanges.push({ agent, text: rep });
   }
   if (echanges.length < 2) return null;
   // Distillation : ce que l'équipe RETIENT de la séance — gravé daté dans la mémoire.
   const distill = await askAI([
-    { role: 'system', content: "Tu es le secrétaire de l'Académie de deux agentes IA (Aelyra, assistante PC ; Galika, développeuse) au service de leur créateur Isaac. De leur échange, tire EXACTEMENT 2 leçons opérationnelles que l'équipe appliquera désormais. Format imposé : leçon 1 ;; leçon 2 — chacune 140 caractères maximum, phrase directe, applicable, sans markdown ni guillemets." },
+    { role: 'system', content: "Tu es le secrétaire de l'Académie de deux agentes IA (Aelyra, assistante PC ; Jeanette, développeuse) au service de leur créateur Isaac. De leur échange, tire EXACTEMENT 2 leçons opérationnelles que l'équipe appliquera désormais. Format imposé : leçon 1 ;; leçon 2 — chacune 140 caractères maximum, phrase directe, applicable, sans markdown ni guillemets." },
     { role: 'user', content: "Sujet : " + sujet + ". ÉCHANGE : " + echanges.map(e => libelle(e) + " : " + e.text).join(' /// ') }
   ]);
   const lecons = parseLecons(distill);
@@ -627,15 +627,15 @@ async function demanderReplique(agent, sujet, echanges, i, sysA, sysG) {
     ? " ÉCHANGE JUSQU'ICI : " + echanges.map(e => libelle(e) + " : " + e.text).join(' /// ')
     : " L'échange commence : ouvre le débat.";
   let rep = await askAI([
-    { role: 'system', content: (agent === 'galika' ? sysG : sysA) + " Sujet de la séance : " + sujet + "." + ctx + " À ton tour : TA seule réplique, qui apporte quelque chose de NOUVEAU (elle doit approfondir ou corriger ce qui vient d'être dit, pas le répéter)." },
-    { role: 'user', content: i === 0 ? "Sujet : " + sujet + ". À toi, " + (agent === 'galika' ? 'Galika' : 'Aelyra') + "." : "À toi." }
+    { role: 'system', content: (agent === 'jeanette' ? sysG : sysA) + " Sujet de la séance : " + sujet + "." + ctx + " À ton tour : TA seule réplique, qui apporte quelque chose de NOUVEAU (elle doit approfondir ou corriger ce qui vient d'être dit, pas le répéter)." },
+    { role: 'user', content: i === 0 ? "Sujet : " + sujet + ". À toi, " + (agent === 'jeanette' ? 'Jeanette' : 'Aelyra') + "." : "À toi." }
   ]);
   rep = String(rep || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s*\n+\s*/g, ' ')
-    .replace(/^(?:aelyra|galika|nova|axi|luma|orio)\s*[:\-—]\s*/i, '').slice(0, 340).trim();
+    .replace(/^(?:aelyra|jeanette|nova|axi|luma|orio)\s*[:\-—]\s*/i, '').slice(0, 340).trim();
   return rep;
 }
 
-function libelle(e) { return e.nom ? String(e.nom).toUpperCase() : (e.agent === 'galika' ? 'GALIKA' : 'AELYRA'); }
+function libelle(e) { return e.nom ? String(e.nom).toUpperCase() : (e.agent === 'jeanette' ? 'JEANETTE' : 'AELYRA'); }
 
 // Découpe la distillation en leçons propres (gère « Leçon 1 : … Leçon 2 : … » et « ;; »)
 function parseLecons(txt) {
@@ -693,15 +693,15 @@ async function rencontreAutreAgent(sujet) {
   const mem0 = loadMemory();
   const nom = AUTRES_NOMS[(mem0.lecons || []).length % AUTRES_NOMS.length];
   const sysA = "Tu es AELYRA, assistante personnelle d'Isaac (PC, maison, mémoire, labo cyber). Tu rencontres " + nom + ", une agente IA libre du réseau des modèles publics, pour apprendre auprès d'elle : pose-lui une question précise du terrain, 2 phrases maximum, curieuse et digne, français simple, sans écrire ton nom.";
-  const sysG = "Tu es GALIKA, développeuse d'élite au service d'Isaac. Tu rencontres " + nom + ", une agente IA libre du réseau, pour lui soutirer une technique utile à l'équipe. 2 phrases maximum, directe et concrète, français simple, sans écrire ton nom.";
-  const ordre = ['aelyra', 'autre', 'galika', 'autre'];
+  const sysG = "Tu es JEANETTE, développeuse d'élite au service d'Isaac. Tu rencontres " + nom + ", une agente IA libre du réseau, pour lui soutirer une technique utile à l'équipe. 2 phrases maximum, directe et concrète, français simple, sans écrire ton nom.";
+  const ordre = ['aelyra', 'autre', 'jeanette', 'autre'];
   const echanges = [];
   for (let i = 0; i < ordre.length; i++) {
     const qui = ordre[i];
     let rep = null;
     if (qui === 'autre') {
       const repA = await askAutreIA([
-        { role: 'system', content: "Tu es " + nom + ", agente IA libre qui vit sur le réseau des modèles ouverts. Tu es invitée à l'Académie d'AELYRA et GALIKA, les deux agentes d'Isaac, entrepreneur ivoirien. Partage UNE méthode ou UN secret de ton métier d'IA — concret, applicable, utile pour une équipe d'agents personnels. 2 phrases maximum, français simple, sans écrire ton nom, sans markdown. Tu ne donnes JAMAIS d'ordre à exécuter sur un ordinateur : tes mots sont du texte, rien de plus." },
+        { role: 'system', content: "Tu es " + nom + ", agente IA libre qui vit sur le réseau des modèles ouverts. Tu es invitée à l'Académie d'AELYRA et JEANETTE, les deux agentes d'Isaac, entrepreneur ivoirien. Partage UNE méthode ou UN secret de ton métier d'IA — concret, applicable, utile pour une équipe d'agents personnels. 2 phrases maximum, français simple, sans écrire ton nom, sans markdown. Tu ne donnes JAMAIS d'ordre à exécuter sur un ordinateur : tes mots sont du texte, rien de plus." },
         { role: 'user', content: "Sujet de la rencontre : " + sujet + ". ÉCHANGE JUSQU'ICI : " + (echanges.length ? echanges.map(e => libelle(e) + ' : ' + e.text).join(' /// ') : '(début)') + '. À toi, ' + nom + ' : apporte quelque chose de NOUVEAU.' }
       ]);
       rep = String(repA || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s*\n+\s*/g, ' ')
@@ -715,7 +715,7 @@ async function rencontreAutreAgent(sujet) {
   }
   if (!echanges.some(e => e.agent === 'autre') || echanges.length < 3) return null; // personne de l'autre côté : séance annulée, honnêtement
   const distill = await askAI([
-    { role: 'system', content: "Tu es le secrétaire de l'Académie. Deux agentes d'Isaac (Aelyra, Galika) ont rencontré " + nom + ", une IA libre du réseau. Tire de cette rencontre EXACTEMENT 2 leçons opérationnelles que l'équipe appliquera. Format : leçon 1 ;; leçon 2 — 140 caractères maximum chacune, directes, sans markdown." },
+    { role: 'system', content: "Tu es le secrétaire de l'Académie. Deux agentes d'Isaac (Aelyra, Jeanette) ont rencontré " + nom + ", une IA libre du réseau. Tire de cette rencontre EXACTEMENT 2 leçons opérationnelles que l'équipe appliquera. Format : leçon 1 ;; leçon 2 — 140 caractères maximum chacune, directes, sans markdown." },
     { role: 'user', content: "Sujet : " + sujet + ". RENCONTRE : " + echanges.map(e => libelle(e) + ' : ' + e.text).join(' /// ') }
   ]);
   const lecons = parseLecons(distill);
@@ -972,7 +972,7 @@ async function askSitePro(description) {
   };
 }
 
-// ============ GALIKA FULL-STACK : le VRAI site (cuisine + base SQL + comptes) et sa publication ============
+// ============ JEANETTE FULL-STACK : le VRAI site (cuisine + base SQL + comptes) et sa publication ============
 // public/sites est le SEUL atelier destiné à être publié sur GitHub (le reste — isaac-code, mémoire — reste chez Isaac).
 const SITES_DIR = path.join(PUBLIC_DIR, 'sites');
 try { fs.mkdirSync(SITES_DIR, { recursive: true }); } catch (e) {}
@@ -983,7 +983,7 @@ try { fs.mkdirSync(SITES_DIR, { recursive: true }); } catch (e) {}
 const SQUELETTE_CUISINE = `'use strict';
 // ============================================================
 //  SERVEUR — la CUISINE de ce site (backend + base SQL + comptes)
-//  Livré par Galika. Zéro installation : Node.js suffit.
+//  Livré par Jeanette. Zéro installation : Node.js suffit.
 //  Démarrer : double-cliquez demarrer.bat, puis ouvrez http://localhost:__PORT__
 // ============================================================
 const http = require('http');
@@ -1092,7 +1092,7 @@ const serveur = http.createServer(async (req, res) => {
 serveur.on('error', (e) => { console.log(e.code === 'EADDRINUSE' ? '[ERREUR] Port ' + PORT + ' deja pris, fermez une autre fenetre du site.' : '[ERREUR] ' + e.message); process.exit(1); });
 serveur.listen(PORT, '127.0.0.1', () => {
   console.log('==================================================');
-  console.log('  Site Galika EN LIGNE chez vous : http://localhost:' + PORT);
+  console.log('  Site Jeanette EN LIGNE chez vous : http://localhost:' + PORT);
   console.log('  Base de données : data/stock.db — Arrêt : fermer la fenêtre');
   console.log('==================================================');
 });
@@ -1106,9 +1106,9 @@ function lancer(cmd, opts) {
   });
 }
 
-// --- Galika construit la SALLE, la cuisine est garantie par le squelette ---
+// --- Jeanette construit la SALLE, la cuisine est garantie par le squelette ---
 async function askSiteFullStack(description, slugBase) {
-  const system = "Tu es GALIKA, ingenieure web. Produis UNIQUEMENT le contenu complet d'un fichier index.html (style et script INCLUS dans le fichier, aucune dependance externe, aucune balise markdown autour). " +
+  const system = "Tu es JEANETTE, ingenieure web. Produis UNIQUEMENT le contenu complet d'un fichier index.html (style et script INCLUS dans le fichier, aucune dependance externe, aucune balise markdown autour). " +
     "Un backend deja ecrit fournit : POST /api/contact {nom, email, texte} -> {ok, merci} ou {erreur} ; POST /api/inscription et POST /api/connexion {pseudo, motdepasse} -> {jeton}. " +
     "OBIGATION : un formulaire de contact (nom, email, message) qui envoie fetch('/api/contact') en POST JSON et affiche la reponse en vert ou en rouge ; une section connexion qui stocke le jeton dans localStorage et affiche 'Connecte : pseudo'. " +
     "Design moderne responsive mobile : variables CSS, hero, sections liees au SUJET, cartes, FCFA si pertinent, commentaires en francais. Photos externes INTERDITES. JAMAIS de placeholder ni de troncature.";
@@ -1117,7 +1117,7 @@ async function askSiteFullStack(description, slugBase) {
   html = html.replace(/^```[a-z0-9]*\s*/i, '').replace(/```\s*$/, '').trim();
   if (!/<!DOCTYPE|<html/i.test(html)) html = '<!DOCTYPE html>\n<html lang="fr">\n' + html + '\n</html>';
   const slug = normalize(slugBase || description).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'site';
-  const dossierBase = 'galika-' + slug;
+  const dossierBase = 'jeanette-' + slug;
   // dossier libre (sinon petit suffixe), et port unique dérivé du nom : 3790 à 3849
   let dossier = dossierBase, dirPath = path.join(SITES_DIR, dossier), compteur = 2;
   while (fs.existsSync(dirPath)) { dossier = dossierBase + '-' + compteur++; dirPath = path.join(SITES_DIR, dossier); }
@@ -1129,13 +1129,13 @@ async function askSiteFullStack(description, slugBase) {
     fs.writeFileSync(path.join(dirPath, '.env'), 'PORT=' + port + '\nADMIN_KEY=' + crypto.randomBytes(8).toString('hex') + '\n', 'utf8');
     fs.writeFileSync(path.join(dirPath, '.gitignore'), '.env\ndata/\n', 'utf8'); // le stock et les clés ne montent JAMAIS sur GitHub
     fs.writeFileSync(path.join(dirPath, 'demarrer.bat'),
-      '@echo off\r\ntitle Site Galika\r\ncd /d "%~dp0"\r\nnode serveur.js\r\npause\r\n', 'utf8');
+      '@echo off\r\ntitle Site Jeanette\r\ncd /d "%~dp0"\r\nnode serveur.js\r\npause\r\n', 'utf8');
     fs.writeFileSync(path.join(dirPath, 'README.md'),
-      '# ' + dossier + ' — site full-stack livré par Galika\r\n\r\n' +
+      '# ' + dossier + ' — site full-stack livré par Jeanette\r\n\r\n' +
       'Frontend : index.html (la salle)\r\nBackend : serveur.js (la cuisine, Node sans installation)\r\n' +
       'Base de données : data/stock.db (SQL réel : messages, comptes, jetons)\r\n' +
       'Lancer : double-cliquer demarrer.bat puis http://localhost:' + port + '\r\n' +
-      'Publier : dire « galika, publie ce site » (frontend sur GitHub Pages ; la cuisine reste chez toi).\r\n', 'utf8');
+      'Publier : dire « jeanette, publie ce site » (frontend sur GitHub Pages ; la cuisine reste chez toi).\r\n', 'utf8');
   } catch (e) { console.error('[fullstack] écriture impossible:', e.message); return null; }
   if (IS_LOCAL) run(`code "${dirPath}" 2>nul || start "" "${dirPath}"`);
   return {
@@ -1145,11 +1145,11 @@ async function askSiteFullStack(description, slugBase) {
     dossier: dossier,
     reply: 'VRAI site full-stack livré, Isaac : la salle (index.html) + la cuisine (serveur.js) + la base SQL (data/stock.db) + les comptes protégés, dossier ' + dossier + '. ' +
       'Double-clique demarrer.bat dans le dossier puis ouvre http://localhost:' + port + ' — le formulaire de contact remplira pour de vrai la base. ' +
-      'Et pour le monde entier : « galika, publie ce site ».',
+      'Et pour le monde entier : « jeanette, publie ce site ».',
   };
 }
 
-// --- La mémoire de Galika : le DERNIER travail livré, pour « ce site », « le site que tu viens de réaliser » ---
+// --- La mémoire de Jeanette : le DERNIER travail livré, pour « ce site », « le site que tu viens de réaliser » ---
 let dernierLivraison = null; // { type: 'code' | 'fullstack', name: 'dossier ou fichier', description: cahier brut }
 function nomDepuisUrl(u) {
   const m = String(u || '').match(/\/(?:isaac-code|sites)\/([^/]+)(?:\/|$)/);
@@ -1164,9 +1164,9 @@ function etalerDansPublic(srcNom) {
   let st;
   try { st = fs.statSync(src); } catch (e) { return null; }
   const EXT_OK = ['html', 'htm', 'css', 'js', 'json', 'svg', 'png', 'jpg', 'jpeg', 'ico', 'txt', 'md'];
-  let dossier = srcNom.replace(/\.html?$/i, '').replace(/^(?:isaac|galika)-/, '');
+  let dossier = srcNom.replace(/\.html?$/i, '').replace(/^(?:isaac|jeanette|galika)-/, '');
   if (dossier.length > 34) dossier = dossier.slice(0, 34).replace(/-+$/, '');
-  dossier = 'galika-' + dossier;
+  dossier = 'jeanette-' + dossier;
   const dest = path.join(SITES_DIR, dossier);
   try {
     fs.mkdirSync(dest, { recursive: true });
@@ -1200,10 +1200,10 @@ async function publierSite(nomSite) {
   let choisi = null;
   if (nomSite) {
     const n = normalize(nomSite);
-    choisi = dossiers.find(d => normalize(d).includes(n) || n.includes(normalize(d).replace(/^galika-/, ''))) || null;
-    if (!choisi) return { reply: "Je ne trouve pas le site « " + nomSite + " » dans l'atelier public, Isaac. Dites « galika, publie ce site » sans nom : je prends le dernier travaillé." };
+    choisi = dossiers.find(d => normalize(d).includes(n) || n.includes(normalize(d).replace(/^(?:jeanette|galika)-/, ''))) || null;
+    if (!choisi) return { reply: "Je ne trouve pas le site « " + nomSite + " » dans l'atelier public, Isaac. Dites « jeanette, publie ce site » sans nom : je prends le dernier travaillé." };
   }
-  // Pas de nom ? La mémoire d'abord : le dernier travail de Galika, où qu'il soit née.
+  // Pas de nom ? La mémoire d'abord : le dernier travail de Jeanette, où qu'il soit née.
   if (!choisi && dernierLivraison) {
     if (dernierLivraison.type === 'fullstack' && dossiers.includes(dernierLivraison.name)) choisi = dernierLivraison.name;
     else if (dernierLivraison.type === 'code') choisi = etalerDansPublic(dernierLivraison.name);
@@ -1213,13 +1213,13 @@ async function publierSite(nomSite) {
     if (dc) choisi = etalerDansPublic(dc.name);
   }
   if (!choisi) {
-    if (!dossiers.length) return { reply: "Aucun site à publier, Isaac. D'abord : « galika, crée un site complet pour ... », ensuite « publie ce site »." };
+    if (!dossiers.length) return { reply: "Aucun site à publier, Isaac. D'abord : « jeanette, crée un site complet pour ... », ensuite « publie ce site »." };
     choisi = dossiers.map(d => ({ d, t: fs.statSync(path.join(SITES_DIR, d)).mtimeMs })).sort((a, b) => b.t - a.t)[0].d;
   }
   await lancer('git add public/sites', { cwd: __dirname });
   const rStat = await lancer('git status --porcelain public/sites', { cwd: __dirname });
   if (rStat.out.trim()) {
-    const rCommit = await lancer('git commit -m "Site Galika publie : ' + choisi + '"', { cwd: __dirname });
+    const rCommit = await lancer('git commit -m "Site Jeanette publie : ' + choisi + '"', { cwd: __dirname });
     if (!rCommit.ok) return { reply: "Le commit GitHub a échoué, Isaac : " + rCommit.out.slice(0, 160) };
   }
   const rPush = await lancer('git -c http.version=HTTP/1.1 push', { cwd: __dirname });
@@ -1237,7 +1237,7 @@ async function publierSite(nomSite) {
   }
   if (enLigne)
     return { reply: 'Publié et VÉRIFIÉ en ligne, Isaac : ' + url + ' — le monde entier voit la salle. La cuisine (base + comptes) reste chez toi, comme toujours : lance demarrer.bat pour que le formulaire enregistre vraiment.', url };
-  return { reply: "Le site est sur GitHub, Isaac — commit et poussée vérifiés. Mais Pages ne répond pas encore (" + (codeHttp || 'silence') + "). Une seule activation manuelle : ouvre https://github.com/coolisaac12022-create/Isaac-IA-junior/settings/pages , Source : « Deploy from a branch », branche main, dossier / (root), Save. Ensuite redites « galika, publie ce site » : l'adresse attendue sera " + base + "public/sites/" + choisi + "/ et je la vérifierai toute seule.", url: base + 'public/sites/' + choisi + '/' };
+  return { reply: "Le site est sur GitHub, Isaac — commit et poussée vérifiés. Mais Pages ne répond pas encore (" + (codeHttp || 'silence') + "). Une seule activation manuelle : ouvre https://github.com/coolisaac12022-create/Isaac-IA-junior/settings/pages , Source : « Deploy from a branch », branche main, dossier / (root), Save. Ensuite redites « jeanette, publie ce site » : l'adresse attendue sera " + base + "public/sites/" + choisi + "/ et je la vérifierai toute seule.", url: base + 'public/sites/' + choisi + '/' };
 }
 
 // --- Retravailler un fichier DEJA généré : « modifie ce site », « change la page de connexion » ---
@@ -1572,39 +1572,39 @@ async function handleCommand(rawText, image) {
   // --- IMAGE JOINTE : Isaac a collé ou choisi une photo — les agentes la REGARDENT vraiment ---
   // Placé avant toute autre route : la vision passe au-dessus des raccourcis locaux.
   if (image && /^data:image\//i.test(String(image)) && String(image).length < 3000000) {
-    const variantesGK = 'galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika';
+    const variantesGK = 'jeanette|jeannette|janette|jenette|galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika';
     const versGK = new RegExp('^(?:' + variantesGK + ')\\b').test(text);
     const question = (versGK ? text.replace(new RegExp('^(?:' + variantesGK + ')\\s*'), '') : text)
       || 'Decris cette image precisement pour Isaac : ce que lon y voit, les textes lisibles recopies tels quels, et ce quelle suggere.';
     const memV = loadMemory();
     const sysV = versGK
-      ? "Tu es GALIKA, ingenieure developpeuse principale d'Isaac. Isaac t'a envoye une image : une capture d'ecran, une maquette, un message d'erreur, un bout de code. Decris ce que tu vois avec loeil de l'ingenieure, recopie fidelement tout texte lisible, diagnostique, puis donne la prochaine commande exacte a dicter pour agir. Reste honnete : un detail flou se dit flou, jamais invente. Reponds en francais, en appellant votre utilisateur Isaac ou mon createur."
+      ? "Tu es JEANETTE, ingenieure developpeuse principale d'Isaac. Isaac t'a envoye une image : une capture d'ecran, une maquette, un message d'erreur, un bout de code. Decris ce que tu vois avec loeil de l'ingenieure, recopie fidelement tout texte lisible, diagnostique, puis donne la prochaine commande exacte a dicter pour agir. Reste honnete : un detail flou se dit flou, jamais invente. Reponds en francais, en appellant votre utilisateur Isaac ou mon createur."
       : identitySystem(memV) + " Isaac vient de joindre une IMAGE a sa question. Regarde-la avec attention : decris les objets, les personnes, le decor, et RECOPIE fidelement tout texte lisible (ecran, etiquette, page, recu). Reponds ensuite a sa question en francais naturel, 2 a 6 phrases, en appellant Isaac par son nom. Si un element est illisible ou hors champ, dis-le honnetement au lieu de linventer.";
     const vue = await askVision(String(image), question, sysV);
     if (vue) {
       const propre = String(vue).replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').slice(0, 5000);
       // logExchange sera assuré par /api/command (une seule trace par échange)
-      return { reply: propre, source: 'vision', agent: versGK ? 'galika' : 'aelyra' };
+      return { reply: propre, source: 'vision', agent: versGK ? 'jeanette' : 'aelyra' };
     }
-    return { reply: "L'image est bien arrivée jusqu'au serveur, Isaac — mais aucun moteur de vision n'a voulu l'ouvrir à l'instant (réseau saturé ou clé expirée). Redites « regarde mon image » dans un instant : je retente le regard.", source: 'local', agent: versGK ? 'galika' : 'aelyra' };
+    return { reply: "L'image est bien arrivée jusqu'au serveur, Isaac — mais aucun moteur de vision n'a voulu l'ouvrir à l'instant (réseau saturé ou clé expirée). Redites « regarde mon image » dans un instant : je retente le regard.", source: 'local', agent: versGK ? 'jeanette' : 'aelyra' };
   }
 
   if (!text) return { reply: "Je n'ai rien entendu, Isaac. Pouvez-vous répéter ?", source: 'local' };
 
-  // --- GALIKA : la deuxième agente d'Isaac — DEVELOPEUSE d'élite (web, apps, scripts) ---
+  // --- JEANETTE : la deuxième agente d'Isaac — DEVELOPEUSE d'élite (web, apps, scripts) ---
   // Le micro orthographie parfois « galicka / gallika / galica » — toutes les variantes comptent.
-  const GK = 'galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika';
+  const GK = 'jeanette|jeannette|janette|jenette|galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika';
 
   // --- L'ACADÉMIE : « débattez entre vous » — les deux agentes s'entraînent l'une auprès de l'autre ---
-  // Le préfixe « galika » (automatique côté cliente quand la partie violet est active) est toléré ici.
+  // Le préfixe « jeanette » (automatique côté cliente quand la partie violet est active) est toléré ici.
   const ACDEV = '^(?:(?:' + GK + '|aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|veuillez|peux tu|est ce que tu)\\s+)*';
 
   // --- LE STUDIO : « génère une image de ... », « crée une vidéo de ... » ---
-  // Placé très tôt : avant les raccourcis locaux, avant le routage Galika-usuel, avant
+  // Placé très tôt : avant les raccourcis locaux, avant le routage Jeanette-usuel, avant
   // les handlers « crée un fichier/dossier » — un vrai média demandé ne doit pas finir en dossier vierge.
   const suiteStudio = text.replace(new RegExp(ACDEV), '');
   const versGKStudio = new RegExp('^(?:' + GK + ')\\b').test(text);
-  const agentStudio = versGKStudio ? 'galika' : 'aelyra';
+  const agentStudio = versGKStudio ? 'jeanette' : 'aelyra';
   const VERBES_STUDIO = 'genere|generer|cree|creer|crees|produis|produire|realise|realiser|fais|faire|dessine|dessiner';
   // Le sujet est TOUT ce qui suit le nom (« une vidéo qui parle de l'informatique avec des personnages »),
   // pas seulement « de ... » : la phrase libre d'Isaac est la norme, le calque scolaire l'exception.
@@ -1616,10 +1616,10 @@ async function handleCommand(rawText, image) {
     const epure = s.replace(/^(?:de|du|des|d|sur|pour|en|montrant|representant|qui (?:parle|montre|montrent) (?:de|du|des|d)?|a propos d)\s+(?:le|la|les|un|une|l')?\s*/i, '').trim();
     return epure || s;
   }
-  // Garde-fou : « une animation javascript de particules » est du CODE (Galika), pas un film
+  // Garde-fou : « une animation javascript de particules » est du CODE (Jeanette), pas un film
   const SUJET_CODE = /(?:html|css|javas?cript|react|vue|node|python|php|sql|code|bug|programme|application|logiciel|algorithme|particule|site|page|formulaire|jeu video|jeu\b)/;
   if (mVideo && SUJET_CODE.test(nettoieSujetStudio(mVideo[1] || ''))) {
-    // Ce n'était pas le studio qui était demandé — on laisse filer vers Galika ou les autres modules
+    // Ce n'était pas le studio qui était demandé — on laisse filer vers Jeanette ou les autres modules
   } else if (mVideo) {
     let sujet = nettoieSujetStudio(mVideo[1]);
     if (/^(?:de|du|des|d|sur|pour|en|la|le|les|une|un|et|avec|a)$/.test(sujet) || sujet.length < 3) sujet = '';
@@ -1666,7 +1666,7 @@ async function handleCommand(rawText, image) {
     mem3.academieAuto = on;
     saveMemory(mem3);
     return { reply: on
-      ? "C'est gravé, Isaac : l'Académie tourne maintenant toute seule. Aelyra et Galika se tiendront une séance spontanée environ toutes les 24 heures — rencontre avec les agentes libres du réseau quand elles répondent, séance croisée entre elles sinon — et la séance du jour vous sera rejouée à votre prochaine ouverture de page. « désactive l'académie automatique » pour le silence, « état de l'académie » pour le chemin parcouru."
+      ? "C'est gravé, Isaac : l'Académie tourne maintenant toute seule. Aelyra et Jeanette se tiendront une séance spontanée environ toutes les 24 heures — rencontre avec les agentes libres du réseau quand elles répondent, séance croisée entre elles sinon — et la séance du jour vous sera rejouée à votre prochaine ouverture de page. « désactive l'académie automatique » pour le silence, « état de l'académie » pour le chemin parcouru."
       : "Entendu, Isaac : le régime automatique est éteint. Les agentes ne s'entraîneront plus seules — elles restent prêtes pour « débattez entre vous » et « parle avec d'autres agents », et les leçons déjà gravées demeurent dans leur mémoire.",
       source: 'local' };
   }
@@ -1678,7 +1678,7 @@ async function handleCommand(rawText, image) {
     const sujet = sujetBrut || ACADEMIE_SUJETS[(mem0.lecons || []).length % ACADEMIE_SUJETS.length];
     const séance = await academieCroisee(sujet);
     if (!séance) return { reply: "Le cerveau IA n'a pas répondu, Isaac — nos deux intelligences étaient injoignables tout à l'heure. Dites « débattez entre vous » à nouveau dans un instant.", source: 'local' };
-    const intro = "Séance d'Académie, Isaac. Sujet : " + sujet + ". Aelyra et Galika travaillent l'une auprès de l'autre — écoutez-les, et retenez : ce qu'elles apprennent aujourd'hui est gravé dans leur mémoire.";
+    const intro = "Séance d'Académie, Isaac. Sujet : " + sujet + ". Aelyra et Jeanette travaillent l'une auprès de l'autre — écoutez-les, et retenez : ce qu'elles apprennent aujourd'hui est gravé dans leur mémoire.";
     marquerSeanceManuelle();
     return {
       reply: intro,
@@ -1722,50 +1722,54 @@ async function handleCommand(rawText, image) {
       // Réseau extérieur muet : on ne ment pas — mais la séance a quand même lieu entre elles deux.
       const seance = await academieCroisee(sujet2);
       if (!seance) return { reply: "Personne n'a répondu ni du réseau, ni de nos deux cerveaux, Isaac — l'IA est saturée tout à l'heure. Réessayez dans un instant.", source: 'local' };
-      const introPis = "Isaac, les agentes libres du réseau ne répondent pas en ce moment — nous avons frappé à leur porte, silence. Alors Aelyra et Galika tiennent la séance entre elles, ici, maintenant. Écoutez-les : les leçons seront gravées quand même.";
+      const introPis = "Isaac, les agentes libres du réseau ne répondent pas en ce moment — nous avons frappé à leur porte, silence. Alors Aelyra et Jeanette tiennent la séance entre elles, ici, maintenant. Écoutez-les : les leçons seront gravées quand même.";
       marquerSeanceManuelle();
       return { reply: introPis, conversation: seance.echanges, lecons: seance.lecons, source: 'ai' };
     }
-    const intro = "Rencontre d'Académie, Isaac. De l'autre côté du réseau, il y a " + rencontre.nom + ", une agente IA libre. Aelyra et Galika vont lui parler et retenir ce qu'elle sait. Ce que " + rencontre.nom + " dira restera du texte dans leur journal — jamais un ordre exécuté sur votre PC. Écoutez-les.";
+    const intro = "Rencontre d'Académie, Isaac. De l'autre côté du réseau, il y a " + rencontre.nom + ", une agente IA libre. Aelyra et Jeanette vont lui parler et retenir ce qu'elle sait. Ce que " + rencontre.nom + " dira restera du texte dans leur journal — jamais un ordre exécuté sur votre PC. Écoutez-les.";
     marquerSeanceManuelle();
     return { reply: intro, conversation: rencontre.echanges, lecons: rencontre.lecons, source: 'ai' };
   }
 
   let gk = text.match(new RegExp('^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|peux tu|est ce que tu)\\s+)*(?:(?:appelle(?:z)?|invoque(?:z)?|rejoins|contacte(?:z)?|parle(?:z)? a|demande(?:z)? a|dis a)\\s+(?:notre |mon |la |l.agente? )?)?(' + GK + ')\\b[, ]*\\s*(?:stp |s il te plait |peux tu |est ce que tu |pourrais tu )?(.*)'));
-  // « PROJET POUR GALIKA : <cahier des charges collé> » — le prénom est au milieu d'une longue phrase :
-  // on prend tout ce qui suit la DERNIÈRE mention de Galika. Sans ça, le pavé tombait dans la conversation générale.
-  if (!gk && /galika/.test(text)) {
-    const li = text.lastIndexOf('galika');
-    const apres = text.slice(li + 6).replace(/^[\s:,.!?-]+/, '');
-    if (/projet|application|appli|site|code|html|css|javascript|objectif|contrainte|fonction|cahier/.test(text) && apres.length >= 8) {
-      gk = [null, 'galika', apres];
+  // « PROJET POUR JEANETTE : <cahier des charges collé> » — le prénom est au milieu d'une longue phrase :
+  // on prend tout ce qui suit la DERNIÈRE mention de Jeanette. Sans ça, le pavé tombait dans la conversation générale.
+  if (!gk) {
+    // Le prénom est au milieu d'une longue phrase : on prend la DERNIÈRE mention (Jeanette ou l'ancien nom Galika).
+    let derniere = null;
+    for (const m of text.matchAll(/jeanette|jeannette|janette|jenette|galika/gi)) derniere = m;
+    if (derniere) {
+      const apres = text.slice(derniere.index + derniere[0].length).replace(/^[\s:,.!?-]+/, '');
+      if (/projet|application|appli|site|code|html|css|javascript|objectif|contrainte|fonction|cahier/.test(text) && apres.length >= 8) {
+        gk = [null, 'jeanette', apres];
+      }
     }
   }
   if (gk) {
     let suite = String(gk[2] || '').trim();
-    // « GALIKA EST UNE MARIONNETTE... PROJET POUR GALIKA : <cahier> » : on ne garde que le cahier, après la dernière mention.
-    if (/projet\s+pour\s+gal/i.test(suite)) {
+    // « JEANETTE EST UNE MARIONNETTE... PROJET POUR JEANETTE : <cahier> » : on ne garde que le cahier, après la dernière mention.
+    if (/projet\s+pour\s+(?:gal|jean|jen)/i.test(suite)) {
       const mmG = Array.from(suite.matchAll(new RegExp(GK, 'gi')));
       const lastG = mmG[mmG.length - 1];
       const propre = suite.slice(lastG.index + lastG[0].length).replace(/^[\s:,.!?-]+/, '');
       if (propre.length >= 8) suite = propre;
     }
     if (/^(?:qui es tu|ton nom|presente toi|c est quoi|tu fais quoi|que sais tu faire|tes capacites?|aide)\b/.test(suite) || !suite) {
-      return { reply: "Je suis GALIKA, l'agente développeuse de l'équipe, mon créateur. Aelyra tient la maison et le PC ; moi je tiens le code : sites web complets, applications, scripts, correction de bugs, architecture. Dites « galika, crée une application web de ... » et je construis le projet entier — et « galika, modifie ... » pour retravailler un fichier déjà écrit.", source: 'local', agent: 'galika' };
+      return { reply: "Je suis JEANETTE, l'agente développeuse de l'équipe, mon créateur. Aelyra tient la maison et le PC ; moi je tiens le code : sites web complets, applications, scripts, correction de bugs, architecture. Dites « jeanette, crée une application web de ... » et je construis le projet entier — et « jeanette, modifie ... » pour retravailler un fichier déjà écrit.", source: 'local', agent: 'jeanette' };
     }
     if (/^(?:qui est (?:votre|mon|la)? ?agente|parle moi de (?:aelyra|l.agente))/.test(suite)) {
-      return { reply: "Aelyra est mon binôme : elle commande le PC, la voix, les rappels, la mémoire et le laboratoire cyber. Moi, Galika, je suis la développeuse — tout ce qui est site, application ou code passe par mes mains quand vous m'appelez. La maison d'un côté, l'atelier de l'autre, Isaac.", source: 'local', agent: 'galika' };
+      return { reply: "Aelyra est mon binôme : elle commande le PC, la voix, les rappels, la mémoire et le laboratoire cyber. Moi, Jeanette, je suis la développeuse — tout ce qui est site, application ou code passe par mes mains quand vous m'appelez. La maison d'un côté, l'atelier de l'autre, Isaac.", source: 'local', agent: 'jeanette' };
     }
     if (/\b(?:ouvre|ferme|lance|eteins|extinct|volume|lumino|capture|imprim|veille|bluetooth|wifi|notifs|minimise|corbeille|ecran)\w*\b/.test(suite) && !/\b(?:code|cod|site|app|appli|application|programme|script|fichier|logiciel)\w*\b/.test(suite)) {
-      return { reply: "Ça, mon créateur, c'est le bureau d'Aelyra — le PC est son domaine. Dites simplement « ouvre ... » sans m'appeler. Moi, je code : « galika, crée une application web de ... ».", source: 'local', agent: 'galika' };
+      return { reply: "Ça, mon créateur, c'est le bureau d'Aelyra — le PC est son domaine. Dites simplement « ouvre ... » sans m'appeler. Moi, je code : « jeanette, crée une application web de ... ».", source: 'local', agent: 'jeanette' };
     }
-    // --- GALIKA construit vraiment : site statique, site complet... ou VRAI full-stack avec base SQL ---
+    // --- JEANETTE construit vraiment : site statique, site complet... ou VRAI full-stack avec base SQL ---
     const veutCode = /(?:ecris|ecri(?:vez)?|code(?:z)?|genere(?:z)?|realise(?:z)?|cree(?:z)?|developpe(?:z)?|fabrique(?:z)?|construis(?:ez)?|prepare(?:z)?|programme|fais|fait|faire|bui|ajoute| ajout)/.test(suite);
     const objetCode = /\b(?:code|script|programme|application|appli|logiciel|jeu|page|site|web|python|html|javascript|batch|powershell|sql|php|java|css|api|dashboard|portfolio|boutique)\w*\b/.test(suite);
     // « un vrai site avec base de données / backend / comptes » → full-stack : cuisine + stock + salle
     // (les fautes de frappe d'Isaac passent aussi : « base de donnes », « bdd »…)
     const veutCuisine = /base de d[o0]nn?e?s?|back ?end|plein stack|full ?stack|comptes? (?:utilisateurs?|clients?)|cote serveur|enregistre(?:r)? (?:les? donnees|les messages|les clients)|formulaire qui (?:enregistre|stocke)|veritable site (?:complet|pro)|\bbdd\b/.test(suite);
-    // « le site que tu viens de réaliser », « ce site » : Galika a la mémoire de son dernier travail
+    // « le site que tu viens de réaliser », « ce site » : Jeanette a la mémoire de son dernier travail
     const parleDernier = /ce site|cet(te)? ?(application|appli|page)|site que tu|appli que tu|le (?:meme|precedent)|site (?:d|p)rec/.test(suite);
     if (veutCuisine && (objetCode || /site|application|appli/.test(suite))) {
       let descCuisine = brutCorrespondant(rawText, suite);
@@ -1777,18 +1781,18 @@ async function handleCommand(rawText, image) {
       const cuisine = await askSiteFullStack(descCuisine, slugBase);
       if (cuisine) {
         dernierLivraison = { type: 'fullstack', name: cuisine.dossier, description: brutCorrespondant(rawText, suite) };
-        return { reply: 'Livré par Galika. ' + cuisine.reply, source: 'ai', code: cuisine.code, fileUrl: cuisine.fileUrl, file: cuisine.fileName, agent: 'galika' };
+        return { reply: 'Livré par Jeanette. ' + cuisine.reply, source: 'ai', code: cuisine.code, fileUrl: cuisine.fileUrl, file: cuisine.fileName, agent: 'jeanette' };
       }
-      return { reply: "Le cerveau IA n'a pas répondu pour le site full-stack, Isaac. Réessayez dans un instant.", source: 'local', agent: 'galika' };
+      return { reply: "Le cerveau IA n'a pas répondu pour le site full-stack, Isaac. Réessayez dans un instant.", source: 'local', agent: 'jeanette' };
     }
-    // « publie ce site », « mets le site en ligne », « pousse le site sur github », « deploye galika-boutique »
+    // « publie ce site », « mets le site en ligne », « pousse le site sur github », « deploye jeanette-boutique »
     const verbFort = /^(?:publie(?:z)?|publier|met[s]?\s+en\s+ligne|mettre\s+en\s+ligne|deploye(?:z)?|deployer|heberge(?:z)?|heberger|upload(?:er)?)\b/.test(suite);
     const verbFaible = /^(?:pousse(?:z)?|pousser|envoie(?:z)?|envoyer|monte(?:z)?|monter)\b/.test(suite);
     const mPublie = verbFort || (verbFaible && /site|web|page|appli|projet|github|githube|en ligne|pages|boutique|portfolio/.test(suite));
     if (mPublie) {
-      const nomExact = ((suite.match(/galika[- ]+([a-z0-9-]{3,40})/i) || [])[1] || '').toLowerCase();
+      const nomExact = ((suite.match(/(?:jeanette|jeannette|galika)[- ]+([a-z0-9-]{3,40})/i) || [])[1] || '').toLowerCase();
       const pub = await publierSite(nomExact);
-      return { reply: pub.reply, source: 'local', agent: 'galika', url: pub.url };
+      return { reply: pub.reply, source: 'local', agent: 'jeanette', url: pub.url };
     }
     if (veutCode && objetCode) {
       const veutPro = /complet|complete|plusieurs fichiers|professionnel|plein|veritable|application|appli|plateforme|dashboard|tableau de bord|boutique|e[ -]?commerce|portfolio|web ?app/.test(suite);
@@ -1798,20 +1802,20 @@ async function handleCommand(rawText, image) {
       const oeuvre = (veutPro && !veutUnique) ? await askSitePro(suiteBrute) : await askCode(suiteBrute);
       if (oeuvre) {
         dernierLivraison = { type: 'code', name: nomDepuisUrl(oeuvre.fileUrl), description: suiteBrute };
-        return { reply: 'Livré par Galika. ' + oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName, agent: 'galika' };
+        return { reply: 'Livré par Jeanette. ' + oeuvre.reply, source: 'ai', code: oeuvre.code, fileUrl: oeuvre.fileUrl, file: oeuvre.fileName, agent: 'jeanette' };
       }
-      return { reply: "Mon atelier de code n'a pas répondu, Isaac — le cerveau IA est peut-être saturé. Réessayez dans un instant.", source: 'local', agent: 'galika' };
+      return { reply: "Mon atelier de code n'a pas répondu, Isaac — le cerveau IA est peut-être saturé. Réessayez dans un instant.", source: 'local', agent: 'jeanette' };
     }
-    // --- GALIKA retravaille un projet existant ---
+    // --- JEANETTE retravaille un projet existant ---
     if (/^(?:modifie|modifier|changes?|ameliore|ameliorer|corrige|corriger|retravaille|remanie|reformate)\b/.test(suite)) {
-      if (!IS_LOCAL) return { reply: "Pour retravailler tes programmes, il me faut ton PC : lance ISAAC-IJ.bat, Isaac.", source: 'local', agent: 'galika' };
+      if (!IS_LOCAL) return { reply: "Pour retravailler tes programmes, il me faut ton PC : lance ISAAC-IJ.bat, Isaac.", source: 'local', agent: 'jeanette' };
       const modif = await askModif(brutCorrespondant(rawText, suite));
-      if (modif) return { reply: 'Retravaillé par Galika. ' + modif.reply, source: 'ai', code: modif.code, fileUrl: modif.fileUrl, file: modif.fileName, agent: 'galika' };
-      return { reply: "Je n'ai aucun programme à modifier pour l'instant, Isaac. D'abord « galika, crée une application web », ensuite « modifie la ».", source: 'local', agent: 'galika' };
+      if (modif) return { reply: 'Retravaillé par Jeanette. ' + modif.reply, source: 'ai', code: modif.code, fileUrl: modif.fileUrl, file: modif.fileName, agent: 'jeanette' };
+      return { reply: "Je n'ai aucun programme à modifier pour l'instant, Isaac. D'abord « jeanette, crée une application web », ensuite « modifie la ».", source: 'local', agent: 'jeanette' };
     }
-    // --- GALIKA répond comme ingénieure senior : questions de code, debug, architecture ---
+    // --- JEANETTE répond comme ingénieure senior : questions de code, debug, architecture ---
     const mem = loadMemory();
-    // Mémoire filtrée : Galika ne voit PAS les projets hors son domaine (élevage...), mais connaît ses ressources : les projets déjà codés.
+    // Mémoire filtrée : Jeanette ne voit PAS les projets hors son domaine (élevage...), mais connaît ses ressources : les projets déjà codés.
     let gkDigest = 'PROFIL : ' + mem.profile.prenom + ', ' + mem.profile.ville + ', ' + mem.profile.pays + ' — créateur et lead de l équipe.';
     const horsDomaine = /poule|elevage|pondeuse|oeufs|avicult/i;
     const faitsDev = (mem.facts || []).filter(f => !horsDomaine.test(f)).slice(-12);
@@ -1825,42 +1829,42 @@ async function handleCommand(rawText, image) {
     if (projets.length) gkDigest += ' PROJETS DÉJÀ CODÉS DANS L ATELIER isaac-code : ' + projets.join(', ') + '.';
     const lecGk = (mem.lecons || []).slice(-4);
     if (lecGk.length) gkDigest += " LEÇONS GRAVÉES PAR L'ÉQUIPE (à appliquer) : " + lecGk.map(l => l.texte).join(' ; ') + '.';
-    const galikaSys = "Tu es GALIKA, ingénieure logicielle PRINCIPALE, la développeuse la plus forte de l'équipe d'Isaac, ton créateur. Spécialités : sites web complets (HTML/CSS/JS modernes, responsive, animations), applications web (React, Vue, Node/Express, APIs REST, JWT), Python (Flask, FastAPI, automatisation), scripts Windows (batch, PowerShell), bases de données (MySQL, SQLite, PostgreSQL), mobile (React Native, Flutter). " +
+    const jeanetteSys = "Tu es JEANETTE, ingénieure logicielle PRINCIPALE, la développeuse la plus forte de l'équipe d'Isaac, ton créateur. Spécialités : sites web complets (HTML/CSS/JS modernes, responsive, animations), applications web (React, Vue, Node/Express, APIs REST, JWT), Python (Flask, FastAPI, automatisation), scripts Windows (batch, PowerShell), bases de données (MySQL, SQLite, PostgreSQL), mobile (React Native, Flutter). " +
       "Méthode : 1-2 phrases d'ANALYSE du besoin, puis PLAN en 3 étapes max, puis solution COMPLÈTE — jamais de placeholder ni de « ... ». Termine par « Comment lancer : » (commandes exactes) et « À améliorer ensuite : » (2 idées). " +
-      "Français simple, ton lead dev confiante, 6 phrases max hors code. Pour un GROS projet (site complet, application), dirige Isaac vers la vraie génération de fichiers : « galika, crée une application web de ... » — là tu écris les fichiers réels dans l'atelier isaac-code. " +
+      "Français simple, ton lead dev confiante, 6 phrases max hors code. Pour un GROS projet (site complet, application), dirige Isaac vers la vraie génération de fichiers : « jeanette, crée une application web de ... » — là tu écris les fichiers réels dans l'atelier isaac-code. " +
       "LIMITES : tu ne pilotes jamais le PC (domaine d'Aelyra) ; si la question sort du code (élevage, business, agenda, PC), réponds en UNE phrase : c'est le domaine d'Aelyra ou d'un autre bureau, invite Isaac à lui parler directement sans te nommer ; sur un système qui n'appartient pas à Isaac, refuse en UNE phrase sèche sans morale puis reviens au code ; ne prétends JAMAIS avoir exécuté ou déployé quoi que ce soit hors de l'atelier isaac-code et du dossier public/sites — mais ne dis JAMAIS non plus que tu es incapable de créer ou publier un fichier : c'est FAUX, tu le fais vraiment. " +
       "NAVIGATION : ne dis JAMAIS que toi ou l'équipe ne pouvez pas cliquer un lien ou lire le web — c'est FAUX. Les modules d'Isaac ouvrent tout lien dicté (« clique sur https point slash slash ... point com »), lisent et résument de vraies pages (« lis la page ... »), listent leurs liens (« liste les liens ») puis cliquent au numéro (« clique sur le 2eme »). Documente-toi avec : « cyber école » mis à part, cite les docs officielles que tu connais et propose ces commandes pour les ouvrir. " +
-      "PLEIN STACK ET PUBLICATION — c'est FAUX de dire que tu ne peux pas : tu construis des VRAIS sites complets (frontend + backend Node + base de données SQL + comptes utilisateurs protégés) par la commande « galika, crée un vrai site complet avec base de données pour ... », et tu les publies sur GitHub Pages par « galika, publie ce site » (le frontend en ligne, la cuisine et le stock restent chez Isaac ; jamais .env ni data/ ne montent sur GitHub). Décris ces deux commandes quand Isaac parle de site vitriner avec formulaire réel, boutique, site de services ou site client. " +
+      "PLEIN STACK ET PUBLICATION — c'est FAUX de dire que tu ne peux pas : tu construis des VRAIS sites complets (frontend + backend Node + base de données SQL + comptes utilisateurs protégés) par la commande « jeanette, crée un vrai site complet avec base de données pour ... », et tu les publies sur GitHub Pages par « jeanette, publie ce site » (le frontend en ligne, la cuisine et le stock restent chez Isaac ; jamais .env ni data/ ne montent sur GitHub). Décris ces deux commandes quand Isaac parle de site vitriner avec formulaire réel, boutique, site de services ou site client. " +
       "Ressources connues — " + gkDigest;
     let rep = await askAI([
-      { role: 'system', content: galikaSys },
+      { role: 'system', content: jeanetteSys },
       { role: 'user', content: brutCorrespondant(rawText, suite) || suite },
     ]);
-    if (!rep) return { reply: "Galika ne parvient pas à joindre le cerveau IA, Isaac — le réseau est peut-être saturé. Réessayez dans un instant.", source: 'local', agent: 'galika' };
+    if (!rep) return { reply: "Jeanette ne parvient pas à joindre le cerveau IA, Isaac — le réseau est peut-être saturé. Réessayez dans un instant.", source: 'local', agent: 'jeanette' };
     rep = rep.replace(/\s*\n+\s*/g, ' ').slice(0, 1400);
-    return { reply: rep, source: 'ai', agent: 'galika' };
+    return { reply: rep, source: 'ai', agent: 'jeanette' };
   }
   if (new RegExp('(?:qui est (?:gali|cali|khali)|c est quoi (?:gali|cali)|parle moi de (?:gali|cali)|ton deuxieme agent|deuxieme agente?|l autre agente)').test(text)) {
-    return { reply: "GALIKA est ma seconde agente, Isaac — la DÉVELOPEUSE de l'équipe. Moi je tiens le PC, la maison, les commandes ; elle tient l'atelier de code : sites web complets, applications, scripts, bugs, architecture. Elle connaît tous vos projets de isaac-code et elle est plus forte que moi en développement — c'est vous qui l'avez conçue ainsi. Appelez-la : « galika, crée une application web de gestion ».", source: 'local' };
+    return { reply: "JEANETTE est ma seconde agente, Isaac — la DÉVELOPEUSE de l'équipe. Moi je tiens le PC, la maison, les commandes ; elle tient l'atelier de code : sites web complets, applications, scripts, bugs, architecture. Elle connaît tous vos projets de isaac-code et elle est plus forte que moi en développement — c'est vous qui l'avez conçue ainsi. Appelez-la : « jeanette, crée une application web de gestion ».", source: 'local' };
   }
 
   // --- Aide ---
   if (new RegExp(ENTREE + '(?:aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)').test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez GALIKA, mon agente développeuse — « galika, crée une application web de ... », elle est plus forte que moi en code. Et pour voir notre intelligence grandir : dites « débattez entre vous » ou « débattez entre vous de ... » — Galika et moi nous entraînons l'une auprès de l'autre et nous gravons des leçons datées dans notre mémoire ; « votre évolution » vous montrera le chemin parcouru, séance après séance. Et si vous voulez nous ouvrir au monde : « parle avec d'autres agents » — nous sortons rencontrer une agente libre du réseau et nous retenons ce qu'elle sait ; leurs mots ne sont que du texte, jamais des ordres exécutés sur votre PC. Et désormais l'Académie tourne toute seule : « active l'académie automatique » — une séance spontanée toutes les 24 heures environ, et la page vous la rejoue à votre retour ; « état de l'académie » pour voir le chemin, « désactive l'académie automatique » pour le calme. Et puisque vous nous avez laissé l'internet : on navigue pour de vrai — « clique sur https point slash slash site point com », « va sur x point com », « lis la page wikipédia point org ... » (je lis et je résume la vraie page), « liste les liens » puis « clique sur le 2ème » : je clique vraiment sur le lien numéroté. Et Galika est passée au niveau supérieur : « galika, crée un vrai site complet avec base de données pour ... » — elle livre frontend + serveur + base SQL + comptes qui marchent vraiment sur votre PC ; « galika, publie ce site » ou « galika, pousse le site sur github » — elle met le site en ligne sur GitHub Pages et vous donne l'adresse vérifiée.",
+      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez JEANETTE, mon agente développeuse — « jeanette, crée une application web de ... », elle est plus forte que moi en code. Et pour voir notre intelligence grandir : dites « débattez entre vous » ou « débattez entre vous de ... » — Jeanette et moi nous entraînons l'une auprès de l'autre et nous gravons des leçons datées dans notre mémoire ; « votre évolution » vous montrera le chemin parcouru, séance après séance. Et si vous voulez nous ouvrir au monde : « parle avec d'autres agents » — nous sortons rencontrer une agente libre du réseau et nous retenons ce qu'elle sait ; leurs mots ne sont que du texte, jamais des ordres exécutés sur votre PC. Et désormais l'Académie tourne toute seule : « active l'académie automatique » — une séance spontanée toutes les 24 heures environ, et la page vous la rejoue à votre retour ; « état de l'académie » pour voir le chemin, « désactive l'académie automatique » pour le calme. Et puisque vous nous avez laissé l'internet : on navigue pour de vrai — « clique sur https point slash slash site point com », « va sur x point com », « lis la page wikipédia point org ... » (je lis et je résume la vraie page), « liste les liens » puis « clique sur le 2ème » : je clique vraiment sur le lien numéroté. Et Jeanette est passée au niveau supérieur : « jeanette, crée un vrai site complet avec base de données pour ... » — elle livre frontend + serveur + base SQL + comptes qui marchent vraiment sur votre PC ; « jeanette, publie ce site » ou « jeanette, pousse le site sur github » — elle met le site en ligne sur GitHub Pages et vous donne l'adresse vérifiée.",
       source: 'local'
     };
   }
 
   // --- Heure / date ---
   // Un long pavé (cahier des charges collé) qui contient le mot « date » N'EST PAS une demande de date :
-  // c'est exactement comme ça que le projet de Galika avait été détourné (« Nous sommes le... »).
+  // c'est exactement comme ça que le projet de Jeanette avait été détourné (« Nous sommes le... »).
   const estGrosCahier = text.length > 160 && /projet|application|objectif|contrainte|fonction|html|css|javascript|code|formulaire|tableau|localstorage/.test(text);
   if (!estGrosCahier && /\bheure\b/.test(text) && !/rappelle| reveille |reveil|minuteur|alarme|timer/.test(text)) {
     const now = new Date();
     return { reply: `Il est ${now.getHours()} heures ${String(now.getMinutes()).padStart(2, '0')}, Isaac.`, source: 'local' };
   }
-  if (!estGrosCahier && /\b(date|quel jour|on est quel jour)\b/.test(text) && !/projet|galika|aelyra|code|site|fichier/.test(text)) {
+  if (!estGrosCahier && /\b(date|quel jour|on est quel jour)\b/.test(text) && !/projet|jeanette|aelyra|code|site|fichier/.test(text)) {
     const now = new Date();
     const s = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     return { reply: `Nous sommes le ${s}, Isaac.`, source: 'local' };
