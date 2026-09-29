@@ -1989,6 +1989,37 @@ async function handleCommand(rawText) {
       return { reply: `Dossier « ${nom} » cree dans ${/bureau/.test(text) ? 'votre Bureau' : 'vos Documents'}, Isaac.`, source: 'system' };
     }
   }
+  // « écris dans le fichier X », « remplis la liste X avec des exemples », « complète le document X » :
+  // Aelyra écrit VRAIMENT dans le fichier texte de Isaac (pas un nouveau programme — la leçon de 18h10).
+  mm = text.match(/^(?:ecri[rt]|ecris|rempli[rs]?|remplir|complete|completer|ajoute(?:z)?|ajouter)\s+(?:moi\s+)?(?:dans\s+)?(?:le|la|les|mon|ma|ce|cette|dans le|dans la)?\s*(?:fichier|document|liste|note|carnet)\s+(.+)$/);
+  if (mm) {
+    const requete = String(mm[1]);
+    const part = requete.split(/\s+(?:avec|pour avoir|:\s*)\s*/);
+    const mots = part[0].split(/\s+/).filter(w => w.length >= 3 && !/^(?:fichier|document|liste|notes?|carnet|dans|exemple|exemples|imaginaire|imaginaires)$/.test(w));
+    const DOC = process.env.USERPROFILE + '\\Documents';
+    let txts = [];
+    try { txts = fs.readdirSync(DOC).filter(f => /\.txt$/i.test(f)); } catch (e) {}
+    let trouve = txts.find(f => { const nf = normalize(f); return mots.length > 0 && mots.every(w => nf.includes(normalize(w))); })
+      || txts.find(f => { const nf = normalize(f); return mots.some(w => nf.includes(normalize(w))); });
+    if (!trouve && mots.length) { // pas trouvé : on le crée, l'ordre dit « écris » vaut « crée puis écris »
+      trouve = mots.join('_').replace(/[<>:"/\\|?*]/g, '') + '.txt';
+    }
+    if (!trouve) return { reply: "Dites-moi dans quel fichier écrire, Isaac : « écris dans le fichier liste de mes clients avec 10 exemples imaginaires ».", source: 'system' };
+    const chemin = path.join(DOC, trouve);
+    if (ESSAI) return { reply: '[ESSAI] écriture prévue dans ' + trouve, source: 'essai' };
+    let deja = '';
+    try { deja = fs.readFileSync(chemin, 'utf8'); } catch (e) {}
+    const consigne = (part.slice(1).join(' avec ').trim() || 'remplis-le avec 10 exemples imaginaires et realistes adaptes au titre du fichier');
+    const corps = await askAI([
+      { role: 'system', content: "Tu es AELYRA, l'assistante d'Isaac — entrepreneur a Mbengue (DIGITAL BUSINESS : sites web, maintenance PC, formations). Produis UNIQUEMENT du texte brut pret a coller dans un fichier .txt : aucun markdown, aucun backtick, aucune balise. Maximum 22 lignes, francais simple, montants en FCFA, telephones fictifs en +225. Si des donnees sont inventees, commence par une ligne « EXEMPLES IMAGINAIRES — a remplacer par les vrais ». Termine par une ligne vide." },
+      { role: 'user', content: 'Fichier : ' + trouve + '. Contenu DEJA dans le fichier (ne pas repeter) : ' + deja.slice(-500) + '. Consigne d\'Isaac : ' + consigne }
+    ]);
+    if (!corps) return { reply: "Le cerveau IA n'a pas répondu pour remplir le fichier, Isaac. Réessayez dans un instant — le fichier, lui, est bien là.", source: 'system' };
+    const propre = corps.replace(/```/g, '').replace(/^\s*[\[{]|[\]}]\s*$/g, '').trim();
+    try { fs.appendFileSync(chemin, '\n' + propre + '\n', 'utf8'); } catch (e) { return { reply: "Je n'arrive pas à écrire dans « " + trouve + " » : " + e.message, source: 'system' }; }
+    run(`start "" "${chemin}"`);
+    return { reply: `C'est écrit, Isaac — pour de vrai. J'ai complété « ${trouve} » dans vos Documents, le fichier s'ouvre sous vos yeux. Ce qui est imaginaire, remplacez-le par vos vrais clients, puis Ctrl+S.`, source: 'ai' };
+  }
   mm = text.match(/^(?:renomme|renommer|rebaptise|renomme)\s+(?:le |la |mon |ma |ce |du )?(fichier|document|dossier)\s+(.+?)\s+(?:en|vers|a)\s+(.+)$/);
   if (mm) {
     const ancien = nettoieCible(mm[2]).replace(/[^a-z0-9 _-]/g, '').trim();
