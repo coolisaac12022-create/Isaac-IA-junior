@@ -216,6 +216,135 @@ function addMsgImage(dataUrl) {
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
+
+// ---------- LE STUDIO (cliente) : image produite + montage vidéo réel ----------
+function addMsgMedia(ag, url) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + (ag === 'galika' ? 'galika' : 'jarvis');
+  const who = document.createElement('span');
+  who.className = 'who';
+  who.textContent = ag === 'galika' ? 'GALIKA — IMAGE PRODUITE' : 'AELYRA — IMAGE PRODUITE';
+  const lien = document.createElement('a');
+  lien.href = url; lien.target = '_blank';
+  const img = document.createElement('img');
+  img.className = 'media'; img.src = url; img.alt = 'image produite par le studio';
+  lien.appendChild(img);
+  const dl = document.createElement('a');
+  dl.className = 'codedl'; dl.href = url;
+  dl.setAttribute('download', url.split('/').pop());
+  dl.textContent = '⬇ Télécharger l’image';
+  div.appendChild(who); div.appendChild(lien); div.appendChild(dl);
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+const PLAN_DUREE = 4200, FONDU_DUREE = 900;
+function poseImage(cx, w, h, im, zoom, panX) {
+  if (!im || !im.width) return;
+  const r = im.width / im.height, ca = w / h;
+  let dw, dh;
+  if (r > ca) { dh = h * zoom; dw = dh * r; } else { dw = w * zoom; dh = dw / r; }
+  cx.drawImage(im, (w - dw) / 2 + panX, (h - dh) / 2 - panX * 0.12, dw, dh);
+}
+function dessinerPlan(cx, c, plans, t, titre) {
+  const w = c.width, h = c.height;
+  cx.fillStyle = '#000'; cx.fillRect(0, 0, w, h);
+  const idx = Math.min(plans.length - 1, Math.max(0, Math.floor(t / PLAN_DUREE)));
+  const local = Math.min(1, Math.max(0, (t - idx * PLAN_DUREE) / PLAN_DUREE));
+  // Ken Burns : zoom lent + travelling horizontal
+  poseImage(cx, w, h, plans[idx].im, 1.04 + 0.12 * local, (local - 0.5) * 46);
+  const suivant = idx + 1;
+  if (suivant < plans.length && t + FONDU_DUREE >= (idx + 1) * PLAN_DUREE && t < (idx + 1) * PLAN_DUREE) {
+    cx.globalAlpha = (t + FONDU_DUREE - (idx + 1) * PLAN_DUREE) / FONDU_DUREE;
+    poseImage(cx, w, h, plans[suivant].im, 1.16, -23);
+    cx.globalAlpha = 1;
+  }
+  const scene = plans[idx].s;
+  if (scene && scene.titre) {
+    cx.font = '600 30px Georgia, serif';
+    const largeur = Math.min(w - 120, cx.measureText(scene.titre).width + 44);
+    cx.fillStyle = 'rgba(2,14,20,.72)';
+    cx.fillRect((w - largeur) / 2, h - 96, largeur, 54);
+    cx.strokeStyle = 'rgba(0,212,255,.5)';
+    cx.strokeRect((w - largeur) / 2, h - 96, largeur, 54);
+    cx.fillStyle = '#bfeeff'; cx.textAlign = 'center';
+    cx.fillText(scene.titre, w / 2, h - 60, w - 150);
+    cx.textAlign = 'left';
+  }
+  if (t < 2600 && titre) {
+    cx.globalAlpha = t < 2000 ? 1 : (2600 - t) / 600;
+    cx.fillStyle = 'rgba(2,14,20,.66)'; cx.fillRect(0, 0, w, 92);
+    cx.fillStyle = '#ffd9a0'; cx.font = 'bold 40px Georgia, serif'; cx.textAlign = 'center';
+    cx.fillText(String(titre).slice(0, 64), w / 2, 60, w - 80);
+    cx.textAlign = 'left'; cx.globalAlpha = 1;
+  }
+  cx.font = '18px monospace'; cx.fillStyle = 'rgba(0,212,255,.55)';
+  cx.fillText('STUDIO — AELYRA & GALIKA', 22, h - 20);
+}
+// Montage réel : canvas 1280x720 encodé en direct par MediaRecorder → vrai fichier .webm
+async function monterFilm(ag, titre, scenes) {
+  const nomLabel = ag === 'galika' ? 'GALIKA' : 'Isaac IA Juniors';
+  addMsg(nomLabel, 'Montage du film en cours, Isaac — ' + scenes.length + ' scènes, caméra virtuelle, fondus et sous-titres. Le tournage est fini, la postproduction se joue à l’écran.');
+  try {
+    const plans = [];
+    for (const s of scenes) {
+      const im = new Image();
+      await new Promise((r) => { im.onload = r; im.onerror = r; im.src = s.url; });
+      if (im.width > 40) plans.push({ im, s });
+    }
+    if (plans.length < 2) throw new Error('trop peu de scènes chargées');
+    const c = document.createElement('canvas');
+    c.width = 1280; c.height = 720;
+    const cx = c.getContext('2d');
+    const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+      .find((m) => { try { return window.MediaRecorder && MediaRecorder.isTypeSupported(m); } catch (e) { return false; } });
+    if (!mime) throw new Error('enregistrement vidéo indisponible dans ce navigateur');
+    const stream = c.captureStream(30);
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3500000 });
+    const morceaux = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) morceaux.push(e.data); };
+    const fini = new Promise((r) => { rec.onstop = r; });
+    const total = plans.length * PLAN_DUREE + FONDU_DUREE;
+    const t0 = performance.now();
+    rec.start();
+    // setInterval (pas requestAnimationFrame) : le montage avance même si la page passe en arrière-plan
+    await new Promise((fin) => {
+      const minuteur = setInterval(() => {
+        const t = performance.now() - t0;
+        dessinerPlan(cx, c, plans, Math.min(t, total), titre);
+        if (t >= total) { clearInterval(minuteur); fin(); }
+      }, 33);
+    });
+    rec.stop();
+    await fini;
+    const blob = new Blob(morceaux, { type: 'video/webm' });
+    if (!blob.size) throw new Error('ruban vidéo vide');
+    addMsgFilm(nomLabel, URL.createObjectURL(blob), titre, blob.size);
+  } catch (e) {
+    addMsg(nomLabel, 'Le montage a échoué, Isaac : ' + e.message + '. Les scènes restent des images produites — redites « crée une vidéo de... » gardez cette page visible, le studio retentera la postproduction.');
+  }
+}
+function addMsgFilm(qui, url, titre, poids) {
+  const div = document.createElement('div');
+  div.className = 'msg jarvis';
+  const who = document.createElement('span');
+  who.className = 'who';
+  who.textContent = 'FILM PRODUIT — STUDIO DES AGENTES';
+  const v = document.createElement('video');
+  v.src = url; v.controls = true; v.className = 'film'; v.muted = true;
+  v.play().catch(() => {});
+  const dl = document.createElement('a');
+  dl.className = 'codedl'; dl.href = url;
+  dl.setAttribute('download', slugJsFichier(titre) + '.webm');
+  dl.textContent = '⬇ Télécharger le film (' + Math.round(poids / 1024) + ' Ko, .webm)';
+  div.appendChild(who); div.appendChild(v); div.appendChild(dl);
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function slugJsFichier(n) {
+  return String(n || 'film').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'film';
+}
 // Le texte lu à voix haute : plus jamais de symboles markdown (« astérisque », « dièse »),
 // des maths prononcées, des liens réduits à leur libellé. L'affichage à l'écran garde le formatage.
 function speechClean(t) {
@@ -490,6 +619,9 @@ async function processCommand(text) {
       }
     } else if (codeGenere) addCodeMsg(reply, codeGenere.code, codeGenere.url, codeGenere.file, agent);
     else addMsg(agent === 'galika' ? 'GALIKA' : 'Isaac IA Juniors', reply);
+    // Médias produits par le studio : l'image s'affiche, le film se monte sous les yeux d'Isaac
+    if (data && data.image) addMsgMedia(agent, data.image);
+    if (data && data.scenes && data.scenes.length) monterFilm(agent, data.titre || 'film', data.scenes);
     if (!data || !data.conversation) await speak(reply, agent);
   } catch (e) {
     const msg = location.protocol === 'file:'

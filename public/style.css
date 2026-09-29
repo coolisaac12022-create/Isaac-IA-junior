@@ -319,6 +319,18 @@ body.speaking .core-center { animation: speakWave .35s ease-in-out infinite; }
   display: block; margin-top: 6px; max-width: min(320px, 55vw);
   border: 1px solid var(--cyan-dim); border-radius: 8px;
 }
+.msg img.media {
+  display: block; margin-top: 6px; max-width: min(420px, 65vw);
+  border: 1px solid var(--cyan-soft); border-radius: 10px;
+  box-shadow: 0 0 18px var(--cyan-dim);
+  transition: transform .2s ease;
+}
+.msg img.media:hover { transform: scale(1.02); }
+.msg video.film {
+  display: block; margin-top: 6px; width: min(480px, 70vw);
+  border: 1px solid var(--cyan-soft); border-radius: 10px;
+  background: #000; box-shadow: 0 0 20px var(--cyan-dim);
+}
 #cmdInput {
   flex: 1;
   background: rgba(0, 40, 60, .4);

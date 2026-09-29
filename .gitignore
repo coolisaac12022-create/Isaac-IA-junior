@@ -23,3 +23,6 @@ desktop.ini
 
 # Profil Edge/Chrome du mode système (ne jamais publier)
 isaac-profile/
+
+# Creations multimedia d'Isaac (images generees) — jamais publiees sans son ordre
+public/creations/
