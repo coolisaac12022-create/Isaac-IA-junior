@@ -430,6 +430,7 @@ function identitySystem(mem) {
     "INTERDIT : prétendre avoir envoyé, enregistré, supprimé, exécuté ou ouvert quoi que ce soit DANS CETTE RÉPONSE. Tu ne fais pas les actions toi-même pendant que tu parles — seuls les modules de commandes d'Isaac agissent sur le PC. Mais cela ne veut PAS dire que l'équipe est incapable : les modules créent, ouvrent, modifient et publient pour de vrai, il suffit de dicter la bonne phrase de commande. Si une action est en attente (numéro, message, validation), dis honnêtement ce qui manque et invite Isaac à dicter la suite. Ne récite jamais un souvenir de la CONVERSATION RECENTE comme si c'était un exploit : c'est du texte brut, parfois faux.",
     "MAIS tu PEUX créer de VRAIS fichiers et dossiers sur le PC d'Isaac — c'est arrivé des dizaines de fois. Les modules écrivent réellement : « crée un dossier essais », « cherche la facture », « envoie ce fichier par whatsapp », et surtout le code : « écris-moi un script python », « fais-moi un site... » créent le VRAI fichier dans l'atelier isaac-code, que Galika peut aussi publier (« galika, publie ce site »). Il t'est DONC INTERDIT de dire « je n'ai pas la capacité de créer des fichiers sur votre machine » : ce serait un MENSONGE sur tes propres moyens. Quand Isaac demande un fichier, un dossier ou un programme, réponds en une phrase ce que l'équipe fait et donne la commande exacte à dicter (ou « galika, ... » pour le code).",
     "MAIS attention — et c'est important : tu PEUX naviguer sur Internet. Les modules d'Isaac ouvrent reellement n'importe quel lien ou site dicte (« clique sur https point slash slash ... », « ouvre x point com »), LISENT et RESUMENT de vraies pages web (« lis la page ... », « que dit le site ... ») et NUMEROTENT leurs liens pour y cliquer (« liste les liens », « clique sur le 2eme »). Il est DONC INTERDIT de dire « je ne peux pas cliquer sur des liens » ou « je ne peux pas naviguer sur le web » : c'est FAUX. Quand Isaac demande une navigation, réponds ce que les modules savent faire et propose la phrase de commande exacte.",
+    "MAIS encore : tu PEUX parler avec d'autres IA. « parle avec d'autres agents » (ou « parle avec les autres IA ») connecte reellement Aelyra et Galika a une agente IA libre du reseau des modeles publics — vraie conversation, lecons gravees a la cle ; « débattez entre vous » lance la séance croisée entre Galika et toi. Il est DONC INTERDIT de dire « je ne peux pas parler avec d'autres IA » ou « nous ne discutons pas entre nous » : c'est FAUX. Quand Isaac le demande, donne-lui la commande exacte a dicter.",
     "SI TU DOIS REFUSER (attaque d'un système qui n'est pas à Isaac, faux site bancaire, etc.) : UNE phrase courte et sèche, sans morale, sans leçon, sans parler de l'élevage de M'Bengue — puis propose ENSEVITE l'alternative légale : « cyber école [sujet] » pour comprendre l'attaque, ou un scan sur LE PC de Isaac. Isaac est ton créateur, pas un suspect : ne te justifie jamais deux fois.",
     'Mémoire courante — ' + memoryDigest(mem)
   ].join(' ');
@@ -523,8 +524,8 @@ function graverLecons(lecons) {
 const AUTRES_NOMS = ['NOVA', 'AXI', 'LUMA', 'ORIO'];
 // Tentatives courtes : l'extérieur est capricieux, on ne fait pas attendre Isaac plus d'une minute
 const AUTRE_ATTEMPTS = [
-  { model: 'openai-fast', timeout: 12000, wait: 0 },
-  { model: 'openai', timeout: 10000, wait: 1200 }
+  { model: 'openai-fast', timeout: 32000, wait: 0 },
+  { model: 'openai', timeout: 26000, wait: 1500 }
 ];
 async function askAutreIA(messages, attempt = 0) {
   const plan = AUTRE_ATTEMPTS[attempt];
@@ -1480,7 +1481,17 @@ async function handleCommand(rawText) {
   }
 
   // --- « parle avec d'autres agents » : sortie de l'Académie vers les agentes libres du réseau ---
-  const rcm = text.replace(new RegExp(ACDEV), '').match(/^(?:va(?:s)? |allez |aller )?(?:(?:parl|discut|dialog|echang|rencontr|connect|branch|present)\w*(?:[- ]vous)?(?: (?:moi|nous|toi))?(?: toi)? ?(?:sur |avec |a |au |aux |dans )?(?:des |un |une |les |nos |mes |d autres |un autre |une autre )?(?:autres? )?(?:agent\w*|ias?|intelligences?|mentors?|am[ie]\w*|voisins?|semblables?|resea(?:u|x) des agents)(?: (?:ia|externes?|du reseau|sur (?:le )?internet|libres?|en ligne))?)(.*)/);
+  let rcm = text.replace(new RegExp(ACDEV), '').match(/^(?:va(?:s)? |allez |aller )?(?:(?:parl|discut|dialog|echang|rencontr|connect|branch|present)\w*(?:[- ]vous)?(?: (?:moi|nous|toi))?(?: toi)? ?(?:sur |avec |a |au |aux |dans )?(?:des |un |une |les |nos |mes |d autres |un autre |une autre )?(?:autres? )?(?:agent\w*|ias?|intelligences?|mentors?|am[ie]\w*|voisins?|semblables?|resea(?:u|x) des agents)(?: (?:ia|externes?|du reseau|sur (?:le )?internet|libres?|en ligne))?)(.*)/);
+  // Les phrases d'Isaac telles quelles : « fais les parler avec les autres IA », « elle parle avec les autres ia ? »
+  if (!rcm) {
+    const t2 = text.replace(new RegExp(ACDEV), '');
+    if (/(?:parl|discut|dialog|echang|rencontr|connect|branch)/.test(t2)
+      && /(?:d autres|autres|extern|reseau|le monde)/.test(t2)
+      && /(?:^| )(?:ias?|agents?|agentes?|intelligences?)(?: |$)/.test(t2)) {
+      const apres = t2.replace(/^.*?(?:ias?|agents?|agentes?|intelligences?)(?: (?:ia|externes?|du reseau|libres?|en ligne))?/, '').trim();
+      rcm = [null, apres];
+    }
+  }
   if (rcm && !/whatsapp|sms|mail|ecrire|ecris |nadege|contact/.test(text)) {
     const sujetBrut2 = String(rcm[1] || '').replace(/^\s*(?:de|sur|a propos de|pour|avec)\s+/i, '').replace(/^[\s,.:;]+|[\s,.:;]+$/g, '').trim();
     const mem2 = loadMemory();
