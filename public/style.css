@@ -283,6 +283,42 @@ body.speaking .core-center { animation: speakWave .35s ease-in-out infinite; }
   background: rgba(255, 60, 60, .2); border-color: #ff5c5c; color: #ff8a8a;
   animation: listenPulse .8s infinite;
 }
+
+/* ---------- Image jointe (Isaac montre, les agentes regardent) ---------- */
+.attach-btn {
+  background: transparent;
+  border: 1px solid var(--cyan-dim);
+  color: rgba(0, 212, 255, .8);
+  width: 40px; height: 40px; border-radius: 50%;
+  cursor: pointer; font-size: 17px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .2s ease; flex-shrink: 0;
+}
+.attach-btn:hover { border-color: var(--cyan-soft); color: var(--cyan); box-shadow: 0 0 12px var(--cyan-soft); }
+.attach-btn.armed { background: var(--cyan-dim); color: var(--cyan); border-color: var(--cyan); }
+.img-preview {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px 0;
+  font-size: 12px; letter-spacing: 1px;
+  color: rgba(0, 212, 255, .75);
+}
+.img-preview img {
+  width: 56px; height: 56px; object-fit: cover;
+  border: 1px solid var(--cyan-soft); border-radius: 8px;
+  box-shadow: 0 0 10px var(--cyan-dim);
+}
+.img-preview button {
+  margin-left: auto; margin-right: 14px;
+  background: transparent; border: 1px solid var(--cyan-dim);
+  color: rgba(0, 212, 255, .8);
+  width: 24px; height: 24px; border-radius: 50%;
+  cursor: pointer; font-size: 12px;
+}
+.img-preview button:hover { border-color: #ff5c5c; color: #ff8a8a; }
+.msg img.thumb {
+  display: block; margin-top: 6px; max-width: min(320px, 55vw);
+  border: 1px solid var(--cyan-dim); border-radius: 8px;
+}
 #cmdInput {
   flex: 1;
   background: rgba(0, 40, 60, .4);

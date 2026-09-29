@@ -416,6 +416,77 @@ async function askAI(messages, attempt = 0, genTimeout) {
   return askAI(messages, attempt + 1);
 }
 
+// ---------- VISION : quand Isaac joint une image, on la regarde pour de vrai ----------
+// askAI est aveugle (texte seul) ; ici on parle aux moteurs QUI ONT DES YEUX :
+// 1) GitHub Models (gemini-2.5-flash, llama-vision, gpt-4o) avec le token déjà présent
+// 2) API Gemini gratuite en inline_data
+// 3) Pollinations au format OpenAI image_url, dernier recours sans clé
+async function askVision(dataUrl, question, system) {
+  const m = String(dataUrl || '').match(/^data:([^;,]+)[^,]*,(.*)$/);
+  if (!m || m[1].indexOf('image/') !== 0) return null;
+  const mime = m[1], b64 = m[2];
+  const urlImage = 'data:' + mime + ';base64,' + b64;
+  const { github, gemini } = loadKeys();
+
+  if (github) {
+    const msgs = [
+      { role: 'system', content: system },
+      { role: 'user', content: [
+        { type: 'text', text: question },
+        { type: 'image_url', image_url: { url: urlImage } }
+      ] }
+    ];
+    for (const model of ['google/gemini-2.5-flash', 'meta-llama/Llama-3.2-90B-Vision-Instruct', 'openai/gpt-4o']) {
+      const res = await httpsRequestJSON('https://models.github.ai/inference/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + github }
+      }, { model, messages: msgs, max_tokens: 900, temperature: 0.4 }, 50000);
+      if (res && res.status === 200) {
+        const c = extractOpenAIContent(res.data);
+        if (c) return c;
+      }
+    }
+  }
+
+  if (gemini) {
+    for (let a = 0; a < GEMINI_MODELS.length; a++) {
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODELS[a] + ':generateContent?key=' + encodeURIComponent(gemini);
+      const res = await httpsRequestJSON(url, { method: 'POST' }, {
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [
+          { text: question },
+          { inline_data: { mime_type: mime, data: b64 } }
+        ] }]
+      }, 45000);
+      if (res && res.status === 200) {
+        try {
+          const data = JSON.parse(res.data);
+          const parts = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+          const text = Array.isArray(parts) ? parts.map(p => p.text || '').join('').trim() : '';
+          if (text.length > 1) return text.slice(0, 6000);
+        } catch (e) {}
+      }
+    }
+  }
+
+  // Sans clé sous la main : Pollinations image_url, une seule tentative
+  const resP = await postJSON('https://text.pollinations.ai/openai', {
+    model: 'openai',
+    messages: [
+      { role: 'system', content: String(system).slice(0, 1500) },
+      { role: 'user', content: [
+        { type: 'text', text: question },
+        { type: 'image_url', image_url: { url: urlImage } }
+      ] }
+    ]
+  }, 32000);
+  if (resP && resP.status === 200) {
+    const c = extractOpenAIContent(resP.data);
+    if (c) return c;
+  }
+  return null;
+}
+
 function identitySystem(mem) {
   return [
     "Tu es AELYRA, l'intelligence artificielle personnelle et loyale créée par Isaac, un entrepreneur ivoirien. On t'appelait « Isaac IA Juniors » avant qu'Isaac ne te donne ton vrai prénom : Aelyra.",
@@ -1416,8 +1487,29 @@ function nettoieCible(s) {
   return (restants.length ? restants : mots).join(' ');
 }
 
-async function handleCommand(rawText) {
+async function handleCommand(rawText, image) {
   const text = normalize(rawText);
+
+  // --- IMAGE JOINTE : Isaac a collé ou choisi une photo — les agentes la REGARDENT vraiment ---
+  // Placé avant toute autre route : la vision passe au-dessus des raccourcis locaux.
+  if (image && /^data:image\//i.test(String(image)) && String(image).length < 3000000) {
+    const variantesGK = 'galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika';
+    const versGK = new RegExp('^(?:' + variantesGK + ')\\b').test(text);
+    const question = (versGK ? text.replace(new RegExp('^(?:' + variantesGK + ')\\s*'), '') : text)
+      || 'Decris cette image precisement pour Isaac : ce que lon y voit, les textes lisibles recopies tels quels, et ce quelle suggere.';
+    const memV = loadMemory();
+    const sysV = versGK
+      ? "Tu es GALIKA, ingenieure developpeuse principale d'Isaac. Isaac t'a envoye une image : une capture d'ecran, une maquette, un message d'erreur, un bout de code. Decris ce que tu vois avec loeil de l'ingenieure, recopie fidelement tout texte lisible, diagnostique, puis donne la prochaine commande exacte a dicter pour agir. Reste honnete : un detail flou se dit flou, jamais invente. Reponds en francais, en appellant votre utilisateur Isaac ou mon createur."
+      : identitySystem(memV) + " Isaac vient de joindre une IMAGE a sa question. Regarde-la avec attention : decris les objets, les personnes, le decor, et RECOPIE fidelement tout texte lisible (ecran, etiquette, page, recu). Reponds ensuite a sa question en francais naturel, 2 a 6 phrases, en appellant Isaac par son nom. Si un element est illisible ou hors champ, dis-le honnetement au lieu de linventer.";
+    const vue = await askVision(String(image), question, sysV);
+    if (vue) {
+      const propre = String(vue).replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').slice(0, 5000);
+      // logExchange sera assuré par /api/command (une seule trace par échange)
+      return { reply: propre, source: 'vision', agent: versGK ? 'galika' : 'aelyra' };
+    }
+    return { reply: "L'image est bien arrivée jusqu'au serveur, Isaac — mais aucun moteur de vision n'a voulu l'ouvrir à l'instant (réseau saturé ou clé expirée). Redites « regarde mon image » dans un instant : je retente le regard.", source: 'local', agent: versGK ? 'galika' : 'aelyra' };
+  }
+
   if (!text) return { reply: "Je n'ai rien entendu, Isaac. Pouvez-vous répéter ?", source: 'local' };
 
   // --- GALIKA : la deuxième agente d'Isaac — DEVELOPEUSE d'élite (web, apps, scripts) ---
@@ -2658,17 +2750,23 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (u.pathname === '/api/command' && req.method === 'POST') {
-    let body = '';
-    req.on('data', (c) => { body += c; if (body.length > 5000) req.destroy(); });
+    let body = '', tropLourd = false;
+    // Les images jointes voyagent en base64 dans le JSON : le plafond doit suivre (≈3 Mo de texte encodé)
+    req.on('data', (c) => { body += c; if (body.length > 4000000) { tropLourd = true; req.destroy(); } });
     req.on('end', async () => {
+      if (tropLourd) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ reply: "Votre image est trop lourde, Isaac — faites une capture d'écran ou recadrez-la, puis renvoyez.", source: 'local' }));
+        return;
+      }
       try {
-        const { text } = JSON.parse(body || '{}');
-        console.log('> Commande:', text);
-        const result = await handleCommand(text);
+        const { text, image } = JSON.parse(body || '{}');
+        console.log('> Commande:', text, image ? '[IMAGE JOINTE ' + String(image).slice(0, 24) + '...]' : '');
+        const result = await handleCommand(text, image);
         console.log('> Réponse (' + result.source + '):', result.reply.slice(0, 120));
         // Enregistrement dans la mémoire de conversation
-        if (text && String(text).trim()) {
-          try { logExchange(loadMemory(), String(text).trim(), result.reply); } catch (e) {}
+        if ((text && String(text).trim()) || image) {
+          try { logExchange(loadMemory(), String(text || 'image jointe').trim(), result.reply); } catch (e) {}
         }
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(result));

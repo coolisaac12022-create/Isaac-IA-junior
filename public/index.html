@@ -62,14 +62,21 @@
     </div>
   </div>
   <div id="log" class="log"></div>
+  <div id="imgPreview" class="img-preview" hidden>
+    <img id="imgThumb" alt="aperçu de l'image jointe">
+    <span id="imgName">image jointe</span>
+    <button type="button" id="imgRemove" title="Retirer l'image">✕</button>
+  </div>
   <form id="cmdForm" class="cmd-bar">
+    <input type="file" id="imgFile" accept="image/*" hidden>
+    <button type="button" id="imgBtn" class="attach-btn" title="Joindre une image (ou Ctrl+V)">📎</button>
     <button type="button" id="micBtn" class="mic-btn" title="Parler">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
         <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/>
         <path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V22h2v-2.06A9 9 0 0 0 21 11h-2z"/>
       </svg>
     </button>
-    <input id="cmdInput" type="text" placeholder="Écrivez un ordre... ex : « ouvre youtube », « quelle heure est-il », « cherche élevage de poulets »" autocomplete="off">
+    <input id="cmdInput" type="text" placeholder="Écrivez un ordre... ex : « ouvre youtube », « quelle heure est-il ». Image ? 📎 ou Ctrl+V, puis posez votre question." autocomplete="off">
     <button type="submit" class="send-btn" title="Envoyer">➤</button>
   </form>
 </section>

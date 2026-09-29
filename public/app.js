@@ -200,6 +200,22 @@ function addCodeMsg(text, code, url, file, agent) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+// L'image qu'Isaac a jointe : affichée dans le journal (jamais lue à voix haute)
+function addMsgImage(dataUrl) {
+  const div = document.createElement('div');
+  div.className = 'msg user';
+  const img = document.createElement('img');
+  img.className = 'thumb';
+  img.alt = 'image jointe par Isaac';
+  img.src = dataUrl;
+  const who = document.createElement('span');
+  who.className = 'who';
+  who.textContent = 'ISAAC — IMAGE JOINTE';
+  div.appendChild(who);
+  div.appendChild(img);
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
 // Le texte lu à voix haute : plus jamais de symboles markdown (« astérisque », « dièse »),
 // des maths prononcées, des liens réduits à leur libellé. L'affichage à l'écran garde le formatage.
 function speechClean(t) {
@@ -304,15 +320,112 @@ if (location.protocol === 'file:') {
 // ---------- Traitement d'une commande ----------
 const GK_MOTS = /(?:^|[\s,])(?:galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika)(?:[\s,]|$)/;
 
+// ---------- Joindre une image : Isaac montre, Aelyra et Galika regardent ----------
+// Le bouton 📎, le collage Ctrl+V et le glisser-déposer amènent tous au même chemin.
+const imgBtn = document.getElementById('imgBtn');
+const imgFile = document.getElementById('imgFile');
+const imgPreview = document.getElementById('imgPreview');
+const imgThumb = document.getElementById('imgThumb');
+const imgName = document.getElementById('imgName');
+const imgRemove = document.getElementById('imgRemove');
+let imgAttachee = null; // data URL JPEG réduite, prête pour le serveur
+
+function afficherApercu() {
+  if (!imgPreview) return;
+  if (imgAttachee) {
+    imgThumb.src = imgAttachee;
+    const poids = Math.round(imgAttachee.length * 0.75 / 1024);
+    imgName.textContent = 'image prête à envoyer (' + poids + ' Ko) — dictez votre question';
+    imgPreview.hidden = false;
+  } else {
+    imgPreview.hidden = true;
+    imgThumb.removeAttribute('src');
+  }
+}
+
+// On réduit à 1024 px max et on convertit en JPEG : le serveur respire, l'IA voit mieux
+function reduireImage(dataUrl) {
+  return new Promise((res) => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const max = 1024;
+        const k = Math.min(1, max / Math.max(im.width || max, im.height || max));
+        const w = Math.max(1, Math.round((im.width || max) * k));
+        const h = Math.max(1, Math.round((im.height || max) * k));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const cx = c.getContext('2d');
+        cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, w, h);
+        cx.drawImage(im, 0, 0, w, h);
+        res(c.toDataURL('image/jpeg', 0.85));
+      } catch (e) { res(dataUrl); }
+    };
+    im.onerror = () => res(dataUrl);
+    im.src = dataUrl;
+  });
+}
+
+async function joindreImageFichier(file) {
+  if (!file) return;
+  if (!/^image\//.test(file.type || '')) {
+    addMsg(agentActif === 'galika' ? 'GALIKA' : 'Aelyra', "Ce n'est pas une image, Isaac. Joignez une photo, une capture d'écran, un PNG ou un JPEG.");
+    return;
+  }
+  const brut = await new Promise((r) => {
+    const fr = new FileReader();
+    fr.onload = () => r(String(fr.result));
+    fr.readAsDataURL(file);
+  });
+  imgAttachee = await reduireImage(brut);
+  afficherApercu();
+  if (imgBtn) imgBtn.classList.add('armed');
+}
+
+if (imgBtn) imgBtn.addEventListener('click', () => imgFile && imgFile.click());
+if (imgFile) imgFile.addEventListener('change', () => {
+  const f = imgFile.files && imgFile.files[0];
+  joindreImageFichier(f);
+  imgFile.value = '';
+});
+if (imgRemove) imgRemove.addEventListener('click', () => {
+  imgAttachee = null;
+  afficherApercu();
+  if (imgBtn) imgBtn.classList.remove('armed');
+});
+document.addEventListener('paste', (e) => {
+  const files = e.clipboardData && e.clipboardData.files;
+  if (files && files.length && /^image\//.test(files[0].type || '')) joindreImageFichier(files[0]);
+});
+// Glisser une image sur le journal : jointe direct
+['log', 'cmdInput'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('dragover', (e) => e.preventDefault());
+  el.addEventListener('drop', (e) => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f && /^image\//.test(f.type || '')) { e.preventDefault(); joindreImageFichier(f); }
+  });
+});
+
 async function processCommand(text) {
   text = (text || '').trim();
-  if (!text || processing) return;
+  if (processing) return;
+  const image = imgAttachee; // la pièce jointe ne vit que le temps d'un ordre
+  if (!text && !image) return;
+  if (image) {
+    imgAttachee = null;
+    afficherApercu();
+    if (imgBtn) imgBtn.classList.remove('armed');
+    if (!text) text = agentActif === 'galika' ? 'galika, décris cette image' : 'décris cette image';
+  }
   // Côté Galika : l'ordre saisi dans sa partie est adressé à la développeuse,
   // même sans prononcer son prénom — le préfixe « galika » route au serveur.
   if (agentActif === 'galika' && !GK_MOTS.test(text.toLowerCase())) text = 'galika ' + text;
   processing = true;
   addMsg('Vous', text);
-  setState('thinking', 'Analyse en cours...');
+  if (image) addMsgImage(image);
+  setState('thinking', image ? 'Je regarde votre image...' : 'Analyse en cours...');
 
   // Réponses instantanées côté client
   const t = text.toLowerCase();
@@ -342,13 +455,14 @@ async function processCommand(text) {
     let agent = 'aelyra';
     let data = null;
     // « galika, ... » : jamais de réponse locale — c'est le serveur qui routage vers la seconde agente
-    if (local && !estGK) {
+    // Une image jointe non plus : le raccourci instantané est aveugle, c'est le serveur qui a des yeux
+    if (local && !estGK && !image) {
       reply = local;
     } else {
       const res = await fetch('/api/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text, image })
       });
       data = await res.json();
       reply = data.reply || "Je n'ai pas de réponse, Isaac.";
