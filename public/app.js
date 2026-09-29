@@ -73,6 +73,55 @@ if (soundBtn) soundBtn.addEventListener('click', () => {
   else addMsg(agentActif === 'galika' ? 'GALIKA' : 'Aelyra', 'Le son est coupé, Isaac. Je continuerai à vous répondre à l\'écran, silencieusement. Cliquez sur le haut-parleur pour rouvrir la voix.');
 });
 
+// ---------- Journal : bouton ⤢ (plein écran) + molette sur le titre + glisser le titre ----------
+const logPanel = document.querySelector('.log-panel');
+const logHead = document.querySelector('.log-head');
+const logZoom = document.getElementById('logZoom');
+// Hauteur mémorisée entre deux ouvertures (Isaac règle une fois, ça reste réglé)
+const HKEY = 'aelyra_journal_hauteur';
+const BKEY = 'aelyra_journal_grand';
+function hauteurActuelle() { return parseInt(localStorage.getItem(HKEY) || '0', 10) || 300; }
+function appliquerHauteur() {
+  if (!logPanel || !logEl) return;
+  if (logPanel.classList.contains('grand')) { logEl.style.height = ''; return; } // le CSS gère le plein écran
+  const maxH = Math.max(180, window.innerHeight - 220);
+  logEl.style.height = Math.min(Math.max(hauteurActuelle(), 150), maxH) + 'px';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function setGrand(on) {
+  if (!logPanel) return;
+  logPanel.classList.toggle('grand', on);
+  try { localStorage.setItem(BKEY, on ? '1' : '0'); } catch (e) {}
+  if (logZoom) logZoom.textContent = on ? '⤡' : '⤢';
+  appliquerHauteur();
+}
+if (logZoom) logZoom.addEventListener('click', () => setGrand(!logPanel.classList.contains('grand')));
+if (logHead) logHead.addEventListener('dblclick', () => setGrand(!logPanel.classList.contains('grand')));
+// Molette sur le bandeau du titre = agrandir / réduire le journal sans rien toucher d'autre
+if (logHead) logHead.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (logPanel.classList.contains('grand')) return;
+  const h = Math.min(Math.max(hauteurActuelle() + (e.deltaY < 0 ? 30 : -30), 150), Math.max(180, window.innerHeight - 220));
+  try { localStorage.setItem(HKEY, String(h)); } catch (x) {}
+  appliquerHauteur();
+}, { passive: false });
+// Glisser le bandeau vers le haut = plus grand ; relâcher = mémorisé
+if (logHead) logHead.addEventListener('mousedown', (e) => {
+  if (logPanel.classList.contains('grand') || e.target === logZoom || e.target.closest('.wake-toggle')) return;
+  const y0 = e.clientY, h0 = hauteurActuelle();
+  const bouger = (ev) => {
+    const h = Math.min(Math.max(h0 + (y0 - ev.clientY), 150), Math.max(180, window.innerHeight - 220));
+    try { localStorage.setItem(HKEY, String(h)); } catch (x) {}
+    appliquerHauteur();
+  };
+  const lacher = () => { document.removeEventListener('mousemove', bouger); document.removeEventListener('mouseup', lacher); };
+  document.addEventListener('mousemove', bouger);
+  document.addEventListener('mouseup', lacher);
+});
+window.addEventListener('resize', appliquerHauteur);
+if (logPanel) setGrand(localStorage.getItem(BKEY) === '1');
+appliquerHauteur();
+
 // Application de l'état mémorisé dès l'ouverture de la page
 setAgent(agentActif);
 setSon(sonOn);

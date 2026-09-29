@@ -53,10 +53,13 @@
 <section class="log-panel">
   <div class="log-head">
     <span>JOURNAL DE COMMUNICATION</span>
-    <label class="wake-toggle">
-      <input type="checkbox" id="wakeMode">
-      <span>Mode veille</span>
-    </label>
+    <div class="log-tools">
+      <label class="wake-toggle">
+        <input type="checkbox" id="wakeMode">
+        <span>Mode veille</span>
+      </label>
+      <button id="logZoom" class="zoom-btn" title="Agrandir ou réduire le journal (ou tirez le bord du journal)">⤢</button>
+    </div>
   </div>
   <div id="log" class="log"></div>
   <form id="cmdForm" class="cmd-bar">
