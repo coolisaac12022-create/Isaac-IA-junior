@@ -145,7 +145,7 @@
       const k = m.k;
       const g = av[k], u = g.userData;
       const vif = (k === actif);
-      let amp = 0.018, spin = 0.35, avance = 0.12, opCible = 0.34, scaleCible = 0.9;
+      let amp = 0.018, spin = 0.35, avance = 0.12, opCible = 0, scaleCible = 0.82;
       if (vif) {
         opCible = 1; scaleCible = 1; avance = 0.32;
         if (etat === 'listening') { amp = 0.045; spin = 0.95; }
@@ -161,7 +161,7 @@
       u.teteGrp.scale.setScalar(pouls);
       if (u.portrait.material.map) {
         u.portrait.material.opacity = lerp(u.portrait.material.opacity,
-          (vif ? 0.99 : 0.34) + (parle ? 0.05 * Math.abs(Math.sin(t * 13)) : 0.02 * Math.sin(t * 1.2)), 0.25);
+          (vif ? 0.99 : 0) + (parle ? 0.05 * Math.abs(Math.sin(t * 13)) : 0.02 * Math.sin(t * 1.2)), 0.25);
       }
       u.coeur.scale.setScalar(1 + (parle ? 2.4 : 0.9) * amp * Math.abs(Math.sin(t * (parle ? 11 : 2.2))));
       u.halo.rotation.z += 0.012 * spin;
@@ -183,11 +183,11 @@
       socles[i].rotation.z += 0.002 * spin;
     });
 
-    // La caméra glisse vers l'agente active — les autres restent visibles en périphérie
-    const xVif = (av[actif] ? av[actif].position.x : 0) * 0.8;
+    // Une seule face à l'écran : la caméra se pose droit devant l'agente appelée
+    const xVif = (av[actif] ? av[actif].position.x : 0);
     camera.position.x = lerp(camera.position.x, xVif + parX * 0.85, 0.12);
     camera.position.y = lerp(camera.position.y, 1.55 - parY * 0.5, 0.05);
-    camera.lookAt(xVif * 0.55, 1.1, 0);
+    camera.lookAt(xVif, 1.1, 0);
     renderer.render(scene, camera);
   }
   tick();
