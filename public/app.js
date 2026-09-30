@@ -32,6 +32,7 @@ function setAgent(a) {
   hudTitle.textContent = agentActif === 'jeanette' ? 'JEANETTE' : 'AELYRA';
   if (btnAelyra) btnAelyra.classList.toggle('active', agentActif === 'aelyra');
   if (btnJeanette) btnJeanette.classList.toggle('active', agentActif === 'jeanette');
+  if (window.Avatars) window.Avatars.setActive(agentActif);
   if (!isSpeaking && !processing) {
     setState(null, wakeMode
       ? (agentActif === 'jeanette' ? 'En veille — dites « Jeanette »' : 'En veille — dites « Aelyra » ou « Jeanette »')
@@ -150,6 +151,7 @@ for (let i = 0; i < 60; i++) {
 function setState(state, text) {
   document.body.classList.remove('listening', 'thinking', 'speaking');
   if (state) document.body.classList.add(state);
+  if (window.Avatars) window.Avatars.setState(state);
   if (text) statusEl.textContent = text;
 }
 
