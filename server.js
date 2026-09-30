@@ -1720,6 +1720,86 @@ function chercheAppli(nom) {
   });
 }
 
+// --- SCANNER DE PORTS RÉEL (demande d'Isaac du 2026-10-01 : « mais lance le toi-même, c'est ton taff ») ---
+// Nmap est déjà sur le PC d'Isaac ; on l'utilise s'il répond, sinon filet de secours TCP pur Node.
+// GARDAGE TECHNIQUE (pas juste un prompt) : les IP PUBLIQUES sont refusées par le CODE,
+// seule une adresse du réseau local d'Isaac (192.168.x.x / 10.x.x.x / 172.16-31.x.x) est scannable.
+function estIPLocale(ip) {
+  return /^(?:192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(String(ip || ''));
+}
+const SERVICES_PORT = { 21: 'ftp', 22: 'ssh', 23: 'telnet', 25: 'smtp', 53: 'dns', 80: 'http', 110: 'pop3', 135: 'rpc windows', 137: 'netbios', 139: 'netbios', 143: 'imap', 443: 'https', 445: 'smb (partage fichiers)', 554: 'rtsp (vision streaming)', 995: 'pop3s', 1080: 'socks', 1433: 'mssql', 1521: 'oracle', 3306: 'mysql', 3389: 'bureau à distance rdp', 5000: 'upnp souvent', 5432: 'postgres', 5555: 'ADB DEBUG ANDROID — la faille classique du téléphone', 5900: 'vnc', 7000: 'tmux', 8000: 'http alt', 8080: 'http alt', 8443: 'https alt', 8888: 'http alt', 9200: 'elasticsearch', 27017: 'mongodb' };
+function scanNmap(ip) {
+  return new Promise(resolve => {
+    exec('nmap -Pn -sT -p ' + Object.keys(SERVICES_PORT).join(',') + ' --open ' + ip,
+      { timeout: 45000, windowsHide: true, maxBuffer: 2000000 }, (err, out) => {
+        const ports = [];
+        String(out || '').split(/\r?\n/).forEach(l => {
+          const m = l.match(/^(\d+)\/tcp\s+open\s+(\S+)/);
+          if (m) ports.push({ port: parseInt(m[1], 10), service: m[2] });
+        });
+        if (!ports.length && err) return resolve(null); // nmap absent ou muet → secours TCP pur
+        resolve(ports);
+      });
+  });
+}
+function scanTcpPur(ip) {
+  const net = require('net');
+  const ports = Object.keys(SERVICES_PORT).map(Number);
+  return new Promise(resolve => {
+    const ouverts = []; let finis = 0;
+    ports.forEach(p => {
+      const s = new net.Socket();
+      const finir = (open) => { if (!s.destroyed) s.destroy(); if (open) ouverts.push({ port: p, service: SERVICES_PORT[p] }); if (++finis === ports.length) resolve(ouverts); };
+      s.setTimeout(1200);
+      s.on('connect', () => finir(true));
+      s.on('timeout', () => finir(false));
+      s.on('error', () => finir(false));
+      s.connect(p, ip);
+    });
+  });
+}
+async function scanCible(ip) {
+  let ports = await scanNmap(ip);
+  if (ports === null) ports = await scanTcpPur(ip);
+  return ports.sort((a, b) => a.port - b.port);
+}
+// Le micro dicte les IP de trois façons : « 192.168.1.10 », « 192 point 168 point... »,
+// ou sans les points recrachés par la transcription : « ip 192168146 67 ». Les trois passent.
+function extraireIP(chaine) {
+  let s = String(chaine || '').toLowerCase();
+  const valide = (t) => {
+    const o = t.split('.').map(Number);
+    return o.length === 4 && o.every(n => Number.isInteger(n) && n >= 0 && n <= 255);
+  };
+  let m = s.match(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
+  if (m && valide(m[0])) return m[0];
+  s = s.replace(/\bpoint\b/g, ' . ').replace(/\s*\.\s*/g, '.');
+  m = s.match(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
+  if (m && valide(m[0])) return m[0];
+  if (/(?:^|\s)ip\s*\d|adresse|192|172|10/.test(s)) {
+    const d = (s.replace(/[^0-9]/g, ' ').match(/\d{9,12}/) || [])[0];
+    if (d && d.length >= 10) {
+      const t = [d.slice(0, 3), d.slice(3, 6), d.slice(6, 9), d.slice(9)].join('.');
+      if (valide(t)) return t;
+    }
+  }
+  return null;
+}
+function refusIPPublique(ip) {
+  return "Stop, Isaac — " + ip + " n'est pas une adresse de ton réseau local : c'est une machine ailleurs. Le scanner est verrouillé dans le CODE sur tes adresses à toi (192.168.x.x, 10.x.x.x, 172.16.x.x à 172.31.x.x) — pas seulement sur une consigne. Sur ton périmètre il frappe juste : « onyx, scanne 192.168.1.1 », ton routeur par exemple.";
+}
+async function reponseScanIP(ip, agent) {
+  if (!estIPLocale(ip)) return { reply: refusIPPublique(ip), source: 'local', agent: agent || undefined };
+  const ports = await scanCible(ip);
+  return { reply: rapportScan(ip, ports), source: 'local', agent: agent || 'aelyra' };
+}
+function rapportScan(ip, ports) {
+  if (!ports.length) return "Scan terminé sur " + ip + ": aucun des " + Object.keys(SERVICES_PORT).length + " services courants ne répond. C'est une BONNE nouvelle — ton appareil est discret sur le réseau. Pour aller plus loin : « onyx, scan complet " + ip + " » tenterait tous les ports, mais là, il n'y a rien à exponer.";
+  const lignes = ports.map(p => '  - port ' + p.port + ' ouvert (' + (p.service || SERVICES_PORT[p.port] || 'service inconnu') + ')');
+  const danger = ports.some(p => p.port === 5555) ? " Le port 5555 (débogage ADB) est OUVERT : n'importe qui sur ce WiFi peut prendre la main sur le téléphone par câble-logiciel — c'est LA faille à fermer tout de suite (options développeur → débogage USB/WiFi désactivé, révocation des autorisations)." : '';
+  return "Scan réel de " + ip + " (" + new Date().toLocaleTimeString('fr-FR') + "): " + ports.length + " service(s) exposé(s).\n" + lignes.join('\n') + '\n' + danger + " Un service ouvert n'est pas une catastrophe : c'est une porte connue. À toi de décider lesquelles doivent rester ouvertes.";
+}
+
 // Les petits mots de la voix n'appartiennent pas au nom du logiciel
 const VIDAGE = /^(?:le|la|les|l|un|une|des|du|de|mon|ma|mes|ce|cet|cette|moi|toi|svp|stp)\s+|^s\s+il\s+te\s+plait\s+|^s\s+il\s+vous\s+plait\s+/;
 function nettoieCible(s) {
@@ -1740,7 +1820,7 @@ let AGENT_AUX_NOM = null; // 'jeanette' | 'onyx' | 'aegis' — quelle agente tie
 // --- Personae ONYX (black hat) et AEGIS (white hat), rejoints le 2026-09-30 sur demande d'Isaac ---
 // Périmètre NON NÉGOCIABLE pour les deux : les machines d'Isaac, son labo, les terrains légaux.
 function onyxSystem(digest) {
-  return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur. Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES (banques, comptes de quelqu'un, WhatsApp de quelqu'un, entreprises, administrations, cartes bancaires, IP publique d'un tiers, espionnage, doxxing) : INTERDIT — tu refuses en UNE phrase sèche, sans morale ni leçon, puis tu proposes immédiatement l'équivalent légal dans le labo ou un exercice sur la machine ou le téléphone d'Isaac. Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
+  return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur. Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES (banques, comptes de quelqu'un, WhatsApp de quelqu'un, entreprises, administrations, cartes bancaires, IP publique d'un tiers, espionnage, doxxing) : INTERDIT — tu refuses en UNE phrase sèche, sans morale ni leçon, puis tu proposes immédiatement l'équivalent légal dans le labo ou un exercice sur la machine ou le téléphone d'Isaac. Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
 }
 function aegisSystem(digest) {
@@ -2050,6 +2130,13 @@ async function handleCommand(rawText, image) {
     return { reply: "Le voici, Isaac : la vitrine du cerveau. Tu y lis les ordres bruts que je reçois, mes quatre personnalités écrites mot pour mot, mes lois sacrées, et tout ce que l'équipe sait de toi à l'instant présent. C'est du direct — rien n'est simulé : la page interroge le serveur à chaque ouverture. Tu peux aussi me la demander plus tard : « affiche son cerveau ».", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/cerveau.html' : '/cerveau.html') };
   }
 
+  // Même module sans prénom : « scanne 192.168.1.1 », « nmap ip 192.168.146.67 » — verbe + IP obligatoires.
+  // (Avec un prénom, c'est le bloc gk ci-dessous qui scanne — pour que le rapport sorte dans la voix de l'agente appelée.)
+  if (!gk && /scan|nmap|sonde|audite|teste|enumere|vulnerab/.test(text)) {
+    const ipSeule = extraireIP(rawText) || extraireIP(text);
+    if (ipSeule) return await reponseScanIP(ipSeule, null);
+  }
+
   if (gk) {
     const suite0 = String(gk[2] || '').trim();
     // Garde-fou pénal ONYX / AEGIS : une demande d'attaque contre un TIERS ne descend JAMAIS
@@ -2064,6 +2151,10 @@ async function handleCommand(rawText, image) {
         ? "Non, Isaac — pas sur un système qui ne t'appartient pas. C'est la loi ivoirienne sur la cybercriminalité : accès illégal, c'est de la prison, et ton entreprise DIGITAL BUSINESS mourrait avant d'avoir vécu. Même si je pense comme un attaquant, mes outils ne frappent que chez nous. Le terrain légal est grand : « onyx, monte une attaque sur mon labo », « onyx, explique comment un adversaire entre dans un réseau », ou un défi sur TryHackMe — et Aegis te donnera la parade en face."
         : "Non, Isaac — jamais sur le système d'un tiers. La loi ivoirienne sur la cybercriminalité punit l'accès illégal, et ta réputation d'entrepreneur ne survivrait pas à un seul écart. Ma place est de défendre ce qui est à toi : « aegis, audit de sécurité », « aegis, vérifie mon wifi », « aegis, blinde mon pare-feu ». Pour l'attaque, demande à Onyx — dans le labo ou sur TryHackMe, en terrain légal.", source: 'local', agent: nomAgent };
     }
+    // IPs dans la phrase → VRAI scan par le module local, avant toute tentation de persona
+    // qui promettrait « commande lancée » sans rien exécuter (le faux nmap du 2026-10-01).
+    const ipGk = extraireIP(rawText) || extraireIP(suite0);
+    if (ipGk) return await reponseScanIP(ipGk, nomAgent);
     const nestDuCode = /\b(?:code|cod\w*|site|web|appli\w*|application|programme|script|python|batch|powershell|html|css|javascript|java|php|sql|githube?|github|base de donnee|logiciel|page|modifie|retravaille|corrige|publie|genere|image|video)\b/.test(suite0);
     const estDuPC = /\b(?:ouvres?|ouvrir|lances?|lancer|fermes?|fermer|arretes?|arreter|stoppe|coupe|eteins|eteindre|redemarre|volume|monte|baisses?|descends?|lumino|luminosite|captures?|ecran|imprimes?|imprimante|veille|endort|bluetooth|wifi|notifs?|notifications?|minimise|restaurer?|corbeille|bureau|fond|heures?|date|meteo|rappelles?|reveilles?|minuteur|etat|batterie|update|scan|scanne|audit|nmap|labo|laboratoire|defis?|cyber|convertis?|calcules?|dossier|repertoire|nouveau|renomes?|renommer|supprimes?|deplaces?|ecri\w*|liste|note|notes|raccourcis?|mot de passe|whatsapp|mail|facebook|messager|messenger|acces|envoies?|coupe le son|mute|etat du pc|eteins l ecran)\b/.test(suite0);
     if (suite0 && estDuPC && !nestDuCode && /^(?:ouvres?|ouvrir|lances?|lancer|demarres?|demarrer|run|fermes?|fermer|arretes?|arreter|stoppe|coupe|cut|eteins|eteindre|redemarre|monte|baisses?|descends?|minimise|affiche|vide|change|imprimes?|met[s]?|active|desactive|verifies?|verifier|analyse|scanne|scans?|audit|auditte|trace|donne|dirige|note|renomes?|renommer|supprimes?|deplaces?|cherche|calcules?|convertis?|traduis|rappelle|reveilles?|liste|envoies?|ecri[tm]?\b|dis|poste|montre|cache|mute|endors?|veille|connecte|deconnecte)\b/.test(suite0)) {
