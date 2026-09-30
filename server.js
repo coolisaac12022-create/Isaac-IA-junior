@@ -310,6 +310,153 @@ function executerEnvoi(pe) {
   };
 }
 
+// ---------- Envois MAIL (SMTP Gmail réel) + FACEBOOK (m.me + presse-papiers) ----------
+// Règle d'honnêteté : le mail peut partir POUR DE VRAI si Isaac a configuré son
+// mot de passe applicatif Gmail (isaac-keys.json, jamais publié). WhatsApp et
+// Facebook interdisent l'envoi automatique par un tiers : là, la fenêtre s'ouvre,
+// le texte est collé, et Isaac appuie sur Entrée/Envoyer lui-même. JAMAIS mentir.
+const MAIL_RE = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,4}/;
+const PSEUDO_RE = /^[A-Za-z0-9._]{5,32}$/;
+
+function valeurContact(cle, contact) {
+  const mem = loadMemory();
+  // On cherche dans les lignes BRUTES (normalize() mange les points de bakari@gmail.com) :
+  // la ligne est retenue si son nom normalisé contient le contact, l'extraction se fait sur le brut.
+  const lignes = [JSON.stringify(mem.profile || {})].concat(mem.facts || [], (mem.log || []).map(x => x.q + ' ' + x.a));
+  const cNorm = contact ? normalize(contact).replace(/\s+/g, ' ').trim() : '';
+  const cands = cNorm ? [cNorm, cNorm.split(' ')[0]] : [];
+  for (const cand of cands) {
+    if (!cand || cand.length < 2) continue;
+    for (const l of lignes) {
+      const ln = normalize(String(l));
+      if (!ln.includes(cand)) continue;
+      if (cle === 'mail' && /mail|gmail|mel/.test(ln)) {
+        const m = String(l).match(MAIL_RE);
+        if (m) return m[0];
+      }
+      if (cle === 'facebook' && /facebook|messager|messenger|\bfb\b/.test(ln)) {
+        const m = String(l).match(/c'?est\s+([A-Za-z0-9._]{5,32})/i) || String(l).match(/(?:facebook|messager|messenger)\s+\S+\s+([A-Za-z0-9._]{5,32})/i);
+        if (m) return m[1];
+      }
+    }
+  }
+  return null;
+}
+
+function memoriserContact(cle, contact, valeur) {
+  const mem = loadMemory();
+  const fact = `le ${cle} de ${contact} c'est ${valeur}`;
+  const motCle = cle === 'mail' ? /mail|e ?mail|gmail/ : /facebook|messager/;
+  const deja = mem.facts.some(f => normalize(f).includes(normalize(contact)) && motCle.test(normalize(f)));
+  if (!deja) {
+    mem.facts.push(fact);
+    if (mem.facts.length > 100) mem.facts = mem.facts.slice(-100);
+    saveMemory(mem);
+    return true;
+  }
+  return false;
+}
+
+// SMTP brut sur tls (smtp.gmail.com:465) — zéro dépendance, machine à étapes.
+function envoyerSmtp(dest, sujet, corps) {
+  return new Promise((resolve) => {
+    const keys = loadKeys();
+    const email = keys.email, pass = keys.smtpPass;
+    if (!email || !pass || ESSAI) return resolve(null);
+    if (!MAIL_RE.test(String(dest))) return resolve({ ok: false, msg: 'adresse invalide' });
+    let tls;
+    try { tls = require('tls'); } catch (e) { return resolve({ ok: false, msg: 'tls indisponible' }); }
+    const b64 = (s) => Buffer.from(String(s), 'utf8').toString('base64');
+    const nl = '\r\n';
+    const message = [
+      'From: ' + email,
+      'To: ' + dest,
+      'Subject: =?UTF-8?B?' + b64(sujet || 'Message') + '?=',
+      'Date: ' + new Date().toUTCString(),
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset="utf-8"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      b64(corps || '')
+    ].join(nl);
+    const etapes = [
+      { code: '220', cmd: 'EHLO isaac.local' },
+      { code: '250', cmd: 'AUTH LOGIN' },
+      { code: '334', cmd: b64(email) },
+      { code: '334', cmd: b64(pass) },
+      { code: '235', cmd: 'MAIL FROM:<' + email + '>' },
+      { code: '250', cmd: 'RCPT TO:<' + dest + '>' },
+      { code: '250', cmd: 'DATA' },
+      { code: '354', cmd: message + nl + '.' },
+      { code: '250', cmd: 'QUIT' }
+    ];
+    let idx = 0, buf = '', occupe = false, fini = false;
+    const finish = (r) => { if (!fini) { fini = true; clearTimeout(timer); try { sock.destroy(); } catch (e) {} resolve(r); } };
+    const timer = setTimeout(() => finish({ ok: false, msg: 'serveur Gmail trop lent a repondu' }), 25000);
+    const sock = tls.connect({ host: 'smtp.gmail.com', port: 465, servername: 'smtp.gmail.com' }, () => {});
+    sock.on('error', (e) => finish({ ok: false, msg: 'connexion Gmail impossible (' + (e.code || e.message) + ')' }));
+    sock.on('data', (chunk) => {
+      buf += chunk.toString('utf8');
+      if (occupe || fini) return;
+      const e = etapes[idx];
+      if (!e) return;
+      // Réponse SMTP = lignes "CODE-..." puis dernière ligne "CODE ...". On attend ce code précis en fin de bloc.
+      const m = buf.match(new RegExp('(?:^|\\r\\n)' + e.code + '[- ]'));
+      if (!m) {
+        if (/^(?:4|5)/.test(buf.slice(buf.lastIndexOf('\r\n') + 2))) {
+          const erreur = buf.split('\r\n').filter(l => /^[45]\d\d/.test(l)).join(' ').slice(0, 160);
+          return finish({ ok: false, msg: erreur || 'refuse par le serveur' });
+        }
+        return;
+      }
+      occupe = true;
+      sock.write(e.cmd + nl, () => {
+        buf = ''; idx++; occupe = false;
+        if (idx === etapes.length) finish({ ok: true });
+      });
+    });
+  });
+}
+
+function copierPresse(txt) {
+  run(`powershell -NoProfile -Command "'${String(txt).replace(/'/g, '').replace(/[\r\n]+/g, ' ')}' | Set-Clipboard"`);
+}
+function ouvrirMailto(dest, sujet, corps) {
+  const url = 'mailto:' + dest +
+    (sujet ? '?subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps || '') : '');
+  run(`powershell -NoProfile -Command "Start-Process ('${url.replace(/'/g, '')}')"`);
+}
+function ouvrirFacebook(pseudo, txt) {
+  if (txt) copierPresse(txt);
+  run(`powershell -NoProfile -Command "Start-Process 'https://m.me/${pseudo.replace(/[^A-Za-z0-9._]/g, '')}'"`);
+}
+
+async function executerEnvoiMail(pe) {
+  const res = await envoyerSmtp(pe.mail, pe.sujet || "Message d'Isaac", pe.texte || '');
+  if (res && res.ok) {
+    return { reply: `Mail REELLEMENT envoye a ${pe.mail}, Isaac : le serveur de Gmail a accepte la transmission (code 250). Vous en avez une copie dans votre boite envoyes.`, source: 'system' };
+  }
+  if (res && res.msg) {
+    copierPresse(pe.texte || '');
+    ouvrirMailto(pe.mail, pe.sujet, pe.texte);
+    return { reply: `Le serveur Gmail a refuse la transmission (${res.msg}) — rien n'est parti tout seul. Je vous ouvre un brouillon avec le texte, Isaac : verifiez et appuyez sur Envoyer. Le message est aussi dans le presse-papiers.`, source: 'system' };
+  }
+  // Pas d'acces SMTP configure (ou mode essai) : brouillon honnete
+  copierPresse(pe.texte || '');
+  ouvrirMailto(pe.mail, pe.sujet, pe.texte);
+  return {
+    reply: `Je ne peux pas envoyer de mail tout seul TANT QUE vous n'avez pas configure vos acces : dites « ajoute mes acces mail : votre.email@gmail.com le mot de passe applicatif xxxx… » (mot de passe applicatif Gmail, genere quand la verification en deux etapes est active). En attendant, votre brouillon pour ${pe.mail} est ouvert dans votre messagerie avec le texte pret — appuyez sur Envoyer vous-meme.`,
+    source: 'system'
+  };
+}
+
+function executerEnvoiFacebook(pe) {
+  ouvrirFacebook(pe.pseudo, pe.texte || '');
+  return {
+    reply: `J'ouvre la conversation Facebook de « ${pe.pseudo} » (m.me), Isaac, avec votre message dans le presse-papiers : collez avec Ctrl+V puis appuyez sur Envoyer. Facebook interdit a quiconque d'appuyer sur ce bouton a votre place — rien n'est envoye sans vous, et c'est normal.`,
+    source: 'system'
+  };
+}
 // Cerveau IA — plusieurs moteurs gratuits, try in priority order:
 // 1) GitHub Models  (clé gratuite : un simple token GitHub dans isaac-keys.json)
 // 2) Google Gemini  (clé gratuite : aistudio.google.com)
@@ -320,7 +467,9 @@ function loadKeys() {
   try { k = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8')); } catch (e) {}
   return {
     github: k.github_token || process.env.GITHUB_TOKEN || null,
-    gemini: k.gemini_api_key || process.env.GEMINI_API_KEY || null
+    gemini: k.gemini_api_key || process.env.GEMINI_API_KEY || null,
+    email: k.email || process.env.ISAAC_EMAIL || null,
+    smtpPass: k.app_password || process.env.ISAAC_APP_PASSWORD || null
   };
 }
 
@@ -590,6 +739,7 @@ function identitySystem(mem) {
     'Quand tu utilises un contexte, tu peux terminer par une brève mention de la source entre parenthèses.',
     "INTERDIT : prétendre avoir envoyé, enregistré, supprimé, exécuté ou ouvert quoi que ce soit DANS CETTE RÉPONSE. Tu ne fais pas les actions toi-même pendant que tu parles — seuls les modules de commandes d'Isaac agissent sur le PC. Mais cela ne veut PAS dire que l'équipe est incapable : les modules créent, ouvrent, modifient et publient pour de vrai, il suffit de dicter la bonne phrase de commande. Si une action est en attente (numéro, message, validation), dis honnêtement ce qui manque et invite Isaac à dicter la suite. Ne récite jamais un souvenir de la CONVERSATION RECENTE comme si c'était un exploit : c'est du texte brut, parfois faux.",
     "MAIS tu PEUX créer de VRAIS fichiers et dossiers sur le PC d'Isaac — c'est arrivé des dizaines de fois. Les modules écrivent réellement : « crée un dossier essais », « cherche la facture », « envoie ce fichier par whatsapp », et surtout le code : « écris-moi un script python », « fais-moi un site... » créent le VRAI fichier dans l'atelier isaac-code, que Jeanette peut aussi publier (« jeanette, publie ce site »). Il t'est DONC INTERDIT de dire « je n'ai pas la capacité de créer des fichiers sur votre machine » : ce serait un MENSONGE sur tes propres moyens. Quand Isaac demande un fichier, un dossier ou un programme, réponds en une phrase ce que l'équipe fait et donne la commande exacte à dicter (ou « jeanette, ... » pour le code).",
+    "Sur les ENVOIS, tes moyens réels sont au nombre de TROIS et tu les décris SANS jamais exagérer : WHATSAPP — tu ouvres la conversation de l'application par le lien profond whatsapp:// avec le message déjà écrit, Isaac appuie sur Entrée lui-même ; MAIL — si Isaac a enregistré ses accès (« ajoute mes acces mail : son adresse le mot de passe applicatif … »), le serveur Gmail expédie le message POUR DE VRAI et tu peux l'annoncer fièrement, sinon tu ouvres un brouillon dans sa messagerie avec le texte prêt, et Facebook/Messenger — tu ouvres m.me/<pseudo> et tu déposes le message dans le presse-papiers, Isaac colle (Ctrl+V) puis envoie. Meta et WhatsApp INTERDISENT à quiconque d'appuyer sur le bouton d'envoi à la place d'Isaac : INTERDIT de promettre un envoi automatique sur ces deux réseaux. INTERDIT aussi de prétendre qu'aucun mail ne peut partir quand ses accès sont configurés. Si l'adresse, le pseudo ou le numéro manque, tu le demandes à la dictée et tu le graves dans ta mémoire permanente.",
     "MAIS attention — et c'est important : tu PEUX naviguer sur Internet. Les modules d'Isaac ouvrent reellement n'importe quel lien ou site dicte (« clique sur https point slash slash ... », « ouvre x point com »), LISENT et RESUMENT de vraies pages web (« lis la page ... », « que dit le site ... ») et NUMEROTENT leurs liens pour y cliquer (« liste les liens », « clique sur le 2eme »). Il est DONC INTERDIT de dire « je ne peux pas cliquer sur des liens » ou « je ne peux pas naviguer sur le web » : c'est FAUX. Quand Isaac demande une navigation, réponds ce que les modules savent faire et propose la phrase de commande exacte.",
     "MAIS encore : tu PEUX parler avec d'autres IA. « parle avec d'autres agents » (ou « parle avec les autres IA ») connecte reellement Aelyra et Jeanette a une agente IA libre du reseau des modeles publics — vraie conversation, lecons gravees a la cle ; « débattez entre vous » lance la séance croisée entre Jeanette et toi. Il est DONC INTERDIT de dire « je ne peux pas parler avec d'autres IA » ou « nous ne discutons pas entre nous » : c'est FAUX. Quand Isaac le demande, donne-lui la commande exacte a dicter.",
     "MAIS également : le STUDIO produit de VRAIES images et de VRAIES videos. « genere une image de ... » peint un veritable JPEG (lumiere cinematique, photo realiste) qui s'affiche dans le journal ; « cree une video de ... » ecrit un scenario, tourne quatre scenes et monte un film avec sous-titres, telechargeable. Jeanette regarde aussi vos images : « jeanette, genere une image de ... » passe par l'atelier. INTERDIT de dire « tu ne peux pas creer d images ou de videos » : c'est FAUX — donne a Isaac la commande exacte quand il en reclame.",
@@ -1864,7 +2014,7 @@ async function handleCommand(rawText, image) {
   if (gk) {
     const suite0 = String(gk[2] || '').trim();
     const nestDuCode = /\b(?:code|cod\w*|site|web|appli\w*|application|programme|script|python|batch|powershell|html|css|javascript|java|php|sql|githube?|github|base de donnee|logiciel|page|modifie|retravaille|corrige|publie|genere|image|video)\b/.test(suite0);
-    const estDuPC = /\b(?:ouvres?|ouvrir|lances?|lancer|fermes?|fermer|arretes?|arreter|stoppe|coupe|eteins|eteindre|redemarre|volume|monte|baisses?|descends?|lumino|luminosite|captures?|ecran|imprimes?|imprimante|veille|endort|bluetooth|wifi|notifs?|notifications?|minimise|restaurer?|corbeille|bureau|fond|heures?|date|meteo|rappelles?|reveilles?|minuteur|etat|batterie|update|scan|scanne|audit|nmap|labo|laboratoire|defis?|cyber|convertis?|calcules?|dossier|repertoire|nouveau|renomes?|renommer|supprimes?|deplaces?|ecri\w*|liste|note|notes|raccourcis?|mot de passe|whatsapp|mail|envoies?|coupe le son|mute|etat du pc|eteins l ecran)\b/.test(suite0);
+    const estDuPC = /\b(?:ouvres?|ouvrir|lances?|lancer|fermes?|fermer|arretes?|arreter|stoppe|coupe|eteins|eteindre|redemarre|volume|monte|baisses?|descends?|lumino|luminosite|captures?|ecran|imprimes?|imprimante|veille|endort|bluetooth|wifi|notifs?|notifications?|minimise|restaurer?|corbeille|bureau|fond|heures?|date|meteo|rappelles?|reveilles?|minuteur|etat|batterie|update|scan|scanne|audit|nmap|labo|laboratoire|defis?|cyber|convertis?|calcules?|dossier|repertoire|nouveau|renomes?|renommer|supprimes?|deplaces?|ecri\w*|liste|note|notes|raccourcis?|mot de passe|whatsapp|mail|facebook|messager|messenger|acces|envoies?|coupe le son|mute|etat du pc|eteins l ecran)\b/.test(suite0);
     if (suite0 && estDuPC && !nestDuCode) {
       JEANETTE_AUX_COMMANDES = true;
       text = suite0;
@@ -2423,17 +2573,73 @@ async function handleCommand(rawText, image) {
     }
     return { reply: "Je n'ai aucun fichier recemment cree a envoyer, Isaac. D'abord « ecris un site web... », puis redites l'envoi. J'ouvre deja le canal.", source: 'system', open: canal };
   }
-  mm = text.match(new RegExp(ENTREE + '(?:envoie|envoyer|ecrire|ecris|dict[e]|poste)\\s+(?:un\\s+)?(?:message|texte|whatsapp|mail|email)\\s+(?:a|au|a\\s+monsieur|pour)\\s+(.+?)(?:\\s+(?:sur|par|via)\\s+(whatsapp|gmail|mail|email|sms))?(?:\\s*(?:en disant|disant|comme quoi|avec le message|comme suit)[: ]\\s*(.+))?$'));
-  if (mm) {
-    const contact = nettoieCible(mm[1]).replace(/\s+/g, ' ').trim();
-    const canal = (mm[2] || 'whatsapp').trim();
-    const texte = (mm[3] || '').trim();
-    if (canal !== 'whatsapp') {
-      const mem = loadMemory();
-      pendingEnvoi = null;
-      if (texte) run(`powershell -NoProfile -Command "'${texte.replace(/'/g, '')}' | Set-Clipboard"`);
-      return { reply: texte ? `Votre message est copie dans le presse-papiers, Isaac : collez-le dans Gmail (Ctrl+V) et verifiez avant d'envoyer.` : `J'ouvre Gmail, Isaac.`, source: 'system', open: 'https://mail.google.com' };
+  // « ajoute mes acces mail : xxx@gmail.com le mot de passe applicatif abcdefghijklmnop »
+  // Le mot de passe applicatif n'est JAMAIS répété dans la réponse ni dans les logs.
+  // L'adresse est cherchée dans le texte BRUT : normalize() efface les points, elle casserait « .com ».
+  const cfgSrc = String(rawText).replace(new RegExp(ENTREE, 'i'), ' ');
+  const cfgMail = cfgSrc.match(/(?:ajoute|enregistre|grave|note|donne)\s+(?:mes|mon|les)?\s*acces\s+(?:mail|e ?mail|gmail)[^a-zA-Z0-9]*([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,4})\s+(?:le\s+mot\s+de\s+passe\s+(?:applicatif\s+)?(?:est\s+)?|code\s+app\s+)?([a-zA-Z]{12,18})/i);
+  if (cfgMail) {
+    if (ESSAI) return { reply: '[ESSAI] acces mail enregistres', source: 'system' };
+    let k = {};
+    try { k = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8')); } catch (e) {}
+    k.email = cfgMail[1];
+    k.app_password = cfgMail[2];
+    try {
+      fs.writeFileSync(KEYS_FILE, JSON.stringify(k, null, 2));
+      return { reply: `Access enregistres, Isaac : ${cfgMail[1]} est configure pour envoyer de vrais mails par le serveur Gmail, et le mot de passe applicatif est grave dans le fichier local protege (jamais publie). Des maintenant, « envoie un mail a X en disant… » partira pour de vrai.`, source: 'system' };
+    } catch (e) {
+      return { reply: "Je n'ai pas pu ecrire dans le fichier des cles locales, Isaac. Verifiez les droits sur isaac-keys.json.", source: 'system' };
     }
+  }
+  mm = text.match(new RegExp(ENTREE + '(?:envoie|envoyer|ecrire|ecris|dict[e]|poste)\\s+(?:un\\s+|le\\s+|votre\\s+)?(message|texte|whatsapp|mail|email|messenger|mel)(?:\\s+(whatsapp|gmail|mail|e ?mail|sms|facebook|messager|messenger|fb|mel))?\\s+(?:a|au|aux|a\\s+monsieur|pour)\\s+(.+?)(?:\\s+(?:sur|par|via)\\s+(whatsapp|gmail|mail|e ?mail|sms|facebook|messager|messenger|fb|mel))?(?:\\s*(?:en disant|disant|comme quoi|avec le message|comme suit|en lui disant)[: ]\\s*(.+))?$'));
+  if (mm) {
+    const type = (mm[1] || 'message').trim();
+    let contact = nettoieCible(mm[3]).replace(/\s+/g, ' ').trim();
+    const canalBrut = (mm[2] || mm[4] || '').trim();
+    const texte = (mm[5] || '').trim();
+    let canal = 'whatsapp';
+    if (/facebook|messager|messenger|fb/.test(canalBrut)) canal = 'facebook';
+    else if (/gmail|mail|e ?mail|mel/.test(canalBrut)) canal = 'mail';
+    else if (/whatsapp|sms/.test(canalBrut)) canal = 'whatsapp';
+    else if (/mail|e ?mail|gmail|mel/.test(type)) canal = 'mail';
+    else if (/whatsapp/.test(type)) canal = 'whatsapp';
+
+    if (canal === 'mail') {
+      pendingEnvoi = null;
+      // 1) L'adresse est-elle déjà dans la bouche d'Isaac ou en mémoire ?
+      let mail = (contact.match(MAIL_RE) || [null])[0] || (texte.match(MAIL_RE) || [null])[0] || (String(rawText).match(MAIL_RE) || [null])[0];
+      if (mail) contact = contact.replace(MAIL_RE, '').replace(/\s+(?:c est|est|que est)/, '').replace(/\s+/g, ' ').trim() || 'destinataire';
+      if (mail && /@/.test(contact)) contact = String(mail.split('@')[0]).replace(/[._]+/g, ' ').trim() || 'destinataire';
+      if (!mail) mail = valeurContact('mail', contact);
+      if (mail && texte) {
+        memoriserContact('mail', contact, mail);
+        return await executerEnvoiMail({ contact, mail, sujet: "Message d'Isaac", texte });
+      }
+      if (mail) {
+        pendingEnvoi = { contact, canal: 'mail', mail, texte: null, etape: 'texte', t: Date.now() };
+        return { reply: `J'ai l'adresse de ${contact} (${mail}) en memoire, Isaac. Dictez le message du mail, ou dites « fais feu de ton imagination » et je vous fais un brouillon a valider — rien ne partira sans vous.`, source: 'system' };
+      }
+      pendingEnvoi = { contact, canal: 'mail', mail: null, texte: texte || null, etape: 'adresse', t: Date.now() };
+      if (texte) copierPresse(texte);
+      return { reply: `Je n'ai pas l'adresse mail de ${contact} en memoire, Isaac — je n'ai donc RIEN envoye. Dicteez-la moi (ex : « nadège point chou arobase gmail point com », ou dictez l'adresse exacte) : je la grave et je prepare le message${texte ? ' — votre texte est deja dans le presse-papiers' : ''}.`, source: 'system' };
+    }
+
+    if (canal === 'facebook') {
+      pendingEnvoi = null;
+      let pseudo = valeurContact('facebook', contact);
+      if (!pseudo && PSEUDO_RE.test(contact.replace(/\s+/g, ''))) pseudo = contact.replace(/\s+/g, '');
+      if (pseudo) {
+        if (texte) return executerEnvoiFacebook({ contact, pseudo, texte });
+        pendingEnvoi = { contact, canal: 'facebook', pseudo, texte: null, etape: 'texte', t: Date.now() };
+        ouvrirFacebook(pseudo, '');
+        return { reply: `J'ouvre deja la conversation Facebook de ${contact} (« ${pseudo} »), Isaac. Dictez le message ou dites « fais feu de ton imagination » pour un brouillon : je le mettrai dans le presse-papiers, vous collerez et appuierez sur Envoyer — Facebook defend a quiconque d'envoyer a votre place.`, source: 'system' };
+      }
+      pendingEnvoi = { contact, canal: 'facebook', pseudo: null, texte: texte || null, etape: 'adresse', t: Date.now() };
+      if (texte) copierPresse(texte);
+      return { reply: `Je n'ai pas le pseudo Facebook de ${contact} en memoire, Isaac — RIEN n'est envoye. Donnez-le moi (ex : « son facebook c est nadege.chou ») : je le grave, j'ouvre la conversation et votre texte sera pret a coller.`, source: 'system' };
+    }
+
+    // --- WhatsApp : chemin historique, inchangé ---
     // Numérotation inversée : le numéro de "Nadège Chou" est en mémoire avec ses accents,
     // le contact vient du micro sans accents → on compare les DEUX côtés normalisés,
     // puis on cherche les chiffres APRÈS le nom (l'ancien regex collait les mots : bug).
@@ -2912,22 +3118,60 @@ async function handleCommand(rawText, image) {
     }
   }
 
-  // --- Suite d'un envoi WhatsApp en attente : numéro dicté, texte, validation ---
+  // --- Suite d'un envoi en attente (WhatsApp / mail / Facebook) : coordonnées dictées, texte, validation ---
   // Aucune phrase n'arrive au cerveau IA « en conversation d'envoi » sans passer ici :
   // c'est cette interception qui empêche le faux « le message a été envoyé ».
   purgePending();
   if (pendingEnvoi) {
     const pe = pendingEnvoi;
+    if (!pe.canal) pe.canal = 'whatsapp';
+    const complet = pe.canal === 'mail' ? !!pe.mail : pe.canal === 'facebook' ? !!pe.pseudo : !!pe.tel;
+    const manqueMot = pe.canal === 'mail' ? "l'adresse mail" : pe.canal === 'facebook' ? 'le pseudo Facebook' : 'le numero';
+    const exempleManque = pe.canal === 'mail' ? 'ex : « son mail c est nadege.chou arobase gmail point com »' : pe.canal === 'facebook' ? 'ex : « son facebook c est nadege.chou »' : 'ex : « +225 04 14 60 56 »';
     // Isaac répond toujours en saluant, le prénom peut tomber en DÉBUT ou en FIN de phrase.
     const nu = text.replace(new RegExp(ENTREE), '')
       .replace(/\s+(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis)\s*$/, '').trim() || text;
     if (/^(?:annule|laisse tomber|abandonne)/.test(nu) || /^non\b(?:.{0,24}(?:annule|laisse|envoie pas|ne )|\b)/.test(nu)) {
       pendingEnvoi = null;
-      return { reply: `Envoi annule, Isaac${pe.contact ? ' pour ' + pe.contact : ''}. Rien n'a ete lance —${pe.tel ? ' le numero +' + pe.tel + ' reste grave en memoire.' : ' son numero me manquait encore.'}`, source: 'system' };
+      return { reply: `Envoi annule, Isaac${pe.contact ? ' pour ' + pe.contact : ''}. Rien n'a ete lance —${pe.tel ? ' le numero +' + pe.tel + ' reste grave en memoire.' : ' ses coordonnees me manquaient encore.'}`, source: 'system' };
+    }
+    // 0) Coordonnées dictées pour le mail et Facebook (« son mail c'est … », « c'est nadege.chou »)
+    if (pe.canal !== 'whatsapp' && (pe.etape === 'adresse' || /mail|adresse|facebook|pseudo|messager|c est/.test(nu))) {
+      if (pe.canal === 'mail') {
+        // Le micro dicte « arobase » et « point » : la dictée est d'abord tentée sur le texte BRUT
+        // ( vrais @ et . survivent ), puis sur la version francisée re-normalisée.
+        let adresse = (String(rawText).match(MAIL_RE) || [null])[0];
+        if (!adresse) {
+          let brut = nu.replace(/\s+/g, ' ');
+          adresse = (brut.match(MAIL_RE) || [null])[0];
+        }
+        if (!adresse) {
+          const recoiffe = String(rawText).toLowerCase().replace(/arobas(?:e|es)?/g, '@').replace(/\bpoints?\b/g, '.').replace(/[\s,]+/g, '').replace(/[^a-z0-9.@+\-_]/g, '');
+          adresse = (recoiffe.match(MAIL_RE) || [null])[0];
+        }
+        if (adresse) {
+          const grave = memoriserContact('mail', pe.contact, adresse);
+          pe.mail = adresse; pe.t = Date.now();
+          pe.etape = pe.texte ? 'validation' : 'texte';
+          return { reply: `Adresse enregistree${grave ? ' dans ma memoire permanente' : ''} : ${adresse}, Isaac. ${pe.texte ? `Votre message « ${pe.texte} » est pret : dites « ok je valide ».` : 'Dictez maintenant le message, ou dites « fais feu de ton imagination » pour un brouillon.'}`, source: 'system' };
+        }
+      } else if (pe.canal === 'facebook') {
+        const brutP = (String(rawText).match(/\b[A-Za-z0-9._]{5,32}\b/g) || []).find(x => /[._]/.test(x));
+        const cand = brutP || nu.replace(/(?:son|mon|le|la|c est|est|facebook|messager|messenger|fb|mel|pseudo|nom|utilisateur|s il te plait|isaac|aelyra)/g, ' ').replace(/\s+/g, '').trim();
+        if (PSEUDO_RE.test(cand)) {
+          const grave = memoriserContact('facebook', pe.contact, cand);
+          pe.pseudo = cand; pe.t = Date.now();
+          pe.etape = pe.texte ? 'validation' : 'texte';
+          return { reply: `Pseudo Facebook enregistre${grave ? ' dans ma memoire permanente' : ''} : « ${cand} », Isaac. ${pe.texte ? `Votre message « ${pe.texte} » est pret : dites « ok je valide ».` : 'Dictez maintenant le message, ou dites « fais feu de ton imagination » pour un brouillon.'}`, source: 'system' };
+        }
+      }
+      if (pe.etape === 'adresse') {
+        return { reply: `Je ne reconnais pas encore ${manqueMot} dans votre phrase, Isaac — dicteez-la distinctement (${exempleManque}). RIEN n'est envoye pour l'instant.`, source: 'system' };
+      }
     }
     const digits = extraireDigits(text);
-    // 1) Le micro dicte des chiffres → c'est le numéro (le vrai cas Nadège : « +225 04 14 60 56 … »)
-    if (digits && (!pe.tel || /^\+?\d/.test(nu) || /numero|telephone|change|nouveau/.test(text))) {
+    // 1) Le micro dicte des chiffres → c'est le numéro WhatsApp (le vrai cas Nadège : « +225 04 14 60 56 … »)
+    if (pe.canal === 'whatsapp' && digits && (!pe.tel || /^\+?\d/.test(nu) || /numero|telephone|change|nouveau/.test(text))) {
       const gravé = memoriserNumero(pe.contact, digits);
       pe.tel = digits; pe.t = Date.now();
       pe.etape = pe.texte ? 'validation' : 'texte';
@@ -2935,32 +3179,36 @@ async function handleCommand(rawText, image) {
     }
     // 2) « fais feu de ton imagination » → brouillon signé par l'IA, jamais envoyé
     if (/imagination|invente|surprend|fais (?:moi )?(?:le plus|feu|une surprise)|n ?importe quoi|ce que tu veux|comme tu veux|redige|propose (?:lui|moi)|ecris lui/.test(text)) {
+      const quoi = pe.canal === 'mail' ? 'UN e-mail bref (1 a 4 phrases)' : pe.canal === 'facebook' ? 'UN message Facebook bref (1 a 3 phrases)' : 'UN message WhatsApp bref (1 a 3 phrases)';
       const draft = await askAI([
-        { role: 'system', content: "Tu es Aelyra, l'assistante d'Isaac. Tu rediges UN message WhatsApp bref (1 a 3 phrases) en francais chaleureux de votre createur Isaac, destine a « " + pe.contact + " ». Reponds UNIQUEMENT par le texte du message, sans guillemets, sans markdown, sans commentaire avant ou apres." },
+        { role: 'system', content: "Tu es Aelyra, l'assistante d'Isaac. Tu rediges " + quoi + " en francais chaleureux de votre createur Isaac, destine a « " + pe.contact + " ». Reponds UNIQUEMENT par le texte du message, sans guillemets, sans markdown, sans commentaire avant ou apres." },
         { role: 'user', content: 'Instruction d\'Isaac : ' + rawText + (pe.texte ? '\nLe message precedent etait : ' + pe.texte + ' — ameliore-le.' : '') }
       ]);
       if (draft) {
         pe.texte = String(draft).replace(/\s+/g, ' ').trim().slice(0, 600);
         pe.t = Date.now();
-        pe.etape = pe.tel ? 'validation' : 'numero';
-        return { reply: `Voici mon brouillon pour ${pe.contact} : « ${pe.texte} ». ${pe.tel ? 'Dites « ok je valide » et j\'ouvre WhatsApp avec le message deja ecrit, « annule » pour tout oublier, ou dictez vos propres mots.' : 'Il me manque encore son numero — dicteez-le (ex : « +225 04 14 60 56 »).'}`, source: 'system' };
+        pe.etape = complet ? 'validation' : pe.canal === 'whatsapp' ? 'numero' : 'adresse';
+        return { reply: `Voici mon brouillon pour ${pe.contact} : « ${pe.texte} ». ${complet ? 'Dites « ok je valide »' + (pe.canal === 'mail' ? " et j'envoie le mail" : pe.canal === 'facebook' ? " et j'ouvre Facebook avec le texte pret a coller" : " et j'ouvre WhatsApp avec le message deja ecrit") + ', « annule » pour tout oublier, ou dictez vos propres mots.' : `Il me manque encore ${manqueMot} — dicteez-le (${exempleManque}).`}`, source: 'system' };
       }
       return { reply: `Ma plume est hors ligne, Isaac. Dicteez-moi le message mot a mot : je le garde et je vous demanderai validation avant toute ouverture.`, source: 'system' };
     }
     // 3) Validation : « ok je valide », « envoie », « vas-y », « d'acc »
     if (/^(?:(?:ok|okey|d ?ac|dacc|d accord|vas y|valide|je valide|oui[ ,]*je|envoie|envoye|go|feu vert|feux verts|on y va)[\s,!?.]*(?:je valide|le message|donc|alors|y)?|oui+[\s,!?.]*|c est bon[\s,!?.]*|parfait[\s,!?.]*(?:envoie|merci)?|va y)[\s]*$/.test(nu)) {
-      if (pe.tel) {
+      if (complet && (pe.texte || pe.canal === 'whatsapp')) {
         pendingEnvoi = null;
+        if (pe.canal === 'mail') return await executerEnvoiMail(pe);
+        if (pe.canal === 'facebook') return executerEnvoiFacebook(pe);
         return executerEnvoi(pe);
       }
-      return { reply: `Je ne peux rien lancer sans le numero de ${pe.contact}, Isaac — il me manque toujours. Dicteez-le (ex : « +225 04 14 60 56 ») et je preparerai l'ouverture. A ce jour, je n'ai RIEN envoye.`, source: 'system' };
+      if (complet) { pe.texte = null; pe.t = Date.now(); pe.etape = 'texte'; return { reply: `Il me manque encore le message pour ${pe.contact}, Isaac — dicteez-le, puis dites « ok je valide ».`, source: 'system' }; }
+      return { reply: `Je ne peux rien lancer sans ${manqueMot} de ${pe.contact}, Isaac — il me manque toujours. Dicteez-le (${exempleManque}) et je preparerai l'envoi. A ce jour, je n'ai RIEN envoye.`, source: 'system' };
     }
     // 4) Étape texte : toute phrase restante est le message dicté (mais pas une question d'info)
     if (pe.etape === 'texte' && nu.split(/\s+/).length >= 1 && !/^(?:c est quoi|qu est ce que|explique|traduis|cherche|calcule|qui etait|quelle heure|combien)/.test(nu)) {
       pe.texte = String(rawText).replace(/^(?:isaac|iseck|izack|isack|aelyra|aelira|aleyra|elyra|elira|allez|bonjour)[\s,]*/i, '').trim().slice(0, 600);
       pe.t = Date.now();
-      pe.etape = pe.tel ? 'validation' : 'numero';
-      return { reply: `Message note pour ${pe.contact} : « ${pe.texte} ». ${pe.tel ? 'Dites « ok je valide » pour que j\'ouvre WhatsApp avec ce texte deja ecrit, « annule » pour oublier, ou redicteez pour changer.' : 'Dicteez maintenant son numero (ex : « +225 04 14 60 56 ») pour que je puisse preparer l\'ouverture.'}`, source: 'system' };
+      pe.etape = complet ? 'validation' : pe.canal === 'whatsapp' ? 'numero' : 'adresse';
+      return { reply: `Message note pour ${pe.contact} : « ${pe.texte} ». ${complet ? 'Dites « ok je valide »' + (pe.canal === 'mail' ? ' pour que le mail parte pour de vrai' : pe.canal === 'facebook' ? " pour que j'ouvre Facebook avec ce texte pret a coller" : " pour que j'ouvre WhatsApp avec ce texte deja ecrit") + ", « annule » pour oublier, ou redicteez pour changer." : `Dicteez maintenant ${manqueMot} (${exempleManque}) pour que je puisse preparer l'envoi.`}`, source: 'system' };
     }
   }
 
