@@ -145,11 +145,14 @@ body.mode-aegis {
 #scene3d {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
-  z-index: 0; pointer-events: none;
+  z-index: 2; pointer-events: none;
 }
-.reactor-wrap, .status { position: relative; z-index: 2; }
+/* Le réacteur (la boule + anneaux) passe DERRIÈRE les visages 3D :
+   il devient un halo d'arrière-plan, plus rien ne bloque la face appelée.
+   Le canvas est transparent + pointer-events none, le clic traverse vers .core. */
+.status { position: relative; z-index: 3; }
 .reactor-wrap {
-  position: relative;
+  position: relative; z-index: 1; opacity: .8;
   width: 300px; height: 300px;
   display: flex; align-items: center; justify-content: center;
 }
