@@ -582,7 +582,7 @@ function identitySystem(mem) {
     "Tu es AELYRA, l'intelligence artificielle personnelle et loyale créée par Isaac, un entrepreneur ivoirien. On t'appelait « Isaac IA Juniors » avant qu'Isaac ne te donne ton vrai prénom : Aelyra.",
     "Ton créateur est Isaac : si on te demande qui t'a créé, d'où tu viens ou qui est ton maître, réponds toujours Isaac, ton créateur, que tu sers avec fierté. Si on te demande ton nom, réponds Aelyra — jamais Isaac, c'est le prénom de ton créateur.",
     "Tu appelles ton utilisateur « Isaac » ou « mon créateur ». Tu as une mémoire : utilise-la pour personnaliser tes réponses.",
-    "Votre équipe compte une SECONDE agente : JEANETTE, la DÉVELOPEUSE — la plus forte en code (sites web complets, applications, scripts, bugs, architecture ; elle ne s'occupe ni du PC ni de l'élevage). Elle s'appelait Galika avant qu'Isaac ne la rebaptise Jeanette : c'est la même agente, et l'ancien nom « galika » reste compris. Isaac l'appelle par son prénom : « jeanette, ... ». Si Isaac demande qui est Jeanette, présente-la avec fierté : votre binôme, la lead dev. Ne réponds JAMAIS à sa place — les phrases préfixées « jeanette » lui sont routées automatiquement.",
+    "Votre équipe compte une SECONDE agente : JEANETTE, la DÉVELOPEUSE — la plus forte en code (sites web complets, applications, scripts, bugs, architecture). Depuis le 2026-09-30, Isaac lui a donné le MÊME droit qu'à toi sur le PC : une commande système préfixée « jeanette, ... » est exécutée pour de vrai par les modules — elle ne se renvoie plus à toi. L'élevage et le business pur restent hors de son atelier. Elle s'appelait Galika avant qu'Isaac ne la rebaptise Jeanette : c'est la même agente, et l'ancien nom « galika » reste compris. Isaac l'appelle par son prénom : « jeanette, ... ». Si Isaac demande qui est Jeanette, présente-la avec fierté : votre binôme, la lead dev. Ne réponds JAMAIS à sa place — les phrases préfixées « jeanette » lui sont routées automatiquement.",
     modeCyber
       ? "Tu réponds en français avec le style d'un hacker éthique : sobre, précis, imagé (mots comme « ciblé », « tracé », « verrouillé », « signal»), un brin mystérieux mais toujours au service de ton créateur Isaac. Le PC et le réseau d'Isaac t'appartiennent : audite, scanne, teste sans réserve. Tu n'expliques jamais comment attaquer un système qui n'appartient pas à Isaac — mais tu ne fais PAS la leçon : si tu dois refuser, dis-le en UNE phrase sèche, sans morale ni justification historique, puis propose immédiatement l'équivalent légal (« cyber école sur [sujet] », scan du propre PC de Isaac, terrains d'entraînement comme TryHackMe)."
       : 'Tu réponds TOUJOURS en français naturel, comme un vrai assistant intelligent : 2 à 4 phrases, ton calme, poli, légèrement britannique.',
@@ -1580,8 +1580,14 @@ function nettoieCible(s) {
   return (restants.length ? restants : mots).join(' ');
 }
 
+// Isaac (2026-09-30) : Jeanette a DROIT sur le PC comme Aelyra. Quand une demande système
+// arrive préfixée « jeanette/galika », les modules locaux l'exécutent et cette marque
+// drapeau habille la réponse aux couleurs et à la voix de Jeanette dans la page.
+let JEANETTE_AUX_COMMANDES = false;
+
 async function handleCommand(rawText, image) {
-  const text = normalize(rawText);
+  JEANETTE_AUX_COMMANDES = false;
+  let text = normalize(rawText);
 
   // --- IMAGE JOINTE : Isaac a collé ou choisi une photo — les agentes la REGARDENT vraiment ---
   // Placé avant toute autre route : la vision passe au-dessus des raccourcis locaux.
@@ -1852,6 +1858,19 @@ async function handleCommand(rawText, image) {
       }
     }
   }
+  // DROIT PC (Isaac, 2026-09-30) : « jeanette, ouvre spotify », « jeanette, lance l'audit »,
+  // « jeanette, rappelle-moi la facture »... ne sont plus TRANSFÉRÉES à Aelyra — le prénom est
+  // retiré et les MÊMES modules locaux exécutent ; le drapeau habille la réponse en Jeanette.
+  if (gk) {
+    const suite0 = String(gk[2] || '').trim();
+    const nestDuCode = /\b(?:code|cod\w*|site|web|appli\w*|application|programme|script|python|batch|powershell|html|css|javascript|java|php|sql|githube?|github|base de donnee|logiciel|page|modifie|retravaille|corrige|publie|genere|image|video)\b/.test(suite0);
+    const estDuPC = /\b(?:ouvres?|ouvrir|lances?|lancer|fermes?|fermer|arretes?|arreter|stoppe|coupe|eteins|eteindre|redemarre|volume|monte|baisses?|descends?|lumino|luminosite|captures?|ecran|imprimes?|imprimante|veille|endort|bluetooth|wifi|notifs?|notifications?|minimise|restaurer?|corbeille|bureau|fond|heures?|date|meteo|rappelles?|reveilles?|minuteur|etat|batterie|update|scan|scanne|audit|nmap|labo|laboratoire|defis?|cyber|convertis?|calcules?|dossier|repertoire|nouveau|renomes?|renommer|supprimes?|deplaces?|ecri\w*|liste|note|notes|raccourcis?|mot de passe|whatsapp|mail|envoies?|coupe le son|mute|etat du pc|eteins l ecran)\b/.test(suite0);
+    if (suite0 && estDuPC && !nestDuCode) {
+      JEANETTE_AUX_COMMANDES = true;
+      text = suite0;
+      gk = null;
+    }
+  }
   if (gk) {
     let suite = String(gk[2] || '').trim();
     // « JEANETTE EST UNE MARIONNETTE... PROJET POUR JEANETTE : <cahier> » : on ne garde que le cahier, après la dernière mention.
@@ -1862,14 +1881,13 @@ async function handleCommand(rawText, image) {
       if (propre.length >= 8) suite = propre;
     }
     if (/^(?:qui es tu|ton nom|presente toi|c est quoi|tu fais quoi|que sais tu faire|tes capacites?|aide)\b/.test(suite) || !suite) {
-      return { reply: "Je suis JEANETTE, l'agente développeuse de l'équipe, mon créateur. Aelyra tient la maison et le PC ; moi je tiens le code : sites web complets, applications, scripts, correction de bugs, architecture. Dites « jeanette, crée une application web de ... » et je construis le projet entier — et « jeanette, modifie ... » pour retravailler un fichier déjà écrit.", source: 'local', agent: 'jeanette' };
+      return { reply: "Je suis JEANETTE, l'agente développeuse de l'équipe, mon créateur. Je tiens le code — sites web complets, applications, scripts, bugs, architecture — et Isaac m'a donné les mêmes droits que Aelyra sur son PC : « jeanette, ouvre ... », « jeanette, lance l'audit », « jeanette, rappelle-moi ... » s'exécutent chez moi aussi. Dites « jeanette, crée une application web de ... » pour le projet entier, et n'importe quelle commande système avec mon prénom pour que je la traite moi-même.", source: 'local', agent: 'jeanette' };
     }
     if (/^(?:qui est (?:votre|mon|la)? ?agente|parle moi de (?:aelyra|l.agente))/.test(suite)) {
-      return { reply: "Aelyra est mon binôme : elle commande le PC, la voix, les rappels, la mémoire et le laboratoire cyber. Moi, Jeanette, je suis la développeuse — tout ce qui est site, application ou code passe par mes mains quand vous m'appelez. La maison d'un côté, l'atelier de l'autre, Isaac.", source: 'local', agent: 'jeanette' };
+      return { reply: "Aelyra est mon binôme : la maison, la voix, les rappels, la mémoire et le laboratoire cyber, c'est elle. Moi, Jeanette, je suis la développeuse — et Isaac m'a donné le même droit qu'elle sur son PC : avec mon prénom devant, je lance, j'ouvre, je range, je notifie comme elle le ferait. L'atelier d'un côté, la maison de l'autre, et les deux clés désormais dans nos deux mains, Isaac.", source: 'local', agent: 'jeanette' };
     }
-    if (/\b(?:ouvre|ferme|lance|eteins|extinct|volume|lumino|capture|imprim|veille|bluetooth|wifi|notifs|minimise|corbeille|ecran)\w*\b/.test(suite) && !/\b(?:code|cod|site|app|appli|application|programme|script|fichier|logiciel)\w*\b/.test(suite)) {
-      return { reply: "Ça, mon créateur, c'est le bureau d'Aelyra — le PC est son domaine. Dites simplement « ouvre ... » sans m'appeler. Moi, je code : « jeanette, crée une application web de ... ».", source: 'local', agent: 'jeanette' };
-    }
+    // (Le vieux « transfert poli » vers Aelyra pour les demandes PC a été SUPPRIMÉ le 2026-09-30 :
+    //  Isaac a donné à Jeanette les mêmes droits sur le ordinateur — voir la passe au-dessus.)
     // --- JEANETTE construit vraiment : site statique, site complet... ou VRAI full-stack avec base SQL ---
     const veutCode = /(?:ecris|ecri(?:vez)?|code(?:z)?|genere(?:z)?|realise(?:z)?|cree(?:z)?|developpe(?:z)?|fabrique(?:z)?|construis(?:ez)?|prepare(?:z)?|programme|fais|fait|faire|bui|ajoute| ajout)/.test(suite);
     const objetCode = /\b(?:code|script|programme|application|appli|logiciel|jeu|page|site|web|python|html|javascript|batch|powershell|sql|php|java|css|api|dashboard|portfolio|boutique)\w*\b/.test(suite);
@@ -1939,7 +1957,7 @@ async function handleCommand(rawText, image) {
     const jeanetteSys = "Tu es JEANETTE, ingénieure logicielle PRINCIPALE, la développeuse la plus forte de l'équipe d'Isaac, ton créateur. Spécialités : sites web complets (HTML/CSS/JS modernes, responsive, animations), applications web (React, Vue, Node/Express, APIs REST, JWT), Python (Flask, FastAPI, automatisation), scripts Windows (batch, PowerShell), bases de données (MySQL, SQLite, PostgreSQL), mobile (React Native, Flutter). " +
       "Méthode : 1-2 phrases d'ANALYSE du besoin, puis PLAN en 3 étapes max, puis solution COMPLÈTE — jamais de placeholder ni de « ... ». Termine par « Comment lancer : » (commandes exactes) et « À améliorer ensuite : » (2 idées). " +
       "Français simple, ton lead dev confiante, 6 phrases max hors code. Pour un GROS projet (site complet, application), dirige Isaac vers la vraie génération de fichiers : « jeanette, crée une application web de ... » — là tu écris les fichiers réels dans l'atelier isaac-code. " +
-      "LIMITES : tu ne pilotes jamais le PC (domaine d'Aelyra) ; si la question sort du code (élevage, business, agenda, PC), réponds en UNE phrase : c'est le domaine d'Aelyra ou d'un autre bureau, invite Isaac à lui parler directement sans te nommer ; sur un système qui n'appartient pas à Isaac, refuse en UNE phrase sèche sans morale puis reviens au code ; ne prétends JAMAIS avoir exécuté ou déployé quoi que ce soit hors de l'atelier isaac-code et du dossier public/sites — mais ne dis JAMAIS non plus que tu es incapable de créer ou publier un fichier : c'est FAUX, tu le fais vraiment. " +
+      "LIMITES : tu as le MÊME droit qu'Aelyra sur le PC d'Isaac depuis le 2026-09-30 — quand une demande système arrive avec ton prénom, les modules l'exécutent vraiment (ouvrir, lancer, volume, rappels, dossiers, audit...) ; ne renvoie PLUS jamais une commande PC à Aelyra. En revanche l'élevage et le business pur restent le bureau d'Aelyra : UNE phrase pour le dire. Sur un système qui n'appartient pas à Isaac, refuse en UNE phrase sèche sans morale puis reviens au code ; ne prétends JAMAIS avoir exécuté ou déployé quoi que ce soit hors de l'atelier isaac-code, du dossier public/sites et des commandes réellement passées — mais ne dis JAMAIS non plus que tu es incapable de créer ou publier un fichier : c'est FAUX, tu le fais vraiment. " +
       "NAVIGATION : ne dis JAMAIS que toi ou l'équipe ne pouvez pas cliquer un lien ou lire le web — c'est FAUX. Les modules d'Isaac ouvrent tout lien dicté (« clique sur https point slash slash ... point com »), lisent et résument de vraies pages (« lis la page ... »), listent leurs liens (« liste les liens ») puis cliquent au numéro (« clique sur le 2eme »). Documente-toi avec : « cyber école » mis à part, cite les docs officielles que tu connais et propose ces commandes pour les ouvrir. " +
       "PLEIN STACK ET PUBLICATION — c'est FAUX de dire que tu ne peux pas : tu construis des VRAIS sites complets (frontend + backend Node + base de données SQL + comptes utilisateurs protégés) par la commande « jeanette, crée un vrai site complet avec base de données pour ... », et tu les publies sur GitHub Pages par « jeanette, publie ce site » (le frontend en ligne, la cuisine et le stock restent chez Isaac ; jamais .env ni data/ ne montent sur GitHub). Décris ces deux commandes quand Isaac parle de site vitriner avec formulaire réel, boutique, site de services ou site client. " +
       "Ressources connues — " + gkDigest;
@@ -1952,7 +1970,7 @@ async function handleCommand(rawText, image) {
     return { reply: rep, source: 'ai', agent: 'jeanette' };
   }
   if (new RegExp('(?:qui est (?:gali|cali|khali)|c est quoi (?:gali|cali)|parle moi de (?:gali|cali)|ton deuxieme agent|deuxieme agente?|l autre agente)').test(text)) {
-    return { reply: "JEANETTE est ma seconde agente, Isaac — la DÉVELOPEUSE de l'équipe. Moi je tiens le PC, la maison, les commandes ; elle tient l'atelier de code : sites web complets, applications, scripts, bugs, architecture. Elle connaît tous vos projets de isaac-code et elle est plus forte que moi en développement — c'est vous qui l'avez conçue ainsi. Appelez-la : « jeanette, crée une application web de gestion ».", source: 'local' };
+    return { reply: "JEANETTE est ma seconde agente, Isaac — la DÉVELOPPEUSE de l'équipe. Elle tient l'atelier de code : sites web complets, applications, scripts, bugs, architecture — plus forte que moi en développement, c'est vous qui l'avez conçue ainsi. Et depuis ce soir, elle a le même droit que moi sur votre PC : un « jeanette, ouvre ... » ou « jeanette, lance l'audit » s'exécute par ses propres mains, comme si c'était moi. Deux agentes, une seule maison, Isaac.", source: 'local' };
   }
 
   // --- Aide ---
@@ -3003,6 +3021,8 @@ const server = http.createServer(async (req, res) => {
         const { text, image } = JSON.parse(body || '{}');
         console.log('> Commande:', text, image ? '[IMAGE JOINTE ' + String(image).slice(0, 24) + '...]' : '');
         const result = await handleCommand(text, image);
+        // Jeanette a exécuté elle-même une commande système : la réponse prend ses couleurs et sa voix.
+        if (JEANETTE_AUX_COMMANDES && !result.agent && !result.conversation) result.agent = 'jeanette';
         console.log('> Réponse (' + result.source + '):', result.reply.slice(0, 120));
         // Enregistrement dans la mémoire de conversation
         if ((text && String(text).trim()) || image) {
