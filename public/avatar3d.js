@@ -20,7 +20,7 @@
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-  camera.position.set(0, 1.55, 5.6);
+  camera.position.set(0, 1.55, 4.9);
 
   const BLEU = 0x3fdcf5, VIOLET = 0xb276ff, ROUGE = 0xef4444, VERT = 0x34d399;
 
@@ -37,12 +37,12 @@
     teteGrp.position.y = 1.52;
 
     // Tête de secours (particules) — visible tant que le portrait n'est pas chargé
-    const teteSecours = nuage(new THREE.SphereGeometry(0.40, 26, 18), couleur, 0.034, 0.9);
+    const teteSecours = nuage(new THREE.SphereGeometry(0.48, 26, 18), couleur, 0.034, 0.9);
     teteGrp.add(teteSecours);
 
     // LE VRAIS VISAGE : portrait humain en planche lumineuse (additif = fond noir transparent)
     const portrait = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.02, 1.275),
+      new THREE.PlaneGeometry(1.32, 1.65),
       new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
     );
     portrait.position.z = 0.02;
