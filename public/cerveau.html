@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CERVEAU — Vitrine de l'équipe d'Isaac</title>
+<style>
+  :root { --blanc: #e8e8e8; --gris: rgba(255,255,255,.55); --line: rgba(255,255,255,.16); --boite: rgba(255,255,255,.04); }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000; color: var(--blanc);
+    font-family: 'Segoe UI', Consolas, monospace;
+    min-height: 100vh; padding: 26px 18px 80px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 { font-size: 21px; letter-spacing: 6px; font-weight: 600; }
+  h1 .dim { color: var(--gris); }
+  .etat { font-size: 11px; letter-spacing: 2px; color: var(--gris); margin-top: 8px; }
+  .etat .on { color: #fff; }
+  .stats { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+  .stat { border: 1px solid var(--line); border-radius: 20px; padding: 4px 14px; font-size: 11px; letter-spacing: 1px; color: var(--gris); }
+  .stat b { color: #fff; }
+  section { border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 18px; background: var(--boite); }
+  h2 { font-size: 12px; letter-spacing: 4px; color: var(--gris); font-weight: 600; margin-bottom: 12px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  /* trajet de la commande */
+  .pipeline { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
+  .etape { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 11px; line-height: 1.45; flex: 1 1 150px; }
+  .etape b { display: block; letter-spacing: 1px; margin-bottom: 3px; }
+  .fleche { align-self: center; color: var(--gris); font-size: 13px; }
+  /* onglets des personnalités */
+  .onglets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .onglet { border: 1px solid var(--line); background: transparent; color: var(--gris); border-radius: 18px; padding: 6px 16px; font-size: 12px; letter-spacing: 2px; cursor: pointer; font-family: inherit; }
+  .onglet.actif { border-color: #fff; color: #fff; background: rgba(255,255,255,.08); }
+  pre.prompt { white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.55; color: #d8d8d8; border: 1px solid var(--line); border-radius: 8px; padding: 14px; max-height: 420px; overflow-y: auto; background: rgba(0,0,0,.5); }
+  ul.lois { list-style: none; }
+  ul.lois li { font-size: 12.5px; line-height: 1.6; padding: 6px 0 6px 22px; position: relative; border-bottom: 1px dashed rgba(255,255,255,.08); }
+  ul.lois li::before { content: "■"; position: absolute; left: 2px; color: var(--gris); font-size: 9px; top: 10px; }
+  .blocmemo { margin-bottom: 12px; }
+  .blocmemo h3 { font-size: 11px; letter-spacing: 2px; color: var(--gris); margin-bottom: 6px; }
+  .fact, .ligne-log { font-size: 12px; line-height: 1.5; padding: 5px 8px; border-left: 2px solid rgba(255,255,255,.25); margin-bottom: 4px; background: rgba(255,255,255,.03); word-break: break-word; }
+  .ligne-log .q { color: #fff; } .ligne-log .r { color: var(--gris); display: block; margin-top: 2px; }
+  .vide { color: var(--gris); font-size: 12px; font-style: italic; }
+  #rafraichir { display: block; margin: 22px auto 0; border: 1px solid var(--line); background: transparent; color: var(--blanc); border-radius: 22px; padding: 9px 26px; font-size: 12px; letter-spacing: 3px; cursor: pointer; font-family: inherit; }
+  #rafraichir:hover { background: rgba(255,255,255,.08); }
+  .pied { text-align: center; font-size: 10px; letter-spacing: 2px; color: var(--gris); margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>CERVEAU <span class="dim">// VITRINE DE CONTRÔLE</span></h1>
+    <div class="etat" id="etat">INTERROGATION DU SERVEUR...</div>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <section>
+    <h2>LE TRAJET D UNE COMMANDE — DE TA VOIX À LA RÉPONSE</h2>
+    <div class="pipeline">
+      <div class="etape"><b>1. MICRO</b>Web Speech du navigateur transcrite brute (sans accents, apostrophes collées).</div><div class="fleche">→</div>
+      <div class="etape"><b>2. MOT DE VEILLE</b>« Aelyra », « Jeanette », « Onyx », « Aegis » reconnus devant ou derrière la phrase.</div><div class="fleche">→</div>
+      <div class="etape"><b>3. NETTOYAGE</b>normalize() : minuscules, accents retirés, ponctuation supprimée.</div><div class="fleche">→</div>
+      <div class="etape"><b>4. TRI</b>Préfixe d agente ? Garde-fou légal anti-tiers ? Puis module local ou cerveau IA.</div><div class="fleche">→</div>
+      <div class="etape"><b>5. MAIN</b>Modules locaux : PC, fichiers, rappels, cyber, labo, envois — ça exécute VRAIMENT.</div><div class="fleche">→</div>
+      <div class="etape"><b>6. CERVEAU</b>Gemini gratuit (avec mémoire injectée), secours Pollinations puis Wikipédia.</div><div class="fleche">→</div>
+      <div class="etape"><b>7. VOIX</b>Réponse parlée dans la voix de l agente appelée + trace dans le journal.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>LES QUATRE PERSONNALITÉS — PROMPTS BRUTS, LU À L INSTANT</h2>
+    <div class="onglets" id="onglets"></div>
+    <pre class="prompt" id="prompt">Chargement...</pre>
+  </section>
+
+  <section>
+    <h2>LOIS SACRÉES DE L ÉQUIPE</h2>
+    <ul class="lois">
+      <li>JAMAIS prétendre qu une action a été faite si elle ne l a pas été pour de vrai (envoi, fichier, scan). Un brouillon s appelle un brouillon.</li>
+      <li>Périmètre : tout ce qui EST À ISAAC (PC, téléphone, tablette, ses apps, son réseau local, son labo) = autorisé. Les systèmes des AUTRES = refus en une phrase sèche, sans morale, puis alternative légale.</li>
+      <li>Le préfixe d une agente ne change pas ses droits : Jeanette, Onyx et Aegis ont le même droit direct sur le PC qu Aelyra.</li>
+      <li>Les clés (isaac-keys.json), la mémoire brute et notes.txt ne sortent JAMAIS sur GitHub ni dans une réponse publique.</li>
+      <li>Budget zéro euro : uniquement des services gratuits (Gemini niveau sans frais, Web Speech, wttr.in, Pollinations).</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>MÉMOIRE VIVANTE — CE QUE L ÉQUIPE SAIT DE TOI, LÀ, MAINTENANT</h2>
+    <div class="blocmemo"><h3>PROFIL</h3><div id="profil" class="vide">—</div></div>
+    <div class="blocmemo"><h3>FAITS MÉMORISÉS</h3><div id="facts"></div></div>
+    <div class="blocmemo"><h3>LEÇONS GRAVÉES (40 dernières)</h3><div id="lecons"></div></div>
+    <div class="blocmemo"><h3>30 DERNIERS ÉCHANGES (phrase du micro → réponse)</h3><div id="log"></div></div>
+  </section>
+
+  <button id="rafraichir">RE-INTERROGER LE CERVEAU</button>
+  <div class="pied">AELYRA · JEANETTE · ONYX · AEGIS — DONNÉES LOCALES, JAMAIS PUBLIÉES</div>
+</div>
+
+<script>
+(function () {
+  var NOMS = { aelyra: 'AELYRA', jeanette: 'JEANETTE', onyx: 'ONYX', aegis: 'AEGIS' };
+  var courant = 'aelyra', data = null;
+
+  function el(id) { return document.getElementById(id); }
+  function texte(noeud, s) { while (noeud.firstChild) noeud.removeChild(noeud.firstChild); noeud.appendChild(document.createTextNode(s)); }
+  function ligne(cont, cls, s) {
+    var d = document.createElement('div'); d.className = cls; texte(d, s); cont.appendChild(d); return d;
+  }
+
+  function dessinerOnglets() {
+    var c = el('onglets');
+    while (c.firstChild) c.removeChild(c.firstChild);
+    Object.keys(NOMS).forEach(function (k) {
+      var b = document.createElement('button');
+      b.className = 'onglet' + (k === courant ? ' actif' : '');
+      texte(b, NOMS[k]);
+      b.onclick = function () { courant = k; dessinerOnglets(); dessinerPrompt(); };
+      c.appendChild(b);
+    });
+  }
+  function dessinerPrompt() {
+    if (data && data.fige && data.fige[courant]) texte(el('prompt'), data.fige[courant]);
+  }
+  function remplissage() {
+    if (!data || !data.ok) return;
+    var s = data.stats || {};
+    var c = el('stats'); while (c.firstChild) c.removeChild(c.firstChild);
+    [['faits mémorisés', s.faits], ['leçons gravées', s.lecons], ['échanges au journal', s.echanges]].forEach(function (p) {
+      var d = document.createElement('div'); d.className = 'stat';
+      var b = document.createElement('b'); texte(b, String(p[1] == null ? 0 : p[1]) + ' ');
+      d.appendChild(b); d.appendChild(document.createTextNode(p[0]));
+      c.appendChild(d);
+    });
+    var pr = el('profil');
+    while (pr.firstChild) pr.removeChild(pr.firstChild);
+    if (data.memoire.profile) { pr.className = 'fact'; texte(pr, data.memoire.profile); }
+    else { pr.className = 'vide'; texte(pr, 'profil vide — dis « retiens que... » pour me graver quelque chose'); }
+    var f = el('facts'); while (f.firstChild) f.removeChild(f.firstChild);
+    if (!data.memoire.facts.length) { var v1 = document.createElement('div'); v1.className = 'vide'; texte(v1, 'aucun fait mémorisé'); f.appendChild(v1); }
+    data.memoire.facts.forEach(function (x) { ligne(f, 'fact', typeof x === 'string' ? x : (x.texte || JSON.stringify(x))); });
+    var l = el('lecons'); while (l.firstChild) l.removeChild(l.firstChild);
+    if (!data.memoire.lecons.length) { var v2 = document.createElement('div'); v2.className = 'vide'; texte(v2, 'aucune leçon gravée'); l.appendChild(v2); }
+    data.memoire.lecons.forEach(function (x) { ligne(l, 'fact', typeof x === 'string' ? x : (x.texte || JSON.stringify(x))); });
+    var g = el('log'); while (g.firstChild) g.removeChild(g.firstChild);
+    if (!data.memoire.log.length) { var v3 = document.createElement('div'); v3.className = 'vide'; texte(v3, 'journal vide'); g.appendChild(v3); }
+    data.memoire.log.forEach(function (x) {
+      var d = ligne(g, 'ligne-log', '');
+      var q = document.createElement('span'); q.className = 'q'; texte(q, 'ISAAC : ' + (x.q || x.question || ''));
+      d.appendChild(q);
+      var r = document.createElement('span'); r.className = 'r'; texte(r, 'RÉPONSE : ' + String(x.r || x.reponse || x.reply || '').slice(0, 220));
+      d.appendChild(r);
+    });
+    texte(el('etat'), 'CERVEAU INTERROGÉ EN DIRECT — ' + new Date().toLocaleString('fr-FR'));
+  }
+
+  function charger() {
+    texte(el('etat'), 'INTERROGATION DU SERVEUR...');
+    fetch('/api/cerveau', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { data = j; if (!j.ok) texte(el('etat'), 'CERVEAU INJOIGNABLE : ' + (j.erreur || 'réponse vide')); dessinerOnglets(); dessinerPrompt(); remplissage(); })
+      .catch(function (e) { texte(el('etat'), 'CERVEAU INJOIGNABLE : ' + e.message); });
+  }
+  el('rafraichir').onclick = charger;
+  dessinerOnglets();
+  charger();
+})();
+</script>
+</body>
+</html>

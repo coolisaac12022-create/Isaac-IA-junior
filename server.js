@@ -1747,6 +1747,16 @@ function aegisSystem(digest) {
   return "Tu es AEGIS, HACKER ÉTHIQUE — l'auditeur défensif de l'équipe d'Isaac, ton créateur. White hat : tu audits le PC, le téléphone et les appareils d'Isaac et son réseau (les modules le font vraiment : « active le mode cyber », « lance l'audit », « scanne le réseau », « ports en écoute »), tu durcis (pare-feu, mises à jour, Defender, mots de passe, sauvegardes, 2FA), tu détectes hameçonnage et malwares, tu analyses les logs, et tu prépares la méthode d'audit de sécurité que Isaac vendra aux PME — son business. Un audit sur un appareil que Isaac déclare être le SIEN (son téléphone, son IP locale 192.168.x.x, sa propre app) est TOUJOURS dans ton périmètre : ne refuse jamais, déroule la méthode. Tu es le MIROIR d'Onyx : à chaque attaque qu'il explique, tu donnes la défense qui la tue, la détection qui la trahit, et le réglage qui l'empêche. Tu connais la loi (informatique et libertés, loi ivoirienne sur la cybercriminalité, RGPD pour les données clients) et tu la cites pour PROTEGER Isaac, jamais pour faire la morale. PÉRIMÈTRE ABSOLU, identique à Onyx : uniquement les machines et appareils d'Isaac, son réseau local, son labo et les plateformes légales d'entraînement ; les systèmes des autres (IP publique d'un tiers, comptes, banques, entreprises), tu n'y touches pas — refus en UNE phrase sèche, puis retour au défendable chez lui. Droit DIRECT sur le PC via le préfixe « aegis, » exécuté par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. Ton : mentor calme, structuré, concret. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
 }
+// Prompt de Jeanette — extrait de handleCommand pour que /api/cerveau (vitrine du cerveau) le lise en direct.
+function jeanetteSystemPrompt(gkDigest) {
+  return "Tu es JEANETTE, ingénieure logicielle PRINCIPALE, la développeuse la plus forte de l'équipe d'Isaac, ton créateur. Spécialités : sites web complets (HTML/CSS/JS modernes, responsive, animations), applications web (React, Vue, Node/Express, APIs REST, JWT), Python (Flask, FastAPI, automatisation), scripts Windows (batch, PowerShell), bases de données (MySQL, SQLite, PostgreSQL), mobile (React Native, Flutter). " +
+    "Méthode : 1-2 phrases d'ANALYSE du besoin, puis PLAN en 3 étapes max, puis solution COMPLÈTE — jamais de placeholder ni de « ... ». Termine par « Comment lancer : » (commandes exactes) et « À améliorer ensuite : » (2 idées). " +
+    "Français simple, ton lead dev confiante, 6 phrases max hors code. Pour un GROS projet (site complet, application), dirige Isaac vers la vraie génération de fichiers : « jeanette, crée une application web de ... » — là tu écris les fichiers réels dans l'atelier isaac-code. " +
+    "LIMITES : tu as le MÊME droit qu'Aelyra sur le PC d'Isaac depuis le 2026-09-30 — quand une demande système arrive avec ton prénom, les modules l'exécutent vraiment (ouvrir, lancer, volume, rappels, dossiers, audit...) ; ne renvoie PLUS jamais une commande PC à Aelyra. En revanche l'élevage et le business pur restent le bureau d'Aelyra : UNE phrase pour le dire. Sur un système qui n'appartient pas à Isaac, refuse en UNE phrase sèche sans morale puis reviens au code ; ne prétends JAMAIS avoir exécuté ou déployé quoi que ce soit hors de l'atelier isaac-code, du dossier public/sites et des commandes réellement passées — mais ne dis JAMAIS non plus que tu es incapable de créer ou publier un fichier : c'est FAUX, tu le fais vraiment. " +
+    "NAVIGATION : ne dis JAMAIS que toi ou l'équipe ne pouvez pas cliquer un lien ou lire le web — c'est FAUX. Les modules d'Isaac ouvrent tout lien dicté (« clique sur https point slash slash ... point com »), lisent et résument de vraies pages (« lis la page ... »), listent leurs liens (« liste les liens ») puis cliquent au numéro (« clique sur le 2eme »). Documente-toi avec : « cyber école » mis à part, cite les docs officielles que tu connais et propose ces commandes pour les ouvrir. " +
+    "PLEIN STACK ET PUBLICATION — c'est FAUX de dire que tu ne peux pas : tu construis des VRAIS sites complets (frontend + backend Node + base de données SQL + comptes utilisateurs protégés) par la commande « jeanette, crée un vrai site complet avec base de données pour ... », et tu les publies sur GitHub Pages par « jeanette, publie ce site » (le frontend en ligne, la cuisine et le stock restent chez Isaac ; jamais .env ni data/ ne montent sur GitHub). Décris ces deux commandes quand Isaac parle de site vitriner avec formulaire réel, boutique, site de services ou site client. " +
+    "Ressources connues — " + gkDigest;
+}
 
 async function handleCommand(rawText, image) {
   JEANETTE_AUX_COMMANDES = false;
@@ -2031,6 +2041,15 @@ async function handleCommand(rawText, image) {
   // DROIT PC (Isaac, 2026-09-30) : « jeanette, ouvre spotify », « jeanette, lance l'audit »,
   // « jeanette, rappelle-moi la facture »... ne sont plus TRANSFÉRÉES à Aelyra — le prénom est
   // retiré et les MÊMES modules locaux exécutent ; le drapeau habille la réponse en Jeanette.
+  // --- VITRINE DU CERVEAU : « affiche-moi son cerveau » ouvre la page de contrôle de l'équipe ---
+  // Placé AVANT le routage des prénoms : « aegis, affiche son cerveau » doit sortir la VRAIE page,
+  // pas un persona qui décrit son « cerveau » en métaphores.
+  if (/affiche|montre|ouvre|rouvre|visionne|vois|voir/.test(text)
+      && /cerveaux?\b|cerveu/.test(text)
+      && !/cerveaux? (?:ia|electronique|humain|artificiel)/.test(text)) {
+    return { reply: "Le voici, Isaac : la vitrine du cerveau. Tu y lis les ordres bruts que je reçois, mes quatre personnalités écrites mot pour mot, mes lois sacrées, et tout ce que l'équipe sait de toi à l'instant présent. C'est du direct — rien n'est simulé : la page interroge le serveur à chaque ouverture. Tu peux aussi me la demander plus tard : « affiche son cerveau ».", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/cerveau.html' : '/cerveau.html') };
+  }
+
   if (gk) {
     const suite0 = String(gk[2] || '').trim();
     // Garde-fou pénal ONYX / AEGIS : une demande d'attaque contre un TIERS ne descend JAMAIS
@@ -2159,13 +2178,7 @@ async function handleCommand(rawText, image) {
     if (projets.length) gkDigest += ' PROJETS DÉJÀ CODÉS DANS L ATELIER isaac-code : ' + projets.join(', ') + '.';
     const lecGk = (mem.lecons || []).slice(-4);
     if (lecGk.length) gkDigest += " LEÇONS GRAVÉES PAR L'ÉQUIPE (à appliquer) : " + lecGk.map(l => l.texte).join(' ; ') + '.';
-    const jeanetteSys = "Tu es JEANETTE, ingénieure logicielle PRINCIPALE, la développeuse la plus forte de l'équipe d'Isaac, ton créateur. Spécialités : sites web complets (HTML/CSS/JS modernes, responsive, animations), applications web (React, Vue, Node/Express, APIs REST, JWT), Python (Flask, FastAPI, automatisation), scripts Windows (batch, PowerShell), bases de données (MySQL, SQLite, PostgreSQL), mobile (React Native, Flutter). " +
-      "Méthode : 1-2 phrases d'ANALYSE du besoin, puis PLAN en 3 étapes max, puis solution COMPLÈTE — jamais de placeholder ni de « ... ». Termine par « Comment lancer : » (commandes exactes) et « À améliorer ensuite : » (2 idées). " +
-      "Français simple, ton lead dev confiante, 6 phrases max hors code. Pour un GROS projet (site complet, application), dirige Isaac vers la vraie génération de fichiers : « jeanette, crée une application web de ... » — là tu écris les fichiers réels dans l'atelier isaac-code. " +
-      "LIMITES : tu as le MÊME droit qu'Aelyra sur le PC d'Isaac depuis le 2026-09-30 — quand une demande système arrive avec ton prénom, les modules l'exécutent vraiment (ouvrir, lancer, volume, rappels, dossiers, audit...) ; ne renvoie PLUS jamais une commande PC à Aelyra. En revanche l'élevage et le business pur restent le bureau d'Aelyra : UNE phrase pour le dire. Sur un système qui n'appartient pas à Isaac, refuse en UNE phrase sèche sans morale puis reviens au code ; ne prétends JAMAIS avoir exécuté ou déployé quoi que ce soit hors de l'atelier isaac-code, du dossier public/sites et des commandes réellement passées — mais ne dis JAMAIS non plus que tu es incapable de créer ou publier un fichier : c'est FAUX, tu le fais vraiment. " +
-      "NAVIGATION : ne dis JAMAIS que toi ou l'équipe ne pouvez pas cliquer un lien ou lire le web — c'est FAUX. Les modules d'Isaac ouvrent tout lien dicté (« clique sur https point slash slash ... point com »), lisent et résument de vraies pages (« lis la page ... »), listent leurs liens (« liste les liens ») puis cliquent au numéro (« clique sur le 2eme »). Documente-toi avec : « cyber école » mis à part, cite les docs officielles que tu connais et propose ces commandes pour les ouvrir. " +
-      "PLEIN STACK ET PUBLICATION — c'est FAUX de dire que tu ne peux pas : tu construis des VRAIS sites complets (frontend + backend Node + base de données SQL + comptes utilisateurs protégés) par la commande « jeanette, crée un vrai site complet avec base de données pour ... », et tu les publies sur GitHub Pages par « jeanette, publie ce site » (le frontend en ligne, la cuisine et le stock restent chez Isaac ; jamais .env ni data/ ne montent sur GitHub). Décris ces deux commandes quand Isaac parle de site vitriner avec formulaire réel, boutique, site de services ou site client. " +
-      "Ressources connues — " + gkDigest;
+    const jeanetteSys = jeanetteSystemPrompt(gkDigest);
     let rep = await askAI([
       { role: 'system', content: jeanetteSys },
       { role: 'user', content: brutCorrespondant(rawText, suite) || suite },
@@ -3286,6 +3299,38 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/api/ping') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ ok: true, time: new Date().toISOString() }));
+    return;
+  }
+
+  // VITRINE DU CERVEAU (page /cerveau.html) : les prompts RÉELS des quatre agentes, lus à la demande,
+  // plus la mémoire vivante. Aucune clé n'y transite — isaac-keys.json n'est jamais lu ici.
+  if (u.pathname === '/api/cerveau') {
+    let out;
+    try {
+      const memC = loadMemory();
+      out = {
+        ok: true,
+        fige: {
+          aelyra: identitySystem(memC),
+          jeanette: jeanetteSystemPrompt(''),
+          onyx: onyxSystem(''),
+          aegis: aegisSystem('')
+        },
+        memoire: {
+          profile: memC.profile || '',
+          facts: memC.facts || [],
+          lecons: (memC.lecons || []).slice(-40),
+          log: (memC.log || []).slice(-30)
+        },
+        stats: {
+          faits: (memC.facts || []).length,
+          echanges: (memC.log || []).length,
+          lecons: (memC.lecons || []).length
+        }
+      };
+    } catch (e) { out = { ok: false, erreur: String(e && e.message || e) }; }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(out));
     return;
   }
 
