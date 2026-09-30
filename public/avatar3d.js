@@ -1,6 +1,7 @@
-// ---------- Aelyra & Jeanette en 3D — avatars holographiques (WebGL, Three.js local) ----------
+// ---------- Aelyra & Jeanette en 3D — avatars holographiques AVEC VISAGE (WebGL, Three.js local) ----------
 // Deux figures de particules flottent de part et d'autre du réacteur : Aelyra (cyan), Jeanette (violet).
-// C'est le corps réel de l'interface : la aktive s'avance, respire, et pulse quand elle parle.
+// Elles ont un VISAGE : yeux qui brillent et clignent, sourcils qui se lèvent à l'écoute,
+// bouche qui sourit en veille et s'ouvre et articule quand la voix sort.
 // Aucune dépendance Internet : three.min.js est servi en local par le cerveau.
 (function () {
   if (!window.THREE) { return; } // reactor CSS garde la main si le moteur 3D manque
@@ -29,11 +30,76 @@
       blending: THREE.AdditiveBlending, depthWrite: false
     }));
   }
+  function nuageDePositions(tab, couleur, taille, opacite) {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(tab, 3));
+    return nuage(geom, couleur, taille, opacite);
+  }
 
   function avatar(couleur) {
     const g = new THREE.Group();
-    const tete = nuage(new THREE.SphereGeometry(0.40, 26, 18), couleur, 0.034, 0.95);
-    tete.position.y = 1.46;
+    const teteGrp = new THREE.Group();
+    teteGrp.position.y = 1.46;
+
+    const tete = nuage(new THREE.SphereGeometry(0.40, 26, 18), couleur, 0.034, 0.9);
+    teteGrp.add(tete);
+
+    // Projection d'un point du visage sur la calotte sphérique (rayon 0.40)
+    const proj = (x, y) => {
+      const z = Math.sqrt(Math.max(0.02, 0.16 - x * x - y * y));
+      return new THREE.Vector3(x, y, z * 0.92 + 0.02);
+    };
+
+    // --- YEUX : deux perles blanches qui brillent, chacune dans son halo de particules ---
+    const mkOeil = () => new THREE.Mesh(
+      new THREE.SphereGeometry(0.034, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.98, blending: THREE.AdditiveBlending, depthWrite: false })
+    );
+    const oeilG = mkOeil(), oeilD = mkOeil();
+    oeilG.position.copy(proj(-0.135, 0.055));
+    oeilD.position.copy(proj(0.135, 0.055));
+    const haloG = nuage(new THREE.SphereGeometry(0.052, 8, 8), couleur, 0.016, 0.8);
+    const haloD = haloG.clone();
+    haloG.position.copy(oeilG.position); haloD.position.copy(oeilD.position);
+    teteGrp.add(oeilG, oeilD, haloG, haloD);
+
+    // --- SOURCILS : arcs de particules au-dessus de chaque oeil ---
+    const arcades = new THREE.Group();
+    [-0.135, 0.135].forEach((cx) => {
+      const tab = [];
+      for (let i = 0; i <= 12; i++) {
+        const x = -0.052 + i * (0.104 / 12);
+        const y = 0.012 - 0.018 * Math.pow(x / 0.052, 2);
+        const v = proj(cx + x, 0.118 + y);
+        tab.push(v.x, v.y, v.z);
+      }
+      arcades.add(nuageDePositions(tab, couleur, 0.022, 0.95));
+    });
+    teteGrp.add(arcades);
+
+    // --- BOUCHE : lèvre supérieure dessinée en sourire, lèvre inférieure mobile ---
+    const bouche = new THREE.Group();
+    const levSupTab = [];
+    for (let i = 0; i <= 16; i++) {
+      const x = -0.105 + i * (0.21 / 16);
+      const y = -0.070 + 0.026 * Math.pow(x / 0.105, 2); // commissures relevées = sourire
+      const v = proj(x, y);
+      levSupTab.push(v.x, v.y, v.z);
+    }
+    const levSup = nuageDePositions(levSupTab, 0xffffff, 0.020, 0.8);
+    bouche.add(levSup);
+    const levInfGrp = new THREE.Group();
+    const levInfTab = [];
+    for (let i = 0; i <= 14; i++) {
+      const x = -0.088 + i * (0.176 / 14);
+      const y = -0.086 + 0.020 * Math.pow(x / 0.088, 2);
+      const v = proj(x, y);
+      levInfTab.push(v.x, v.y, v.z);
+    }
+    levInfGrp.add(nuageDePositions(levInfTab, couleur, 0.020, 0.85));
+    bouche.add(levInfGrp);
+    teteGrp.add(bouche);
+
     const buste = nuage(new THREE.CylinderGeometry(0.28, 0.60, 1.18, 28, 5, true), couleur, 0.030, 0.70);
     buste.position.y = 0.56;
     const halo = nuage(new THREE.TorusGeometry(0.60, 0.013, 8, 96), couleur, 0.022, 0.95);
@@ -47,9 +113,12 @@
       new THREE.MeshBasicMaterial({ color: couleur, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false })
     );
     coeur.position.y = 1.46;
-    g.add(tete, buste, halo, ceinture, coeur);
-    g.userData = { tete, buste, halo, coeur, parties: [tete, buste, halo, ceinture, coeur], op: {} };
-    g.userData.parties.forEach(p => { p.userData.opBase = p.material.opacity; });
+    g.add(teteGrp, buste, halo, ceinture, coeur);
+
+    const parties = [tete, oeilG, oeilD, haloG, haloD, levSup, levInfGrp.children[0],
+      ...arcades.children, buste, halo, ceinture, coeur];
+    parties.forEach(p => { p.userData.opBase = p.material.opacity; });
+    g.userData = { teteGrp, buste, halo, coeur, oeilG, oeilD, haloG, haloD, arcades, levInfGrp, parties };
     return g;
   }
 
@@ -118,16 +187,40 @@
         else if (etat === 'thinking') { amp = 0.04; spin = 2.1; }
         else if (etat === 'speaking') { amp = 0.11; spin = 0.75; }
       }
-      // Pouls de parole : battements irréguliers façon voix (pas un sinus saccadé)
       const parle = (etat === 'speaking' && vif);
+
+      // Pouls du corps entier quand la voix sort
       const pouls = parle
         ? 1 + amp * Math.abs(Math.sin(t * 9.3 + i) * Math.sin(t * 3.7) + 0.4 * Math.sin(t * 21))
         : 1 + amp * 0.4 * Math.sin(t * 1.5 + i * 2.1);
-      u.tete.scale.setScalar(pouls);
+      u.teteGrp.scale.setScalar(pouls);
       u.coeur.scale.setScalar(1 + (parle ? 2.4 : 0.9) * amp * Math.abs(Math.sin(t * (parle ? 11 : 2.2))));
       u.halo.rotation.z += 0.012 * spin;
       u.buste.rotation.y += 0.0035 * spin;
 
+      // --- VISAGE ---
+      // Clignement : chaque agente cligne à son rythme (cycle ~4 s, fermeture 0,12 s)
+      const phase = ((t * 0.47 + i * 1.9) % 4);
+      const cligne = phase < 0.12 ? 0.18 : 1;
+      const sCl = lerp(u.oeilG.scale.y, cligne, 0.45);
+      u.oeilG.scale.y = sCl; u.oeilD.scale.y = sCl;
+      u.haloG.scale.y = sCl; u.haloD.scale.y = sCl;
+
+      // Bouche : entrouverte et articulée quand elle parle, sourire discret sinon
+      const articul = parle
+        ? 0.012 + 0.038 * Math.abs(Math.sin(t * 12.3) * 0.6 + Math.sin(t * 19.7) * 0.4)
+        : 0.002 + 0.001 * Math.sin(t * 1.3);
+      u.levInfGrp.position.y = lerp(u.levInfGrp.position.y, -articul * 2.2, 0.35);
+
+      // Sourcils : se relèvent quand elle écoute Isaac, se reposent sinon
+      const cibleSourcil = (etat === 'listening' && vif) ? 0.016 : 0;
+      u.arcades.position.y = lerp(u.arcades.position.y, cibleSourcil, 0.08);
+
+      // Regard : la tête suit très légèrement Isaac et la souris, comme une personne
+      u.teteGrp.rotation.y = lerp(u.teteGrp.rotation.y, 0.16 * Math.sin(t * 0.5 + i * 2.3) + parX * 0.45, 0.05);
+      u.teteGrp.rotation.x = lerp(u.teteGrp.rotation.x, -parY * 0.22, 0.05);
+
+      // Position/opacité d'ensemble
       const bob = Math.sin(t * 1.35 + i * 1.7) * 0.05;
       g.position.y = lerp(g.position.y, avance + bob, 0.08);
       g.position.z = lerp(g.position.z, vif ? 0.35 : 0, 0.06);
@@ -146,7 +239,5 @@
   }
   tick();
 
-  // Sync initiale avec l'agent choisie par l'interface
-  document.addEventListener('DOMContentLoaded', () => {});
   if (document.body.classList.contains('mode-jeanette')) window.Avatars.setActive('jeanette');
 })();
