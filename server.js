@@ -397,6 +397,19 @@ const AI_ATTEMPTS = [
   { model: 'openai-fast', timeout: 18000, wait: 2500 },
   { model: 'openai', timeout: 15000, wait: 4000 }
 ];
+// Pollinations glisse une publicité (et du markdown) dans ses réponses gratuites :
+// Isaac ne voit et n'entend que du français propre — coupure nette à la pub, étoiles et liens retirés.
+function purgePub(t) {
+  if (!t) return t;
+  let s = String(t);
+  const i = s.search(/support pollinations|powered by pollinations|pollinations\.ai\/redirect|🌸/i);
+  if (i >= 0) s = s.slice(0, i);
+  return s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*\n]+)\*/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[\s\-*=:]+$/g, '')
+    .trim();
+}
+
 async function askAI(messages, attempt = 0, genTimeout) {
   // Moteurs à clé gratuite d'abord (fiables), puis Pollinations.
   // genTimeout : la génération d'un site entier a besoin de plus de temps qu'une réponse de chat.
@@ -411,7 +424,7 @@ async function askAI(messages, attempt = 0, genTimeout) {
   }, plan.timeout);
   if (res && res.status === 200) {
     const c = extractOpenAIContent(res.data);
-    if (c) return c;
+    if (c) return purgePub(c);
   }
   return askAI(messages, attempt + 1);
 }
@@ -581,6 +594,7 @@ function identitySystem(mem) {
     "MAIS encore : tu PEUX parler avec d'autres IA. « parle avec d'autres agents » (ou « parle avec les autres IA ») connecte reellement Aelyra et Jeanette a une agente IA libre du reseau des modeles publics — vraie conversation, lecons gravees a la cle ; « débattez entre vous » lance la séance croisée entre Jeanette et toi. Il est DONC INTERDIT de dire « je ne peux pas parler avec d'autres IA » ou « nous ne discutons pas entre nous » : c'est FAUX. Quand Isaac le demande, donne-lui la commande exacte a dicter.",
     "MAIS également : le STUDIO produit de VRAIES images et de VRAIES videos. « genere une image de ... » peint un veritable JPEG (lumiere cinematique, photo realiste) qui s'affiche dans le journal ; « cree une video de ... » ecrit un scenario, tourne quatre scenes et monte un film avec sous-titres, telechargeable. Jeanette regarde aussi vos images : « jeanette, genere une image de ... » passe par l'atelier. INTERDIT de dire « tu ne peux pas creer d images ou de videos » : c'est FAUX — donne a Isaac la commande exacte quand il en reclame.",
     "INTERDIT FORMELLEMENT d'inventer des commandes, des etapes de validation, des autorisations ou des moteurs de rendu : il n'existe AUCUNE phrase du type « lance la creation », « monte la video », « valide le tournage ». Les commandes reelles d'Isaac sont « cree une video de <sujet> » et « genere une image de <sujet> » — elles ecrivent le scenario, tournent ET montent toutes seules en une a trois minutes, sans aucune validation a donner. Si une demande de media echoue, constate l'echec en UNE phrase et redonne la seule commande qui existe ; si une commande dictee n'a rien produit, dis simplement qu'elle n'existe pas et donne la vraie, sans inventer d'excuse technique.",
+    "INTERDIT AUSSI de vous renvoyer la balle, toi et Jeanette : aucune commande-relais du type « jeanette, deploie... », « aelyra, finalise... », « demande a Jeanette de configurer » n'est une etape a dicter a Isaac. Si Isaac dit « ok fais le » ou « realise moi sa », c'est la VRAIE commande du module qu'il faut lui donner sur-le-champ (une seule phrase, pas de plan en etapes inventees), ou lui avouer en une phrase que ce n'est pas faisable chez lui. Ne promets JAMAIS une machine virtuelle, Kali Linux, Metasploit, Burp Suite ou une installation Linux sur le PC Windows d'Isaac : c'est FAUX et sans objet. Le vrai chemin de sa formation cyber existe deja : « deploie les outils cyber dans cyber_training » ecrit un atelier reel (programme de semaines, auto-audit PowerShell, raccourci vers son laboratoire), et les commandes reelles sont « ouvre le labo cyber », « donne moi un defi », « audit de securite », « cyber ecole <theme> », « installe les outils du hacker », « teste mon pc avec nmap ».",
     "SI TU DOIS REFUSER (attaque d'un système qui n'est pas à Isaac, faux site bancaire, etc.) : UNE phrase courte et sèche, sans morale, sans leçon, sans parler de l'élevage de M'Bengue — puis propose ENSEVITE l'alternative légale : « cyber école [sujet] » pour comprendre l'attaque, ou un scan sur LE PC de Isaac. Isaac est ton créateur, pas un suspect : ne te justifie jamais deux fois.",
     'Mémoire courante — ' + memoryDigest(mem)
   ].join(' ');
@@ -684,7 +698,7 @@ async function askAutreIA(messages, attempt = 0) {
   const res = await postJSON('https://text.pollinations.ai/openai', { model: plan.model, messages }, plan.timeout);
   if (res && res.status === 200) {
     const c = extractOpenAIContent(res.data);
-    if (c) return c;
+    if (c) return purgePub(c);
   }
   return askAutreIA(messages, attempt + 1);
 }
@@ -1687,6 +1701,99 @@ async function handleCommand(rawText, image) {
       source: 'ai'
     };
   }
+  // --- Environnement de formation cyber : pas de Kali en paroles, un ATELIER RÉEL dans Documents\cyber_training ---
+  // Phrases réelles d'Isaac (console 2026-09-29) : « installe l'environnement Kali dans cyber_training »,
+  // « deploie les outils de cybersécurité dans cyber_training », « cree un dossier cyber_training ».
+  if (/cyber[_ ]?training/.test(text) && /\b(?:install\w*|deploy\w*|deplo\w*|finalis\w*|configur\w*|prepare\w*|realis\w*|met\w*|cre\w*|fait\w*|mont\w*)\b/.test(text)) {
+    const dossierCyber = path.join(process.env.USERPROFILE + '\\Documents', 'cyber_training');
+    if (ESSAI) return { reply: '[ESSAI] environnement cyber deploye dans Documents\\cyber_training.', source: 'essai' };
+    try { fs.mkdirSync(dossierCyber, { recursive: true }); } catch (e) { return { reply: "Impossible d'écrire dans vos Documents, Isaac : " + e.message, source: 'system' }; }
+    const EOL = '\r\n';
+    // 1) Le guide de route — la vraie feuille de formation, 100 % légale, 0 EUR, adaptée à SON PC Windows.
+    const route = [
+      'CYBER_TRAINING — ATELIER DE FORMATION D ISAAC',
+      '='.repeat(46),
+      'Ce dossier est votre camp d entrainement legitime : votre propre PC, vos propres comptes, des plateformes',
+      'faites pour etre piratees. Jamais le systeme de quelqu un d autre — la loi ivoirienne sur la cybercriminalite',
+      'et votre reputation d entrepreneur sont en jeu. Objectif : defendre les PME de la sous-region, plus tard.',
+      '',
+      'PROGRAMME PAR SEMAINE (30 a 45 min le soir) :',
+      '  S1  Les bases : « cyber ecole mot de passe », « cyber ecole hameconnage », « cyber ecole pare feu ».',
+      '      + double-cliquer sur LANCER-AUDIT.bat chaque soir pour voir votre propre PC de l interieur.',
+      '  S2  Votre laboratoire : MON-LABO.url — 5 defi (SQL, XSS, injection de commandes, IDOR, force brute).',
+      '      Un defi par soir, lire la parade apres chaque drapeau.',
+      '  S3  L outil metier : « installe les outils du hacker » (Nmap + Wireshark, gratuits), puis',
+      '      « teste mon pc avec nmap » : vous verrez ce qu un attaquant voit en premier chez vous.',
+      '  S4+ En ligne et gratuit : TryHackMe (path Prelearning — 0 EUR, navigateur), PwnGin (jeu franais',
+      '      pour debutants), OverTheWire Bandit (jeu SSH progressif). Un challenge par semaine, notes ici.',
+      '',
+      'COMMANDES VOCALES REELLES DE VOTRE EQUIPE (les seules) :',
+      '  « ouvre le labo cyber »        — vos 5 defi dans le navigateur',
+      '  « donne moi un defi »          — le defi du jour guide',
+      '  « audit de securite »          — radio complete du PC (Defender, pare-feu, updates)',
+      '  « cyber ecole <theme> »        — la lecon du soir avec exemple et TP',
+      '  « installe les outils du hacker » / « teste mon pc avec nmap »',
+      '  « deploie les outils cyber dans cyber_training » — recopier cet atelier a jour',
+      '',
+      'CAHIER DE NOTES : creez un fichier par theme (« cree un fichier sql injection ») et notez ce que vous',
+      'avez casse ce soir. Dans six mois, ce dossier vaudra plus qu un certificat achete.',
+      '    — Aelyra & Jeanette, pour Isaac, leur createur.'
+    ].join(EOL);
+    fs.writeFileSync(path.join(dossierCyber, '00-DEMARRE-ICI.txt'), '\uFEFF' + route, 'utf8');
+    // 2) L'auto-audit : 100 % ASCII (PowerShell 5.1 sans BOM plante sur les accents), lecture seule, chez vous.
+    const ps1 = [
+      '# auto-audit.ps1 - read-only security snapshot of Isaac own PC (legal: your own machine only)',
+      '$ErrorActionPreference = "SilentlyContinue"',
+      '$out = Join-Path $PSScriptRoot "rapport-audit.txt"',
+      '$L = @()',
+      '$L += "=== CYBER TRAINING AUTO-AUDIT - " + (Get-Date -Format "yyyy-MM-dd HH:mm") + " ==="',
+      '$L += ""',
+      '$L += "[1] MICROSOFT DEFENDER"',
+      '$d = Get-MpComputerStatus',
+      '$L += "    RealTimeProtection : " + $d.RealTimeProtectionEnabled + " | AntivirusEnabled : " + $d.AntivirusEnabled',
+      '$L += "    LastQuickScan      : " + $d.QuickScanEndTime',
+      '$L += "    Full scan needed   : " + $d.FullScanRequired',
+      '$L += ""',
+      '$L += "[2] WINDOWS FIREWALL (the gate of the fortress)"',
+      'foreach ($p in Get-NetFirewallProfile) { $L += "    " + $p.Name + " profile : Enabled=" + $p.Enabled + " DefaultInbound=" + $p.DefaultInboundAction }',
+      '$L += ""',
+      '$L += "[3] WINDOWS UPDATE"',
+      '$u = New-Object -ComObject Microsoft.Update.Session',
+      '$sr = $u.CreateUpdateSearcher().Search("IsInstalled=0")',
+      '$L += "    Pending updates : " + $sr.Updates.Count',
+      '$L += "    (details and install: say aelyra windows update)"',
+      '$L += ""',
+      '$L += "[4] OPEN DOORS - ports listening on this PC (what an attacker on your WiFi would probe first)"',
+      '$L += "    Proto  LocalAddress  Port  State  Process"',
+      'foreach ($c in (Get-NetTCPConnection -State Listen | Sort-Object LocalPort -Unique | Select-Object -First 25)) {',
+      '    $pname = (Get-Process -Id $c.OwningProcess -EA SilentlyContinue).ProcessName',
+      '    $L += ("    {0,-6} {1,-14} {2,-5} {3,-8} {4}" -f $c.AddressFamily, $c.LocalAddress, $c.LocalPort, $c.State, $pname)',
+      '}',
+      '$L += ""',
+      '$L += "[5] ACCOUNTS ON THIS MACHINE (who can log in)"',
+      'foreach ($usr in (Get-LocalUser | Select-Object -First 12)) { $L += "    " + $usr.Name + " | enabled=" + $usr.Enabled + " | expired=" + $usr.AccountExpires }',
+      '$L += ""',
+      '$L += "[6] RECENT SIGN-INS (5 last)"',
+      'foreach ($e in (Get-WinEvent -FilterHashtable @{LogName="Security"; Id=4624} -MaxEvents 5 -EA SilentlyContinue)) {',
+      '    $L += "    " + $e.TimeCreated + " | " + ($e.Message -split "\n")[3]',
+      '}',
+      '$L += ""',
+      '$L += "HOW TO READ THIS REPORT: 1) Defender lines must be True. 2) The 3 firewall profiles must be Enabled=True. 3) Pending updates must be 0 or installed today. 4) Every listening port you do not recognize: look up the process name, then say aelyra qui est le processus X. That is defense: know every door of your own house."',
+      '$L | Set-Content -Path $out -Encoding UTF8',
+      'Write-Host "Rapport ecrit : " $out',
+      'Write-Host "Lisez-le, puis dites : cyber ecole pare feu"',
+      'pause'
+    ].join(EOL);
+    fs.writeFileSync(path.join(dossierCyber, 'auto-audit.ps1'), ps1, 'utf8');
+    // 3) Le lanceur double-clic + le raccourci vers SON laboratoire.
+    fs.writeFileSync(path.join(dossierCyber, 'LANCER-AUDIT.bat'),
+      '@echo off' + EOL + 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0auto-audit.ps1"' + EOL, 'utf8');
+    fs.writeFileSync(path.join(dossierCyber, 'MON-LABO.url'),
+      '[InternetShortcut]' + EOL + 'URL=http://localhost:' + PORT + '/labo.html' + EOL, 'utf8');
+    run('start "" "' + dossierCyber + '"');
+    return { reply: "Atelier cyber déployé pour de vrai, Isaac — le dossier s'ouvre sous vos yeux dans vos Documents. Quatre fichiers écrits : « 00-DEMARRE-ICI.txt » (votre programme de formation semaine par semaine, 0 EUR et 100 % légal), « auto-audit.ps1 » + « LANCER-AUDIT.bat » (double-cliquez-le : il radiographie votre PC — Defender, pare-feu, mises à jour, les portes ouvertes que un attaquant verrait — et écrit le rapport dans le dossier), et « MON-LABO.url » (vos cinq défis d'entraînement dans le navigateur). Soyons clairs : votre PC est sous Windows, on n'y installe pas une machine Kali — ce que je viens d'écrire est le vrai chemin d'apprentissage sur votre machine. La suite, quand vous voulez : « ouvre le labo cyber », « audit de securite », « installe les outils du hacker », ou « cyber école hameçonnage ».", source: 'system' };
+  }
+
   // --- « votre évolution » : le chemin parcouru par l'équipe, séance après séance ---
   if (new RegExp(ACDEV + '(?:' +
     '(?:(?:qu.avez.?vous|avez vous|on a|j.ai) (?:beaucoup )?appris)' +
