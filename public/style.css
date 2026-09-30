@@ -92,6 +92,17 @@ html, body {
   border-color: #c084fc; color: #c084fc;
   background: rgba(168,85,247,.14); text-shadow: 0 0 8px #c084fc;
 }
+/* ONYX (black hat) : cramoisi — AEGIS (white hat) : vert mission */
+.sw-onyx { border-color: rgba(239,68,68,.4); color: rgba(239,68,68,.6); }
+.sw-onyx.active {
+  border-color: #f87171; color: #f87171;
+  background: rgba(239,68,68,.14); text-shadow: 0 0 8px #ef4444;
+}
+.sw-aegis { border-color: rgba(52,211,153,.4); color: rgba(52,211,153,.6); }
+.sw-aegis.active {
+  border-color: #34d399; color: #34d399;
+  background: rgba(52,211,153,.14); text-shadow: 0 0 8px #34d399;
+}
 
 /* ---------- Bouton son (voix facultative) ---------- */
 .sound-btn {
@@ -107,6 +118,18 @@ body.mode-jeanette {
   --cyan: #c084fc;
   --cyan-soft: rgba(168, 85, 247, .45);
   --cyan-dim: rgba(168, 85, 247, .13);
+}
+/* ---------- Mode ONYX : le HUD passe au cramoysi (black hat) ---------- */
+body.mode-onyx {
+  --cyan: #f87171;
+  --cyan-soft: rgba(239, 68, 68, .45);
+  --cyan-dim: rgba(239, 68, 68, .13);
+}
+/* ---------- Mode AEGIS : le HUD passe au vert (hacker éthique) ---------- */
+body.mode-aegis {
+  --cyan: #34d399;
+  --cyan-soft: rgba(52, 211, 153, .45);
+  --cyan-dim: rgba(52, 211, 153, .13);
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); }
 .dot.online { animation: blink 2s infinite; box-shadow: 0 0 10px var(--cyan); }
@@ -251,6 +274,24 @@ body.speaking .core-center { animation: speakWave .35s ease-in-out infinite; }
   color: #e9d5ff;
 }
 .msg.jeanette .who { color: #c084fc; }
+/* ONYX — black hat : messages rouge brai */
+.msg.onyx {
+  align-self: flex-start;
+  background: rgba(239, 68, 68, .10);
+  border: 1px solid rgba(239, 68, 68, .38);
+  border-left: 3px solid #f87171;
+  color: #fecaca;
+}
+.msg.onyx .who { color: #f87171; }
+/* AEGIS — hacker éthique : messages vert mission */
+.msg.aegis {
+  align-self: flex-start;
+  background: rgba(52, 211, 153, .10);
+  border: 1px solid rgba(52, 211, 153, .38);
+  border-left: 3px solid #34d399;
+  color: #a7f3d0;
+}
+.msg.aegis .who { color: #34d399; }
 /* Agente libre rencontrée sur le réseau (séances d'Académie extérieures) : ambre pointillé */
 .msg.autre {
   align-self: flex-start;

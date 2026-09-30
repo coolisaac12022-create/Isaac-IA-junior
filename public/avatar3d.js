@@ -22,7 +22,7 @@
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
   camera.position.set(0, 1.55, 5.6);
 
-  const BLEU = 0x3fdcf5, VIOLET = 0xb276ff;
+  const BLEU = 0x3fdcf5, VIOLET = 0xb276ff, ROUGE = 0xef4444, VERT = 0x34d399;
 
   function nuage(geom, couleur, taille, opacite) {
     return new THREE.Points(geom, new THREE.PointsMaterial({
@@ -77,23 +77,32 @@
     return g;
   }
 
-  const av = { aelyra: avatar(BLEU, 'avatars/aelyra.png'), jeanette: avatar(VIOLET, 'avatars/jeanette.png') };
-  av.aelyra.position.x = -1.72;
-  av.jeanette.position.x = 1.72;
-  scene.add(av.aelyra, av.jeanette);
+  // L'équipe au complet : 4 stations — Aelyra (cyan), Jeanette (violet), Onyx (rouge), Aegis (vert)
+  const EQUIPE = [
+    { k: 'aelyra',   c: BLEU,   x: -2.85, src: 'avatars/aelyra.png' },
+    { k: 'jeanette', c: VIOLET, x: -0.95, src: 'avatars/jeanette.png' },
+    { k: 'onyx',     c: ROUGE,  x: 0.95,  src: 'avatars/onyx.png' },
+    { k: 'aegis',    c: VERT,   x: 2.85,  src: 'avatars/aegis.png' },
+  ];
+  const av = {};
+  EQUIPE.forEach((m) => {
+    av[m.k] = avatar(m.c, m.src);
+    av[m.k].position.x = m.x;
+    scene.add(av[m.k]);
+  });
 
   // Socles lumineux sous chaque avatar
-  const socleGeo = new THREE.RingGeometry(0.55, 0.95, 48);
+  const socleGeo = new THREE.RingGeometry(0.42, 0.74, 48);
   const socles = [];
-  ['aelyra', 'jeanette'].forEach((k, i) => {
-    const m = new THREE.Mesh(socleGeo, new THREE.MeshBasicMaterial({
-      color: i ? VIOLET : BLEU, transparent: true, opacity: 0.16,
+  EQUIPE.forEach((m) => {
+    const s = new THREE.Mesh(socleGeo, new THREE.MeshBasicMaterial({
+      color: m.c, transparent: true, opacity: 0.16,
       blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false
     }));
-    m.rotation.x = -Math.PI / 2;
-    m.position.set(i ? 1.72 : -1.72, -0.25, 0);
-    scene.add(m);
-    socles.push(m);
+    s.rotation.x = -Math.PI / 2;
+    s.position.set(m.x, -0.25, 0);
+    scene.add(s);
+    socles.push(s);
   });
 
   let actif = 'aelyra', etat = 'idle';
@@ -101,7 +110,7 @@
   const t0 = performance.now() / 1000;
 
   window.Avatars = {
-    setActive(a) { actif = (a === 'jeanette') ? 'jeanette' : 'aelyra'; },
+    setActive(a) { actif = av[a] ? a : 'aelyra'; },
     setState(s) { etat = s || 'idle'; },
     _etat: () => ({ actif, etat }),
     _scene: scene, _renderer: renderer, _camera: camera
@@ -132,7 +141,8 @@
     if (document.hidden) return;
     const t = performance.now() / 1000 - t0;
 
-    ['aelyra', 'jeanette'].forEach((k, i) => {
+    EQUIPE.forEach((m, i) => {
+      const k = m.k;
       const g = av[k], u = g.userData;
       const vif = (k === actif);
       let amp = 0.018, spin = 0.35, avance = 0.12, opCible = 0.34, scaleCible = 0.9;
@@ -173,12 +183,16 @@
       socles[i].rotation.z += 0.002 * spin;
     });
 
-    camera.position.x = lerp(camera.position.x, parX * 0.85, 0.05);
+    // La caméra glisse vers l'agente active — les autres restent visibles en périphérie
+    const xVif = (av[actif] ? av[actif].position.x : 0) * 0.8;
+    camera.position.x = lerp(camera.position.x, xVif + parX * 0.85, 0.12);
     camera.position.y = lerp(camera.position.y, 1.55 - parY * 0.5, 0.05);
-    camera.lookAt(0, 1.1, 0);
+    camera.lookAt(xVif * 0.55, 1.1, 0);
     renderer.render(scene, camera);
   }
   tick();
 
   if (document.body.classList.contains('mode-jeanette')) window.Avatars.setActive('jeanette');
+  if (document.body.classList.contains('mode-onyx')) window.Avatars.setActive('onyx');
+  if (document.body.classList.contains('mode-aegis')) window.Avatars.setActive('aegis');
 })();

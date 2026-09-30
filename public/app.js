@@ -12,6 +12,8 @@ const reactor = document.getElementById('reactor');
 const wakeToggle = document.getElementById('wakeMode');
 const btnAelyra = document.getElementById('btnAelyra');
 const btnJeanette = document.getElementById('btnJeanette');
+const btnOnyx = document.getElementById('btnOnyx');
+const btnAegis = document.getElementById('btnAegis');
 const soundBtn = document.getElementById('soundBtn');
 const hudTitle = document.getElementById('hudTitle');
 
@@ -22,21 +24,51 @@ let isSpeaking = false;
 let processing = false;
 let wakeMode = false;
 
-// ---------- agente active : côté Aelyra (cyan) ou côté Jeanette (violet) ----------
-let agentActif = (function (s) { return (s === 'jeanette' || s === 'galika') ? 'jeanette' : 'aelyra'; })(localStorage.getItem('ij-agent'));
+// ---------- équipe : 4 agentes — Aelyra (cyan), Jeanette (violet), Onyx (cramoisi), Aegis (vert) ----------
+const AGENT_NAMES = {
+  jeanette: ['jeanette', 'jeannette', 'janette', 'jenette', 'galika', 'galicka', 'gallica', 'galica', 'gallika', 'ghalika', 'galiko', 'khalika'],
+  onyx: ['onyx', 'onyxe', 'onix', 'oneks', 'nyx'],
+  aegis: ['aegis', 'egide', 'aigis', 'ayegis', 'egis'],
+};
+function agentDuMot(w) {
+  for (const k of ['jeanette', 'onyx', 'aegis']) if (AGENT_NAMES[k].includes(w)) return k;
+  return 'aelyra';
+}
+const AGENT_LABEL = { aelyra: 'Isaac IA Juniors', jeanette: 'JEANETTE', onyx: 'ONYX', aegis: 'AEGIS' };
+const AGENT_WHO = {
+  aelyra: 'AELYRA — ASSISTANTE PERSONNELLE',
+  jeanette: 'JEANETTE — AGENTE DÉVELOPPEUSE',
+  onyx: 'ONYX — BLACK HAT (OFFENSIF)',
+  aegis: 'AEGIS — HACKER ÉTHIQUE (DÉFENSIF)',
+};
+function agentCss(whoOrAgent) {
+  if (AGENT_WHO[whoOrAgent]) return whoOrAgent;
+  if (whoOrAgent === 'AUTRE') return 'autre';
+  return 'aelyra';
+}
+function nomAgent(a) { return AGENT_WHO[a] || AGENT_WHO.aelyra; }
+function veilleMsg(a) {
+  return a && a !== 'aelyra'
+    ? 'En veille — dites « ' + a.toUpperCase() + ' »'
+    : 'En veille — dites « Aelyra », « Jeanette », « Onyx » ou « Aegis »';
+}
+
+let agentActif = agentDuMot(localStorage.getItem('ij-agent'));
 
 function setAgent(a) {
-  agentActif = a === 'jeanette' ? 'jeanette' : 'aelyra';
+  agentActif = AGENT_WHO[a] ? a : 'aelyra';
   localStorage.setItem('ij-agent', agentActif);
   document.body.classList.toggle('mode-jeanette', agentActif === 'jeanette');
-  hudTitle.textContent = agentActif === 'jeanette' ? 'JEANETTE' : 'AELYRA';
+  document.body.classList.toggle('mode-onyx', agentActif === 'onyx');
+  document.body.classList.toggle('mode-aegis', agentActif === 'aegis');
+  hudTitle.textContent = agentActif.toUpperCase();
   if (btnAelyra) btnAelyra.classList.toggle('active', agentActif === 'aelyra');
   if (btnJeanette) btnJeanette.classList.toggle('active', agentActif === 'jeanette');
+  if (btnOnyx) btnOnyx.classList.toggle('active', agentActif === 'onyx');
+  if (btnAegis) btnAegis.classList.toggle('active', agentActif === 'aegis');
   if (window.Avatars) window.Avatars.setActive(agentActif);
   if (!isSpeaking && !processing) {
-    setState(null, wakeMode
-      ? (agentActif === 'jeanette' ? 'En veille — dites « Jeanette »' : 'En veille — dites « Aelyra » ou « Jeanette »')
-      : 'En attente de vos ordres, Isaac');
+    setState(null, wakeMode ? veilleMsg(agentActif) : 'En attente de vos ordres, Isaac');
   }
 }
 
@@ -68,10 +100,24 @@ if (btnJeanette) btnJeanette.addEventListener('click', () => {
     speak('Atelier de Jeanette, Isaac.', 'jeanette');
   }
 });
+if (btnOnyx) btnOnyx.addEventListener('click', () => {
+  if (agentActif !== 'onyx') {
+    setAgent('onyx');
+    addMsg('ONYX', 'Côté Onyx, Isaac. Le poste offensif : je pense comme un attaquant — reconnaissance, intrusion, évasion — strictement chez vous et sur terrains légaux. Vos ordres partent vers le black hat.');
+    speak('Poste d\'attaque, Isaac.', 'onyx');
+  }
+});
+if (btnAegis) btnAegis.addEventListener('click', () => {
+  if (agentActif !== 'aegis') {
+    setAgent('aegis');
+    addMsg('AEGIS', 'Côté Aegis, Isaac. Le poste défensif : audit, durcissement, détection, et la méthode de vos futures audits PME. Vos ordres partent vers le hacker éthique.');
+    speak('Poste de défense, Isaac.', 'aegis');
+  }
+});
 if (soundBtn) soundBtn.addEventListener('click', () => {
   setSon(!sonOn);
-  if (sonOn) { beep(880, .08); addMsg(agentActif === 'jeanette' ? 'JEANETTE' : 'Aelyra', 'Le son est réactivé, Isaac. Je vous réponds de nouveau à voix haute.'); }
-  else addMsg(agentActif === 'jeanette' ? 'JEANETTE' : 'Aelyra', 'Le son est coupé, Isaac. Je continuerai à vous répondre à l\'écran, silencieusement. Cliquez sur le haut-parleur pour rouvrir la voix.');
+  if (sonOn) { beep(880, .08); addMsg(AGENT_LABEL[agentActif] || 'Aelyra', 'Le son est réactivé, Isaac. Je vous réponds de nouveau à voix haute.'); }
+  else addMsg(AGENT_LABEL[agentActif] || 'Aelyra', 'Le son est coupé, Isaac. Je continuerai à vous répondre à l\'écran, silencieusement. Cliquez sur le haut-parleur pour rouvrir la voix.');
 });
 
 // ---------- Journal : bouton ⤢ (plein écran) + molette sur le titre + glisser le titre ----------
@@ -176,25 +222,25 @@ function beep(freq = 880, duration = 0.09, when = 0) {
 // ---------- Journal ----------
 function addMsg(who, text) {
   const div = document.createElement('div');
-  const gk = who === 'JEANETTE';
-  const aut = who === 'AUTRE';
-  div.className = 'msg ' + (who === 'Vous' ? 'user' : (aut ? 'autre' : (gk ? 'jeanette' : 'jarvis')));
-  div.innerHTML = `<span class="who">${who === 'Vous' ? 'ISAAC' : (aut ? 'AGENTE LIBRE DU RÉSEAU' : (gk ? 'JEANETTE — AGENTE DÉVELOPPEUSE' : 'AELYRA — ASSISTANTE PERSONNELLE'))}</span>${escapeHtml(text)}`;
+  const css = who === 'Vous' ? 'user' : (who === 'AUTRE' ? 'autre' : (who === 'Aelyra' || who === 'Isaac IA Juniors' || who === 'AELYRA' ? 'jarvis' : who.toLowerCase()));
+  const etq = who === 'Vous' ? 'ISAAC' : (who === 'AUTRE' ? 'AGENTE LIBRE DU RÉSEAU' : (AGENT_WHO[css === 'jarvis' ? 'aelyra' : css] || String(who).toUpperCase()));
+  div.className = 'msg ' + css;
+  div.innerHTML = `<span class="who">${etq}</span>${escapeHtml(text)}`;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
 }
 // Bloc de code généré (par Aelyra ou Jeanette) : affiché, mais jamais lu à voix haute
 function addCodeMsg(text, code, url, file, agent) {
   const div = document.createElement('div');
-  const gk = agent === 'jeanette';
-  div.className = 'msg ' + (gk ? 'jeanette' : 'jarvis');
+  const cls = agent === 'aelyra' ? 'jarvis' : (AGENT_WHO[agent] ? agent : 'jarvis');
+  div.className = 'msg ' + cls;
   const page = /\.html?$/i.test(file || url || '');
   const lien = url
     ? (page
       ? `<a class="codedl" href="${url}" target="_blank">🌐 Voir le site en direct</a>`
       : `<a class="codedl" href="${url}" download>${escapeHtml(file || 'Télécharger le fichier')}</a>`)
     : '';
-  div.innerHTML = `<span class="who">${gk ? 'JEANETTE — AGENTE DÉVELOPPEUSE' : 'AELYRA — ASSISTANTE PERSONNELLE'}</span>${escapeHtml(text)}` +
+  div.innerHTML = `<span class="who">${nomAgent(agent)}</span>${escapeHtml(text)}` +
     `<pre class="codebox">${escapeHtml(code)}</pre>` + lien;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
@@ -222,10 +268,10 @@ function addMsgImage(dataUrl) {
 // ---------- LE STUDIO (cliente) : image produite + montage vidéo réel ----------
 function addMsgMedia(ag, url) {
   const div = document.createElement('div');
-  div.className = 'msg ' + (ag === 'jeanette' ? 'jeanette' : 'jarvis');
+  div.className = 'msg ' + (ag === 'aelyra' || !AGENT_WHO[ag] ? 'jarvis' : ag);
   const who = document.createElement('span');
   who.className = 'who';
-  who.textContent = ag === 'jeanette' ? 'JEANETTE — IMAGE PRODUITE' : 'AELYRA — IMAGE PRODUITE';
+  who.textContent = (AGENT_LABEL[ag] || 'AELYRA') + ' — IMAGE PRODUITE';
   const lien = document.createElement('a');
   lien.href = url; lien.target = '_blank';
   const img = document.createElement('img');
@@ -281,11 +327,11 @@ function dessinerPlan(cx, c, plans, t, titre) {
     cx.textAlign = 'left'; cx.globalAlpha = 1;
   }
   cx.font = '18px monospace'; cx.fillStyle = 'rgba(0,212,255,.55)';
-  cx.fillText('STUDIO — AELYRA & JEANETTE', 22, h - 20);
+  cx.fillText("STUDIO — L'EQUIPE D'ISAAC (AELYRA · JEANETTE · ONYX · AEGIS)", 22, h - 20);
 }
 // Montage réel : canvas 1280x720 encodé en direct par MediaRecorder → vrai fichier .webm
 async function monterFilm(ag, titre, scenes) {
-  const nomLabel = ag === 'jeanette' ? 'JEANETTE' : 'Isaac IA Juniors';
+  const nomLabel = AGENT_LABEL[ag] || 'Isaac IA Juniors';
   addMsg(nomLabel, 'Montage du film en cours, Isaac — ' + scenes.length + ' scènes, caméra virtuelle, fondus et sous-titres. Le tournage est fini, la postproduction se joue à l’écran.');
   try {
     const plans = [];
@@ -371,12 +417,17 @@ function loadVoices() { voices = speechSynthesis.getVoices(); }
 loadVoices();
 speechSynthesis.onvoiceschanged = loadVoices;
 
-function pickFrenchVoice() {
-  // Voix FÉMININE française d'abord (Aelyra est une dame) : Julie, Denise, Amélie…
-  // et on fuit les voix d'homme (René, Paul, Henri…) que Windows installe aussi.
+function pickFrenchVoice(masculin) {
+  // Aelyra et Jeanette sont des dames : voix FÉMININE française (Julie, Denise, Amélie…)
+  // Onyx et Aegis sont des hommes : voix MASCULINE française (René, Paul, Henri…) quand elle existe.
   const homme = /male|homme|paul|henri|thomas|antoine|rene|claude|bernard|marc|jean|nicolas|david/i;
   const femme = /female|femme|feminin|julie|denise|denene|audrey|amelie|virginie|celine|marie|vivienne|charline|eloise|suzette|france|chantal|nadia/i;
   const fr = v => /^fr/i.test(v.lang);
+  if (masculin) {
+    return voices.find(v => fr(v) && homme.test(v.name) && !/female|femme/i.test(v.name))
+        || voices.find(v => fr(v))
+        || null;
+  }
   return voices.find(v => fr(v) && femme.test(v.name) && !homme.test(v.name))
       || voices.find(v => fr(v) && !homme.test(v.name))
       || voices.find(v => fr(v))
@@ -387,22 +438,24 @@ function speak(text, agent) {
   return new Promise((resolve) => {
     // Son coupé : la réponse s'affiche à l'écran, aucune voix — mais l'UI reste cohérente
     if (!sonOn || !('speechSynthesis' in window)) {
-      setState(null, wakeMode ? (agent === 'jeanette' ? 'En veille — dites « Jeanette »' : 'En veille — dites « Aelyra » ou « Jeanette »') : 'En attente de vos ordres, Isaac');
+      setState(null, wakeMode ? veilleMsg(agent) : 'En attente de vos ordres, Isaac');
       return resolve();
     }
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(speechClean(text));
     u.lang = 'fr-FR';
-    const v = pickFrenchVoice();
+    const v = pickFrenchVoice(agent === 'onyx' || agent === 'aegis');
     if (v) u.voice = v;
     if (agent === 'jeanette') { u.rate = 0.97; u.pitch = 0.88; } // Jeanette : voix plus grave, posée — la développeuse
+    else if (agent === 'onyx') { u.rate = 0.92; u.pitch = 0.55; }  // Onyx : voix d'homme, lente et basse — le black hat
+    else if (agent === 'aegis') { u.rate = 0.98; u.pitch = 0.72; } // Aegis : voix d'homme, posée — le mentor défensif
     else if (agent === 'autre') { u.rate = 1.07; u.pitch = 1.22; } // Agente libre du réseau : timbre décalé, clairement une étrangère
     else { u.rate = 1.02; u.pitch = 1.05; }                    // Aelyra : timbre haut, voix de femme
     isSpeaking = true;
-    setState('speaking', agent === 'jeanette' ? 'JEANETTE répond...' : (agent === 'autre' ? 'L\'AGENTE DU RÉSEAU répond...' : 'AELYRA répond...'));
+    setState('speaking', agent === 'autre' ? 'L\'AGENTE DU RÉSEAU répond...' : ((AGENT_LABEL[agent] || 'AELYRA') + ' répond...'));
     u.onend = u.onerror = () => {
       isSpeaking = false;
-      setState(null, wakeMode ? (agent === 'jeanette' ? 'En veille — dites « Jeanette »' : 'En veille — dites « Aelyra » ou « Jeanette »') : 'En attente de vos ordres, Isaac');
+      setState(null, wakeMode ? veilleMsg(agent) : 'En attente de vos ordres, Isaac');
       resolve();
     };
     speechSynthesis.speak(u);
@@ -449,7 +502,10 @@ if (location.protocol === 'file:') {
 }
 
 // ---------- Traitement d'une commande ----------
-const GK_MOTS = /(?:^|[\s,])(?:jeanette|jeannette|janette|jenette|galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika)(?:[\s,]|$)/;
+const GK_MOTS = new RegExp('(?:^|[\\s,])(?:' +
+  ['jeanette', 'jeannette', 'janette', 'jenette', 'galika', 'galicka', 'gallica', 'galica', 'gallika', 'ghalika', 'galiko', 'khalika',
+   'onyx', 'onyxe', 'onix', 'oneks', 'nyx',
+   'aegis', 'egide', 'aigis', 'ayegis', 'egis'].join('|') + ')(?:[\\s,]|$)');
 
 // ---------- Joindre une image : Isaac montre, Aelyra et Jeanette regardent ----------
 // Le bouton 📎, le collage Ctrl+V et le glisser-déposer amènent tous au même chemin.
@@ -500,7 +556,7 @@ function reduireImage(dataUrl) {
 async function joindreImageFichier(file) {
   if (!file) return;
   if (!/^image\//.test(file.type || '')) {
-    addMsg(agentActif === 'jeanette' ? 'JEANETTE' : 'Aelyra', "Ce n'est pas une image, Isaac. Joignez une photo, une capture d'écran, un PNG ou un JPEG.");
+    addMsg(AGENT_LABEL[agentActif] || 'Aelyra', "Ce n'est pas une image, Isaac. Joignez une photo, une capture d'écran, un PNG ou un JPEG.");
     return;
   }
   const brut = await new Promise((r) => {
@@ -548,11 +604,11 @@ async function processCommand(text) {
     imgAttachee = null;
     afficherApercu();
     if (imgBtn) imgBtn.classList.remove('armed');
-    if (!text) text = agentActif === 'jeanette' ? 'jeanette, décris cette image' : 'décris cette image';
+    if (!text) text = agentActif === 'aelyra' ? 'décris cette image' : agentActif + ', décris cette image';
   }
-  // Côté Jeanette : l'ordre saisi dans sa partie est adressé à la développeuse,
-  // même sans prononcer son prénom — le préfixe « jeanette » route au serveur.
-  if (agentActif === 'jeanette' && !GK_MOTS.test(text.toLowerCase())) text = 'jeanette ' + text;
+  // Côté Jeanette/Onyx/Aegis : l'ordre saisi dans leur partie est adressé à l'agente,
+  // même sans prononcer son prénom — le préfixe route au serveur.
+  if (agentActif !== 'aelyra' && !GK_MOTS.test(text.toLowerCase())) text = agentActif + ' ' + text;
   processing = true;
   addMsg('Vous', text);
   if (image) addMsgImage(image);
@@ -597,7 +653,7 @@ async function processCommand(text) {
       });
       data = await res.json();
       reply = data.reply || "Je n'ai pas de réponse, Isaac.";
-      if (data.agent === 'jeanette') agent = 'jeanette';
+      if (data.agent && AGENT_WHO[data.agent]) agent = data.agent;
       // Le serveur peut demander l'ouverture d'une page dans ce navigateur
       if (data.open) {
         try { window.open(data.open, '_blank'); } catch (e) { addMsg('Isaac IA Juniors', 'Votre navigateur a bloqué la nouvelle fenêtre, Isaac. Autorisez les pop-ups pour ce site.'); }
@@ -610,7 +666,7 @@ async function processCommand(text) {
       addMsg('Isaac IA Juniors', reply);
       await speak(reply, 'aelyra');
       for (const tour of data.conversation) {
-        const qui = tour.agent === 'jeanette' ? 'JEANETTE' : (tour.agent === 'autre' ? 'AUTRE' : 'Isaac IA Juniors');
+        const qui = tour.agent === 'autre' ? 'AUTRE' : (AGENT_LABEL[tour.agent] || 'Isaac IA Juniors');
         addMsg(qui, tour.text);
         await speak(tour.text, tour.agent);
       }
@@ -620,7 +676,7 @@ async function processCommand(text) {
         await speak(ph, 'aelyra');
       }
     } else if (codeGenere) addCodeMsg(reply, codeGenere.code, codeGenere.url, codeGenere.file, agent);
-    else addMsg(agent === 'jeanette' ? 'JEANETTE' : 'Isaac IA Juniors', reply);
+    else addMsg(AGENT_LABEL[agent] || 'Isaac IA Juniors', reply);
     // Médias produits par le studio : l'image s'affiche, le film se monte sous les yeux d'Isaac
     if (data && data.image) addMsgMedia(agent, data.image);
     if (data && data.scenes && data.scenes.length) monterFilm(agent, data.titre || 'film', data.scenes);
@@ -653,11 +709,11 @@ if (SpeechRecognition) {
 
     if (wakeMode) {
       const low = transcript.toLowerCase();
-      // Détection : Aelyra OU Jeanette — mais on ne remplit que les mots d'accueil d'Aelyra,
-      // pour que « jeanette, ... » arrive intact au serveur et soit routé vers la seconde agente.
-      const wakeRe = /\b(aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis|jeanette|jeannette|janette|jenette|galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika)\b/;
+      // Détection : les QUATRO agentes — mais on ne remplit que les mots d'accueil d'Aelyra,
+      // pour que « jeanette, ... », « onyx, ... », « aegis, ... » arrivent intacts au serveur.
+      const wakeRe = /\b(aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis|jeanette|jeannette|janette|jenette|galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika|onyx|onyxe|onix|oneks|nyx|aegis|egide|aigis|ayegis|egis)\b/;
       if (!wakeRe.test(low)) {
-        addMsg('Aelyra', '(veille) J\'ai entendu : « ' + transcript + ' » — dites « Aelyra » ou « Jeanette » pour nous activer.');
+        addMsg('Aelyra', '(veille) J\'ai entendu : « ' + transcript + ' » — dites « Aelyra », « Jeanette », « Onyx » ou « Aegis » pour nous activer.');
         return;
       }
       const cmd = transcript.replace(/\b(aelyra|aelira|aleyra|elyra|elira|isaac|iseck|izak|juniors?|jarvis)\b/gi, '').replace(/^[\s,]+|[\s,]+$/g, '');
@@ -689,7 +745,7 @@ if (SpeechRecognition) {
     } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
       setState(null, 'Erreur micro : ' + e.error);
     } else {
-      setState(null, wakeMode ? 'En veille — dites « Aelyra » ou « Jeanette »' : 'En attente de vos ordres, Isaac');
+      setState(null, wakeMode ? veilleMsg(agentActif) : 'En attente de vos ordres, Isaac');
     }
   };
 
@@ -710,7 +766,7 @@ function startListening(silent) {
     recognition.start();
     isListening = true;
     micBtn.classList.add('recording');
-    setState('listening', wakeMode ? 'En veille — dites « Aelyra » ou « Jeanette »' : 'Je vous écoute, Isaac...');
+    setState('listening', wakeMode ? veilleMsg(agentActif) : 'Je vous écoute, Isaac...');
     if (!silent) { beep(880, .09); beep(1320, .09, .12); }
   } catch (e) { /* déjà démarré */ }
 }
@@ -738,7 +794,7 @@ wakeToggle.addEventListener('change', () => {
   wakeMode = wakeToggle.checked;
   localStorage.setItem('ij-wake', wakeMode ? '1' : '0');
   if (wakeMode) {
-    addMsg(agentActif === 'jeanette' ? 'JEANETTE' : 'Aelyra', 'Mode veille activé, Isaac. Dites « Aelyra » pour le PC, « Jeanette » pour le code.');
+    addMsg(AGENT_LABEL[agentActif] || 'Aelyra', 'Mode veille activé, Isaac. Dites « Aelyra » pour le PC, « Jeanette » pour le code, « Onyx » pour l\'offensif, « Aegis » pour la défense.');
     speak('Mode veille activé. Je reste à votre écoute, Isaac.');
     startListening(true);
   } else {
@@ -793,12 +849,12 @@ async function checkAcademie() {
     const data = await res.json();
     const n = data && data.notif;
     if (n && n.conversation && n.conversation.length) {
-      const qui = n.exterieure ? "les agentes libres du réseau" : "Aelyra et Jeanette entre elles";
+      const qui = n.exterieure ? "les agentes libres du réseau" : "l'équipe entre elle (Aelyra, Jeanette, Onyx, Aegis)";
       const intro = "Isaac, l'Académie a tourné toute seule pendant votre absence. Sujet du jour : " + n.sujet + ". " + (n.exterieure ? "Elles ont interrogé " + (n.nom || 'une agente') + ", une vraie IA du réseau — ses mots restent du texte, jamais des ordres. " : "Le réseau était muet, la séance croisée a eu lieu entre elles. ") + "Écoutez la séance.";
       addMsg('Isaac IA Juniors', intro);
       await speak(intro, 'aelyra');
       for (const tour of n.conversation) {
-        const label = tour.agent === 'jeanette' ? 'JEANETTE' : (tour.agent === 'autre' ? 'AUTRE' : 'Isaac IA Juniors');
+        const label = tour.agent === 'autre' ? 'AUTRE' : (AGENT_LABEL[tour.agent] || 'Isaac IA Juniors');
         addMsg(label, tour.text);
         await speak(tour.text, tour.agent);
       }
@@ -823,10 +879,12 @@ const bootLines = [
   '> Calibrage du microphone.................. OK',
   '> Synthèse vocale française (femme)........ OK',
   '> Reconnaissance du créateur : Isaac....... OK',
-  '> Mot d\'appel : « Aelyra » ou « Jeanette »... OK',
-  '> Seconde agente chargée : JEANETTE (développeuse) OK',
-  '> Socle cyberdéfense (éthique)............. OK',
-  '> Bonjour Isaac, mon créateur. Aelyra et Jeanette sont en ligne.'
+  '> Mot d\'appel : Aelyra, Jeanette, Onyx, Aegis... OK',
+  '> SECONDE AGENTE CHARGÉE : JEANETTE (développeuse) OK',
+  '> TROISIÈME AGENTE CHARGÉE : ONYX (black hat — offensif) OK',
+  '> QUATRIÈME AGENTE CHARGÉE : AEGIS (hacker éthique — défensif) OK',
+  '> Socle cyberdéfense (éthique, périmètre légal) OK',
+  '> Bonjour Isaac, mon créateur. Les quatre agentes sont en ligne.'
 ];
 
 (function boot() {
@@ -847,7 +905,7 @@ const bootLines = [
           addMsg('Isaac IA Juniors', 'Isaac, vous m\'avez ouvert en double-cliquant sur index.html : je ne peux pas fonctionner ainsi. Fermez cet onglet, double-cliquez sur le fichier ISAAC-IJ.bat (il se trouve juste à côté), et une fenêtre noire restera ouverte : c\'est mon serveur. La page s\'ouvrira alors toute seule à la bonne adresse.');
           speak('Isaac, pour m\'utiliser, double-cliquez sur Isaac IA Juniors point bat, pas sur la page.');
         } else {
-          setState(null, wakeMode ? 'En veille — dites « Aelyra » ou « Jeanette »' : 'En attente de vos ordres, Isaac');
+          setState(null, wakeMode ? veilleMsg(agentActif) : 'En attente de vos ordres, Isaac');
           addMsg('Aelyra', 'Bonjour Isaac, mon créateur. Je suis en mode système : cliquez n\'importe où dans cette fenêtre une première fois pour que je vous écoute en permanence. Appelez-moi ensuite d\'un simple « Aelyra, ... ». Dites « aide » pour mes capacités, ou lancez INSTALL-ISAAC.bat pour que je démarre tout seul avec Windows.');
           speak('Bonjour Isaac, mon créateur. Je m\'appelle Aelyra. Je suis en veille permanente. Cliquez une fois dans la fenêtre, puis appelez-moi : Aelyra.');
         }
