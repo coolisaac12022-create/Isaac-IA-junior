@@ -26,3 +26,6 @@ isaac-profile/
 
 # Creations multimedia d'Isaac (images generees) — jamais publiees sans son ordre
 public/creations/
+
+# Repartition 3D reglee par Isaac (gout personnel, local)
+repartition.json
