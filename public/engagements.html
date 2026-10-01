@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fiches d'engagement — le périmètre d'ONYX</title>
+<style>
+  :root { --bl: #e8e8e8; --gr: #8a8a8a; --line: #1e1e1e; --rouge: #ef4444; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; color: var(--bl); font: 14px/1.55 "Segoe UI", system-ui, sans-serif; }
+  header { padding: 18px 22px 12px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 17px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; }
+  .sous { color: var(--gr); font-size: 12.5px; margin-top: 5px; max-width: 980px; }
+  main { padding: 18px 22px 110px; max-width: 1100px; }
+  .carte { border: 1px solid var(--line); background: #050505; padding: 16px; margin-bottom: 18px; }
+  .carte h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--gr); font-weight: 600; }
+  label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--gr); margin: 12px 0 4px; }
+  input, select { width: 100%; background: #000; color: #eee; border: 1px solid #2a2a2a; padding: 10px 12px; font: 14px/1.4 Consolas, monospace; }
+  input:focus, select:focus { outline: none; border-color: #4a4a4a; }
+  .grille { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+  .full { grid-column: 1 / -1; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--gr); font: 600 10.5px/1 "Segoe UI", sans-serif; letter-spacing: .14em; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 9px 10px; border-bottom: 1px solid #141414; vertical-align: top; }
+  td.cible { font-family: Consolas, monospace; color: #fff; }
+  .actif { color: #34d399; } .clos { color: #616161; }
+  .bout { background: #fff; color: #000; border: 0; padding: 10px 18px; font: 600 12.5px/1 "Segoe UI", sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+  .bout.sec { background: transparent; color: var(--bl); border: 1px solid #3a3a3a; }
+  .bout.mini { padding: 5px 10px; font-size: 10.5px; }
+  .bout:hover, .bout.sec:hover { opacity: .82; }
+  .barre { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 22px; background: rgba(0,0,0,.94); border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #info { color: var(--gr); font-size: 12px; }
+  .ligne { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .ligne > div { flex: 1 1 220px; }
+  .garde { border-left: 2px solid var(--rouge); padding: 10px 0 10px 14px; color: var(--gr); font-size: 12.5px; }
+  .garde b { color: #d0d0d0; }
+  pre.journal { white-space: pre-wrap; word-break: break-word; color: #8f8f8f; font: 11.5px/1.65 Consolas, monospace; margin: 8px 0 0; max-height: 300px; overflow: auto; }
+  a { color: var(--gr); }
+  .vide { color: #5c5c5c; font-size: 13px; padding: 14px 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fiches d'engagement · périmètre offensif</h1>
+  <div class="sous">Chez toi — ton PC, ton réseau 192.168.x, ton labo <b>cyber_training</b>, les plateformes d'entraînement — aucune fiche n'est demandée : ça frappe tout de suite, comme avant. Dehors — une IP publique, le domaine d'un client — la fiche est la seule porte : une fois ouverte, ONYX travaille sans aucune retenue de méthode (65 535 ports, exploits, post-exploitation), et la référence de la fiche tombe en tête de chaque rapport. Ce n'est pas une permission de l'assistant : c'est ta trace à toi, écrite chez toi, dans <span style="color:#c9c9c9">journal-engagements.log</span>.</div>
+</header>
+
+<main>
+  <section class="carte">
+    <h2>Ouvrir une fiche</h2>
+    <div class="ligne">
+      <div><label>Cible — IP, domaine ou plage CIDR</label><input id="cible" placeholder="41.138.15.20 · auditpme.ci · 41.138.15.0/24" spellcheck="false"></div>
+      <div><label>Qui te mandate</label><input id="mandant" placeholder="Digifood SARL · devis du 01/10 · VPS a mon nom" spellcheck="false"></div>
+    </div>
+    <div class="ligne">
+      <div class="full"><label>Objet du mandat</label><input id="objet" placeholder="audit de securite complet avant mise en production" spellcheck="false"></div>
+    </div>
+    <div class="ligne">
+      <div><label>Portée autorisée</label>
+        <select id="portee">
+          <option value="audit complet : ports, services, exploits, post-exploitation">Audit complet (ports, services, exploits, post-exploitation)</option>
+          <option value="reconnaissance seule : ports et services">Reconnaissance seule (ports et services)</option>
+          <option value="test d intrusion web : injection, authentification, configuration">Test d'intrusion web (injection, auth, config)</option>
+          <option value="simulation de hameconnage sur liste de destinataires autorisee">Simulation de hameçonnage (liste de destinataires autorisée)</option>
+        </select>
+      </div>
+      <div><label>Durée (jours)</label><input id="jours" type="number" min="1" max="90" value="7"></div>
+    </div>
+  </section>
+
+  <section class="carte">
+    <h2>Registre</h2>
+    <div id="registre"><div class="vide">Chargement…</div></div>
+  </section>
+
+  <section class="carte">
+    <h2>Journal des frappes et des fiches (40 dernieres lignes)</h2>
+    <pre class="journal" id="journal">—</pre>
+  </section>
+
+  <section class="carte">
+    <div class="garde">
+      Trois choses ne s'achètent avec aucune fiche, parce qu'elles sont écrites dans le programme et non dans un prompt : <b>le verrou absolu</b> (métadonnées cloud 169.254.x, CGNAT et passerelles d'opérateur 100.64.x, multicast et réservé, réseaux gouvernementaux, grandes plateformes, banques et opérateurs), <b>les charges destructrices</b> (effacement de données, chiffrement rançonneur, déni de service), et <b>le fait que l'assistant n'appuie jamais sur « Envoyer » à ta place</b>. Le reste t'appartient.
+    </div>
+  </section>
+</main>
+
+<div class="barre">
+  <button class="bout" id="ouvrir">Ouvrir la fiche</button>
+  <button class="bout sec" id="rafraichir">Re-interroger le registre</button>
+  <button class="bout sec" id="retour">Retourner a Aelyra</button>
+  <span id="info"></span>
+</div>
+
+<script>
+(function () {
+  var info = document.getElementById('info');
+  var fmt = function (t) { try { return new Date(t).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) { return String(t); } };
+  var reste = function (ts) {
+    var m = Math.max(0, Number(ts) - Date.now());
+    var j = Math.floor(m / 86400000), h = Math.floor((m % 86400000) / 3600000);
+    return m <= 0 ? 'expiree' : (j ? j + ' j ' + h + ' h' : h + ' h');
+  };
+
+  function dessiner(d) {
+    var fiches = d.fiches || [];
+    var actif = fiches.filter(function (f) { return (f.etat || 'actif') === 'actif' && Number(f.expire_le) > Date.now(); });
+    var other = fiches.filter(function (f) { return actif.indexOf(f) === -1; });
+    var h = '';
+    if (!fiches.length) h = '<div class="vide">Aucune fiche pour l\'instant. Ton PC, ton réseau et ton labo restent attaquables sans fiche — c\'est seulement le reste du monde qui en demande une.</div>';
+    else {
+      h = '<table><tr><th>Ref</th><th>Cible</th><th>Mandant</th><th>Objet · portee</th><th>Etat</th><th></th></tr>';
+      actif.concat(other).forEach(function (f) {
+        var vivant = (f.etat || 'actif') === 'actif' && Number(f.expire_le) > Date.now();
+        h += '<tr><td style="font-family:Consolas,monospace;color:#9a9a9a">' + (f.ref || '—') + '</td>' +
+          '<td class="cible">' + (f.cible || '—') + '</td>' +
+          '<td>' + (f.mandant || '—') + '</td>' +
+          '<td style="color:#a8a8a8">' + (f.objet || '—') + '<br><span style="color:#6d6d6d;font-size:12px">' + (f.portee || '—') + '</span></td>' +
+          '<td class="' + (vivant ? 'actif' : 'clos') + '">' + (vivant ? 'ACTIVE · expire dans ' + reste(f.expire_le) : 'FERMEE') + '</td>' +
+          '<td>' + (vivant ? '<button class="bout sec mini" data-c="1" data-ref="' + f.ref + '">Fermer</button>' : '') + '</td></tr>';
+      });
+      h += '</table>';
+      h += '<div style="color:#6d6d6d;font-size:12px;margin-top:10px">' + actif.length + ' fiche(s) active(s) · ' + other.length + ' fermee(s) · verrous absolus : ' + (d.verrous ? d.verrous.absolu : '—') + '</div>';
+    }
+    document.getElementById('registre').innerHTML = h;
+    document.getElementById('journal').textContent = (d.journal && d.journal.trim()) ? d.journal : 'aucune frappe enregistree pour l\'instant';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-c]'), function (b) {
+      b.onclick = function () { cloturer(b.getAttribute('data-ref')); };
+    });
+  }
+
+  function lire() {
+    return fetch('api/engagements', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.ok) { info.textContent = 'serveur muet'; return; }
+      dessiner(d);
+    }).catch(function () { info.textContent = 'le cerveau ne repond pas — lance cerveau.bat'; });
+  }
+
+  function ouvrir() {
+    var d = {
+      action: 'creer',
+      cible: document.getElementById('cible').value.trim(),
+      mandant: document.getElementById('mandant').value.trim(),
+      objet: document.getElementById('objet').value.trim(),
+      portee: document.getElementById('portee').value,
+      jours: Number(document.getElementById('jours').value) || 7
+    };
+    if (!d.cible || !d.mandant || !d.objet) { info.textContent = 'cible, mandant et objet sont obligatoires — c\'est ce qui fait la preuve'; return; }
+    info.textContent = 'ouverture…';
+    fetch('api/engagements', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d)
+    }).then(function (r) { return r.json().then(function (j) { return { code: r.status, j: j }; }); })
+      .then(function (x) {
+        if (!x.j.ok) { info.textContent = 'refuse : ' + x.j.erreur; return; }
+        info.textContent = 'fiche ' + x.j.fiche.ref + ' ouverte sur ' + x.j.fiche.cible + ' — ONYX peut frapper';
+        ['cible', 'mandant', 'objet'].forEach(function (id) { document.getElementById(id).value = ''; });
+        lire();
+      }).catch(function () { info.textContent = 'erreur reseau'; });
+  }
+
+  function cloturer(ref) {
+    fetch('api/engagements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cloturer', ref: ref }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { info.textContent = j.ok ? 'fiche ' + ref + ' fermee — la cible redevient refusee' : 'refus : ' + j.erreur; lire(); })
+      .catch(function () { info.textContent = 'erreur reseau'; });
+  }
+
+  document.getElementById('ouvrir').onclick = ouvrir;
+  document.getElementById('rafraichir').onclick = lire;
+  document.getElementById('retour').onclick = function () { location.href = 'index.html'; };
+  lire();
+  setInterval(lire, 30000);
+})();
+</script>
+</body>
+</html>

@@ -32,3 +32,6 @@ repartition.json
 
 # Personnalites reecrites par Isaac (gout local, jamais publie)
 prompts.json
+
+# Fiches d'engagement d'Isaac — ses mandats clients, jamais publies
+engagements.json

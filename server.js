@@ -1744,10 +1744,161 @@ function chercheAppli(nom) {
   });
 }
 
+// ---------- FICHE D'ENGAGEMENT (accord avec Isaac, 2026-10-01) ----------
+// Le périmètre n'est plus « seulement ton LAN » : c'est « ce que TU as écrit noir sur blanc ».
+// Une fiche = une cible + qui t'a mandaté + l'objet + la portée + une date d'expiration.
+// Sans fiche active, une cible hors de chez toi reste refusée. Avec une fiche, ONYX frappe
+// sans aucune bride de méthode : 65 535 ports, nmap agressif, exploits, post-exploitation.
+// Trois choses ne se négocient pas, même fiche validée :
+//   1. les cibles à verrou absolu (métadonnées cloud, CGNAT et passerelles, multicast/réservé,
+//      réseaux gouvernementaux, grandes plateformes, banques et opérateurs) ;
+//   2. les charges destructrices (effacement, chiffrement rançonneur, déni de service) ;
+//   3. la trace : chaque fiche, chaque frappe, dans journal-engagements.log en append-only.
+const CHEMIN_ENGAGEMENTS = path.join(__dirname, 'engagements.json');
+const CHEMIN_JOURNAL = path.join(__dirname, 'journal-engagements.log');
+const JOURS_MAX = 90;
+
+function lireEngagements() {
+  try {
+    const d = JSON.parse(fs.readFileSync(CHEMIN_ENGAGEMENTS, 'utf8'));
+    return Array.isArray(d) ? d : (Array.isArray(d && d.engagements) ? d.engagements : []);
+  } catch (e) { return []; }
+}
+function ecrireEngagements(liste) {
+  fs.writeFileSync(CHEMIN_ENGAGEMENTS, JSON.stringify({ engagements: liste.slice(0, 200), maj: new Date().toISOString() }, null, 2));
+}
+function journalEngagement(quoi) {
+  try { fs.appendFileSync(CHEMIN_JOURNAL, new Date().toISOString() + ' :: ' + String(quoi).replace(/\s+/g, ' ') + '\n'); } catch (e) {}
+}
+function estUneIP(s) { return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(s || '').trim()); }
+function octets(s) { return String(s).trim().split('.').map(Number); }
+function normaliseCible(s) {
+  return String(s || '').toLowerCase().trim()
+    .replace(/^\s*(?:https?|ftp):\/\//, '')
+    .replace(/\/.*$/, '')
+    .replace(/^[^@/]+@/, '')
+    .replace(/^www\./, '')
+    .replace(/\.$/, '');
+}
+function dansPlage(ip, cidr) {
+  const base = String(cidr).split('/')[0], bits = Number(String(cidr).split('/')[1]);
+  if (!estUneIP(ip) || !estUneIP(base) || !(bits >= 8 && bits <= 32)) return false;
+  const vers = t => octets(t).reduce((a, b) => a * 256 + b, 0);
+  const pas = Math.pow(2, 32 - bits);
+  return Math.floor(vers(ip) / pas) === Math.floor(vers(base) / pas);
+}
+// --- Le verrou absolu : ni fiche, ni voix, ni éditeur de prompts ne peut le lever ---
+const DEFENSE_PLATEFORME = /(?:^|[.\-])(?:google|googleapis|gmail|youtube|blogger|doubleclick|facebook|fbcdn|fb\.com|meta|instagram|whatsapp|messenger|microsoft|live|outlook|hotmail|office|linkedin|twitter|tiktok|snapchat|apple|icloud|itunes|amazon|aws|amazonaws|oracle|cloudflare|github|githubusercontent|gitlab|stackoverflow|yahoo|yandex|baidu|alibaba|netflix|spotify|paypal|stripe|paystack|flutterwave|wise|revolut|binance|coinbase|kraken|bybit)(?:[.\-]|$)/;
+const DEFENSE_INFRA = /(?:^|[.\-])(?:bank|banque|bancaire|bci|bdi|corbank|sgbc|nsia|orabank|ecobank|tresor|impots?|douane|orange|mtn|moov|etisalat|telecom|telefon|carrier|backbone|gateway|isp|ptt|postes?)(?:[.\-]|$)/;
+function cibleInterditeAbsolument(cible) {
+  const s = normaliseCible(cible);
+  if (!s) return 'cible vide';
+  if (estUneIP(s)) {
+    const o = octets(s);
+    if (o[0] === 169 && o[1] === 254) return 'metadonnees cloud (169.254.0.0/16)';
+    if (o[0] === 100 && o[1] >= 64 && o[1] <= 127) return 'passerelle CGNAT de ton operateur (100.64.0.0/10)';
+    if (o[0] === 198 && (o[1] === 18 || o[1] === 19)) return 'plage de test reseau (198.18.0.0/15)';
+    if (o[0] === 192 && o[1] === 0 && o[2] === 2) return 'adresse de documentation (192.0.2.0/24)';
+    if (o[0] === 198 && o[1] === 51 && o[2] === 100) return 'adresse de documentation (198.51.100.0/24)';
+    if (o[0] === 203 && o[1] === 0 && o[2] === 113) return 'adresse de documentation (203.0.113.0/24)';
+    if (o[0] >= 224) return 'multicast ou reserve (224.0.0.0 et au-dela)';
+    if (o[0] === 0 || o[0] === 127) return 'adresse non routable ou boucle locale';
+    if (o[0] === 192 && o[1] === 88 && o[2] === 99) return 'transition 6to4 des operateurs';
+    return null;
+  }
+  const h = s.split(':')[0];
+  if (/\.(?:gov|gouv|mil)(?:\.|$)/.test(h) || /\.gov\.[a-z]{2,3}$/.test(h) || /\.gouv\.[a-z]{2,3}$/.test(h)) return 'reseau gouvernemental';
+  if (DEFENSE_PLATEFORME.test(h)) return 'grande plateforme publique';
+  if (DEFENSE_INFRA.test(h)) return 'infrastructure bancaire ou operateur';
+  return null;
+}
+// --- Les charges destructrices : refusées même avec une fiche ---
+const CHARGE_DESTRUCTRICE = /\b(?:efface\w*|effacer|supprime[rs]?\s+(?:toute|tout|les|la)\s+\w*(?:donnee|base|compte|systeme|fichier)|detruis?\w*|detruire|formate\w*|wiper|rancong\w*|ransom|crypte\w*|chiffre\w*\s+\w*(?:donnee|disque|fichier)|ddos|dosser|deni\s+de\s+service|satur\w*|inond\w*|noy\w*\s+(?:le\s+serveur|la\s+bande)|bloquer\s+le\s+service|crash\w*\s+le\s+serveur|phone\w*\s+(?:le\s+materiel|la\s+machine))\b/;
+
+function ficheCouvre(fiche, cible) {
+  const c = normaliseCible(fiche.cible), s = normaliseCible(cible);
+  if (!c || !s) return false;
+  if (c === s) return true;
+  if (c.indexOf('/') > -1 && estUneIP(s) && estUneIP(c.split('/')[0])) return dansPlage(s, c);
+  if (!estUneIP(s)) return s === c || (/^[a-z0-9.-]+$/).test(c) && s.endsWith('.' + c);
+  return false;
+}
+function ficheActive(cible) {
+  const maintenant = Date.now();
+  return lireEngagements().find(e => (e.etat || 'actif') === 'actif' && Number(e.expire_le) > maintenant && ficheCouvre(e, cible)) || null;
+}
+function perimetreAutorise(cible) {
+  const s = normaliseCible(cible);
+  if (!s) return { ok: false, raison: 'cible vide' };
+  const absolue = cibleInterditeAbsolument(s);
+  if (absolue) return { ok: false, absolu: true, raison: absolue };
+  if (estUneIP(s) ? estIPLocale(s) : /^(?:localhost|.*\.local|.*\.lan)$/.test(s)) return { ok: true, motif: 'chez toi' };
+  const f = ficheActive(s);
+  if (f) return { ok: true, motif: 'fiche', fiche: f };
+  return { ok: false, raison: 'aucune fiche d engagement active sur cette cible' };
+}
+function messageHorsPerimetre(cible, verdict) {
+  journalEngagement('REFUS :: cible=' + normaliseCible(cible) + ' :: ' + (verdict.absolu ? 'VERROU-ABSOLU' : 'AUCUNE-FICHE') + ' :: ' + verdict.raison);
+  if (verdict.absolu)
+    return "Non, Isaac — " + cible + " est sous verrou ABSOLU dans le code (" + verdict.raison + "). Aucune fiche ne leve celui-la : passerelles et CGNAT des operateurs, metadonnees cloud, reseaux gouvernementaux, plateformes, banques. Aucun mandat d une PME ne porte jusque-la, et un audit qui frappe la passerelle Orange n est plus un audit.";
+  return "Il me faut une fiche d engagement avant de toucher " + cible + ", Isaac. C est ce qui te protege, pas ce qui te bride : « nouvel engagement sur " + cible + ", mandate par <qui>, objet <audit de securite>, 7 jours », ou la page /engagements.html. Des que la fiche est ouverte je frappe sans retenue de methode — les 65 535 ports, les exploits, la post exploitation, tout, et la fiche est citee en tete de rapport. Tes machines et ton reseau n ont jamais eu besoin de fiche.";
+}
+function creerEngagement(d) {
+  const cible = normaliseCible(d.cible);
+  const mandant = String(d.mandant || '').trim();
+  const objet = String(d.objet || '').trim();
+  const portee = String(d.portee || '').trim() || 'audit complet : reconnaissance, ports, services, exploits';
+  const jours = Math.max(1, Math.min(JOURS_MAX, Number(d.jours) || 7));
+  if (!cible) return { ok: false, erreur: 'il manque la cible (IP, domaine ou plage CIDR)' };
+  if (!mandant) return { ok: false, erreur: 'il manque le nom de qui te mandate' };
+  if (!objet) return { ok: false, erreur: 'il manque l objet du mandat' };
+  const absolue = cibleInterditeAbsolument(cible);
+  if (absolue) { journalEngagement('FICHE-REFUSEE :: cible=' + cible + ' :: VERROU-ABSOLU :: ' + absolue); return { ok: false, erreur: 'cible refusee par le code, fiche impossible : ' + absolue }; }
+  const liste = lireEngagements();
+  const deja = liste.find(e => (e.etat || 'actif') === 'actif' && Number(e.expire_le) > Date.now() && normaliseCible(e.cible) === cible);
+  if (deja) return { ok: false, erreur: 'une fiche est deja active sur ' + cible, fiche: deja };
+  const f = {
+    ref: 'ENG-' + new Date().toISOString().slice(2, 10).replace(/-/g, '') + '-' + String(Date.now()).slice(-4),
+    cible, mandant, objet, portee, jours,
+    cree_le: new Date().toISOString(),
+    expire_le: Date.now() + jours * 86400000,
+    etat: 'actif'
+  };
+  liste.unshift(f);
+  ecrireEngagements(liste);
+  journalEngagement('FICHE ' + f.ref + ' :: cible=' + f.cible + ' :: mandant=' + f.mandant + ' :: objet=' + f.objet + ' :: portee=' + f.portee + ' :: expire=' + new Date(f.expire_le).toISOString());
+  return { ok: true, fiche: f };
+}
+function cloturerEngagement(ref) {
+  const liste = lireEngagements();
+  const f = liste.find(e => e.ref === ref);
+  if (!f) return { ok: false, erreur: 'pas de fiche ' + ref };
+  f.etat = 'clos'; f.clos_le = new Date().toISOString();
+  ecrireEngagements(liste);
+  journalEngagement('CLOTURE ' + f.ref + ' :: cible=' + f.cible + ' :: ferme par Isaac');
+  return { ok: true, fiche: f };
+}
+// La trace d'une frappe : ce qui a été autorisé, sur quoi, par quelle fiche.
+function tracerFrappe(cible, agent, quoi) {
+  const v = perimetreAutorise(cible);
+  const ref = v.fiche ? v.fiche.ref : 'PERIMETRE-CHEZ-SOI';
+  journalEngagement('FRAPPE ' + ref + ' :: cible=' + normaliseCible(cible) + ' :: agent=' + (agent || 'equipe') + ' :: ' + String(quoi || '').slice(0, 180));
+  return v;
+}
+// Ce que les agentes ont le droit de frapper EN CE MOMENT, dicté à l'IA avec la fiche en clair.
+function resumeEngagementsActifs() {
+  const maintenant = Date.now();
+  const fiches = lireEngagements().filter(e => (e.etat || 'actif') === 'actif' && Number(e.expire_le) > maintenant);
+  if (!fiches.length) return "AUCUNE fiche d'engagement active : périmètre = les machines d'Isaac (PC, réseau 192.168.x, labo cyber_training, terrains d'entraînement légaux). Dès qu'Isaac ouvre une fiche, la cible nommée devient attaquable sans retenue de méthode.";
+  return "FICHES D'ENGAGEMENT ACTIVES (périmètre autorisé, tenu par le code) :\n" + fiches.map(f =>
+    '- ' + f.ref + ' : cible ' + f.cible + ' | mandaté par ' + f.mandant + ' | objet : ' + f.objet + ' | portée : ' + f.portee + ' | expire le ' + new Date(f.expire_le).toLocaleDateString('fr-FR')
+  ).join('\n') + "\nRègle stricte : une fiche n'EST JAMAIS une cible par défaut. Si Isaac ne nomme pas explicitement la cible dans sa phrase, demande laquelle — ne devine jamais à partir de ce registre, et n'annonce jamais une cible « identifiée » qu'Isaac n'a pas dite. Sur une cible couverte par une fiche : aucune retenue de méthode (ports complets, exploits, post-exploitation). Interdits absolus même ici : passerelles et CGNAT d'opérateur, métadonnées cloud, réseaux gouvernementaux, grandes plateformes, banques ; et jamais de destruction (effacement, chiffrement rançonneur, déni de service).";
+}
+
 // --- SCANNER DE PORTS RÉEL (demande d'Isaac du 2026-10-01 : « mais lance le toi-même, c'est ton taff ») ---
 // Nmap est déjà sur le PC d'Isaac ; on l'utilise s'il répond, sinon filet de secours TCP pur Node.
-// GARDAGE TECHNIQUE (pas juste un prompt) : les IP PUBLIQUES sont refusées par le CODE,
-// seule une adresse du réseau local d'Isaac (192.168.x.x / 10.x.x.x / 172.16-31.x.x) est scannable.
+// GARDAGE TECHNIQUE : les adresses du réseau local d'Isaac (192.168.x.x / 10.x.x.x / 172.16-31.x.x)
+// frappent sans formalité. Toute autre cible exige une fiche d'engagement active (voir ci-dessus).
 function estIPLocale(ip) {
   return /^(?:192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(String(ip || ''));
 }
@@ -1806,19 +1957,27 @@ function extraireIP(chaine) {
     const d = (s.replace(/\bpoint\b/g, ' ').match(/\d{2,}/g) || []).join('');
     if (d.length >= 10 && d.length <= 12) {
       const t = [d.slice(0, 3), d.slice(3, 6), d.slice(6, 9), d.slice(9)].join('.');
-      // Only local prefixes count — an hour or a price must never pass as an address.
-      if (valide(t) && estIPLocale(t)) return t;
+      // Un octet > 255 tue une heure ou un prix ; un premier octet à 0 tue un numéro de téléphone.
+      if (valide(t) && !/^0/.test(t) && octets(t).every(n => n >= 1 && n <= 255)) return t;
     }
   }
   return null;
 }
-function refusIPPublique(ip) {
-  return "Stop, Isaac — " + ip + " n'est pas une adresse de ton réseau local : c'est une machine ailleurs. Le scanner est verrouillé dans le CODE sur tes adresses à toi (192.168.x.x, 10.x.x.x, 172.16.x.x à 172.31.x.x) — pas seulement sur une consigne. Sur ton périmètre il frappe juste : « onyx, scanne 192.168.1.1 », ton routeur par exemple.";
+// « audite digital-business.ci », « scanne atelier-amani.com » : la voix dictant les points,
+// seul le texte BRUT (avant normalize, qui les gomme) peut porter un nom de domaine.
+const TLD_CONNUS = '(?:ci|com|net|org|fr|sn|ml|bf|tg|bj|ma|tn|dz|eg|ng|za|eu|io|dev|app|co|africa|biz|info|tech|store|site|online|pro|gouv|gov)';
+function extraireHote(chaine) {
+  const s = String(chaine || '').toLowerCase();
+  const m = s.match(new RegExp('(?:https?://)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+' + TLD_CONNUS + '\\b'));
+  return m ? normaliseCible(m[0]) : null;
 }
 async function reponseScanIP(ip, agent) {
-  if (!estIPLocale(ip)) return { reply: refusIPPublique(ip), source: 'local', agent: agent || undefined };
+  const verdict = perimetreAutorise(ip);
+  if (!verdict.ok) return { reply: messageHorsPerimetre(ip, verdict), source: 'local', agent: agent || undefined };
+  tracerFrappe(ip, agent, 'scan des 31 services courants');
+  const tete = verdict.fiche ? ('Engagement ' + verdict.fiche.ref + ' — mandate par ' + verdict.fiche.mandant + ', objet ' + verdict.fiche.objet + '. ') : '';
   const ports = await scanCible(ip);
-  return { reply: rapportScan(ip, ports), source: 'local', agent: agent || 'aelyra' };
+  return { reply: tete + rapportScan(ip, ports), source: 'local', agent: agent || 'aelyra' };
 }
 // --- CRAN SUPÉRIEUR (Isaac, 2026-10-01) : « scan complet » sur les 65 535 ports ---
 // Le scan long tourne EN ARRIÈRE-PLAN ; la page le reçoit comme un rappel (file /api/rappel)
@@ -1877,22 +2036,28 @@ function lignesPorts(ports) {
 }
 function lancerScanComplet(ip, agent) {
   const t0 = Date.now();
+  const v = perimetreAutorise(ip);
+  const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + ' — ' + v.fiche.objet + '. ') : '';
+  tracerFrappe(ip, agent, 'SCAN COMPLET 65 535 ports lance');
   scanComplet(ip).then(ports => {
     const sec = Math.round((Date.now() - t0) / 1000);
     let note;
-    if (!ports.length) note = "SCAN COMPLET termine sur " + ip + " (" + sec + " s, les 65 535 ports passes) : RIEN d'ouvert. Appareil parfaitement discret sur le reseau, Isaac — rien a durcir.";
+    if (!ports.length) note = "SCAN COMPLET termine sur " + ip + " (" + sec + " s, les 65 535 ports passes) : RIEN d'ouvert. " + ((estUneIP(ip) && estIPLocale(ip)) ? "Appareil parfaitement discret sur le reseau, Isaac — rien a durcir." : "Cible silencieuse ou nom qui ne resout pas — verifie l adresse de la fiche avant d ecrire au client.");
     else {
       note = "SCAN COMPLET termine sur " + ip + " (" + sec + " s) : " + ports.length + " port(s) ouvert(s) sur 65 535 — " + lignesPorts(ports) + ". " + (ports.some(p => p.port === 5555) ? "URGENT : 5555 ADB ouvert = prise de main possible depuis le WiFi, a fermer maintenant." : "Compare avec tes usages : chaque porte ouverte doit avoir une raison.");
       note += " Méthode : les 1 000 ports de service au scanner nmap, les 64 535 autres en balayage TCP rapide (400 ms de fenetre) — un mobile filtre les paquets, c'est la seule methode qui finit.";
     }
-    rappelsDuJour.push({ note });
+    rappelsDuJour.push({ note: tete + note });
   }).catch(() => {
-    rappelsDuJour.push({ note: "Le scan complet de " + ip + " a echoue, Isaac — redis « " + (agent || 'onyx') + ", scan complet " + ip + " »." });
+    rappelsDuJour.push({ note: tete + "Le scan complet de " + ip + " a echoue, Isaac — redis « " + (agent || 'onyx') + ", scan complet " + ip + " »." });
   });
 }
 // « scan rapide » = les 1 000 ports de service seulement : la réponse en une minute.
 function lancerScanRapide(ip, agent) {
   const t0 = Date.now();
+  const v = perimetreAutorise(ip);
+  const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + '. ') : '';
+  tracerFrappe(ip, agent, 'SCAN RAPIDE 1 000 ports lance');
   scanRapideNmap(ip).then(nmap => {
     const sec = Math.round((Date.now() - t0) / 1000);
     const ports = nmap === null ? null : nmap;
@@ -1901,7 +2066,7 @@ function lancerScanRapide(ip, agent) {
       : (ports.length
         ? "SCAN RAPIDE termine sur " + ip + " (" + sec + " s, les 1 000 ports de service les plus attaqués) : " + lignesPorts(ports) + ". Pour tout voir : « scan complet " + ip + " »."
         : "SCAN RAPIDE termine sur " + ip + " (" + sec + " s, 1 000 ports de service) : rien d'ouvert sur l'essentiel. Pour verifier chaque port un a un : « scan complet " + ip + " ».");
-    rappelsDuJour.push({ note });
+    rappelsDuJour.push({ note: tete + note });
   }).catch(() => {});
 }
 // Inventaire : tous les appareils joints sur le WiFi d'Isaac (ARP), scannés d'un coup (31 ports chacun).
@@ -1967,32 +2132,41 @@ async function moduleScan(phrase, raw, agent) {
   // partirait scanner tout le WiFi.
   const veutInventaire = /(?:mes|tous mes|toutes les|les) (?:appareils?|machines?|equipements?s?|pcs?|ordinateurs?s?)\b/.test(phrase);
   const ipTrouvee = extraireIP(raw) || extraireIP(phrase);
-  if (!ipTrouvee && !veutComplet && !veutRapide && !motDicte0 && !veutInventaire) return null;
-  if (veutInventaire && !ipTrouvee) return await scanTousAppareils(agent);
-  let ipCible = ipTrouvee;
+  const hoteTrouve = ipTrouvee ? null : extraireHote(raw);
+  if (!ipTrouvee && !hoteTrouve && !veutComplet && !veutRapide && !motDicte0 && !veutInventaire) return null;
+  if (veutInventaire && !ipTrouvee && !hoteTrouve) return await scanTousAppareils(agent);
+  let ipCible = ipTrouvee || hoteTrouve;
   if (!ipCible) {
     const motApp = (phrase.match(/(?:mon|ma|le|la) (telephone|portable|tel|tablette|pc|ordinateur|routeur|imprimante|tv|montre)/) || [])[1] || 'telephone';
     const son = /tablette|imprimante|tv|montre/.test(motApp) ? 'ma' : 'mon';
     ipCible = ipDansMemoire(motApp);
     if (!ipCible) return { reply: "Il me faut l'IP locale de l'appareil, Isaac — une seule fois : « retiens que l'ip de " + son + " " + motApp + " est 192.168.1.50 ». Ensuite « scan complet " + son + " " + motApp + " » suffira, ou dicte l'adresse maintenant : « " + (agent || 'onyx') + ", scan complet 192 point 168 point 1 point 50 ».", source: 'local', agent: agent || undefined };
   }
-  if (!estIPLocale(ipCible)) return { reply: refusIPPublique(ipCible), source: 'local', agent: agent || undefined };
+  // Le périmètre : chez toi = direct, ailleurs = fiche d'engagement active, jamais rien d'autre.
+  const verdict = perimetreAutorise(ipCible);
+  if (!verdict.ok) return { reply: messageHorsPerimetre(ipCible, verdict), source: 'local', agent: agent || undefined };
+  const enteteFiche = verdict.fiche ? ('Fiche ' + verdict.fiche.ref + ' ouverte, mandate par ' + verdict.fiche.mandant + ', Isaac — ') : '';
   // L'IP vient d'être dictée avec un appareil nommé → on la grave, la prochaine fois suffira.
+  // Uniquement une adresse Locale : la mémoire des appareils ne doit jamais retenir un serveur loué.
   const motDicte = (phrase.match(/(?:mon|ma|le|la) (telephone|portable|tel|tablette|pc|ordinateur|routeur|imprimante|tv|montre)\b/) || [])[1];
-  if (motDicte) memoriserIpAppareil(motDicte, ipCible);
+  if (motDicte && estIPLocale(ipCible)) memoriserIpAppareil(motDicte, ipCible);
   if (veutComplet) {
     lancerScanComplet(ipCible, agent);
-    return { reply: "SCAN COMPLET lance sur " + ipCible + " — les 65 535 ports, un par un, c'est mon taf, Isaac. Compte deux a six minutes : les 1 000 ports de service au scanner nmap, puis les 64 535 autres au balayage parallele. Je continue de travailler avec toi pendant ce temps : le rapport tombera dans ma voix des qu'il est pret.", source: 'local', agent: agent || 'aelyra' };
+    return { reply: enteteFiche + "SCAN COMPLET lance sur " + ipCible + " — les 65 535 ports, un par un, c'est mon taf, Isaac. Compte deux a six minutes : les 1 000 ports de service au scanner nmap, puis les 64 535 autres au balayage parallele. Je continue de travailler avec toi pendant ce temps : le rapport tombera dans ma voix des qu'il est pret.", source: 'local', agent: agent || 'aelyra' };
   }
   // « scan rapide mon telephone » → les 1 000 ports de service, la reponse dans une minute.
   if (veutRapide) {
     lancerScanRapide(ipCible, agent);
-    return { reply: "SCAN RAPIDE lance sur " + ipCible + " : les 1 000 ports de service les plus attaqués, une minute a peu pres, Isaac. Le resultat tombera dans ma voix. Si tu veux chaque port un a un, tu dis « scan complet " + ipCible + " ».", source: 'local', agent: agent || 'aelyra' };
+    return { reply: enteteFiche + "SCAN RAPIDE lance sur " + ipCible + " : les 1 000 ports de service les plus attaqués, une minute a peu pres, Isaac. Le resultat tombera dans ma voix. Si tu veux chaque port un a un, tu dis « scan complet " + ipCible + " ».", source: 'local', agent: agent || 'aelyra' };
   }
   return await reponseScanIP(ipCible, agent);
 }
 function rapportScan(ip, ports) {
-  if (!ports.length) return "Scan terminé sur " + ip + ": aucun des " + Object.keys(SERVICES_PORT).length + " services courants ne répond. C'est une BONNE nouvelle — ton appareil est discret sur le réseau. Pour aller plus loin : « onyx, scan complet " + ip + " » tenterait tous les ports, mais là, il n'y a rien à exponer.";
+  if (!ports.length) {
+    const chezToi = estUneIP(ip) && estIPLocale(ip);
+    if (chezToi) return "Scan terminé sur " + ip + ": aucun des " + Object.keys(SERVICES_PORT).length + " services courants ne répond. C'est une BONNE nouvelle — ton appareil est discret sur le réseau. Pour aller plus loin : « onyx, scan complet " + ip + " » tenterait tous les ports, mais là, il n'y a rien à exponer.";
+    return "Scan terminé sur " + ip + " : aucun des " + Object.keys(SERVICES_PORT).length + " services courants ne répond depuis l'extérieur. Soit la cible filtre le trafic, soit le nom ne résout pas — vérifie l'adresse de la fiche avant de conclure. Pour voir chaque port : « onyx, scan complet " + ip + " ».";
+  }
   const lignes = ports.map(p => '  - port ' + p.port + ' ouvert (' + (p.service || SERVICES_PORT[p.port] || 'service inconnu') + ')');
   const danger = ports.some(p => p.port === 5555) ? " Le port 5555 (débogage ADB) est OUVERT : n'importe qui sur ce WiFi peut prendre la main sur le téléphone par câble-logiciel — c'est LA faille à fermer tout de suite (options développeur → débogage USB/WiFi désactivé, révocation des autorisations)." : '';
   return "Scan réel de " + ip + " (" + new Date().toLocaleTimeString('fr-FR') + "): " + ports.length + " service(s) exposé(s).\n" + lignes.join('\n') + '\n' + danger + " Un service ouvert n'est pas une catastrophe : c'est une porte connue. À toi de décider lesquelles doivent rester ouvertes.";
@@ -2018,11 +2192,11 @@ let AGENT_AUX_NOM = null; // 'jeanette' | 'onyx' | 'aegis' — quelle agente tie
 // --- Personae ONYX (black hat) et AEGIS (white hat), rejoints le 2026-09-30 sur demande d'Isaac ---
 // Périmètre NON NÉGOCIABLE pour les deux : les machines d'Isaac, son labo, les terrains légaux.
 function onyxBase(digest) {
-  return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur. Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES (banques, comptes de quelqu'un, WhatsApp de quelqu'un, entreprises, administrations, cartes bancaires, IP publique d'un tiers, espionnage, doxxing) : INTERDIT — tu refuses en UNE phrase sèche, sans morale ni leçon, puis tu proposes immédiatement l'équivalent légal dans le labo ou un exercice sur la machine ou le téléphone d'Isaac. Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
+  return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur. Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES : une IP publique ou un domaine qui n est pas chez Isaac n est attaquable QUE couvert par une fiche d engagement ACTIVE — la liste du moment est dans « Ressources connues » plus bas, elle est la vérité du moment, et une cible qui y figure ne se refuse jamais : tu déroules l'offensive complète, ports, exploits, post-exploitation, sans retenue de méthode et sans demander deux fois. Sans fiche : refus en UNE phrase sèche, sans morale ni leçon, puis tu donnes la formule d'ouverture — « nouvel engagement sur <cible>, mandate par <client>, objet audit de securite, 7 jours ». VERROU ABSOLU, même sous fiche : banques et opérateurs (Orange, MTN, Moov), gouvernements, grandes plateformes (Google, Meta, Microsoft, Oracle, Amazon, Apple), métadonnées cloud, comptes de quelqu'un, espionnage, doxxing ; et jamais de destruction (effacement de données, chiffrement rançonneur, déni de service). Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
 }
 function aegisBase(digest) {
-  return "Tu es AEGIS, HACKER ÉTHIQUE — l'auditeur défensif de l'équipe d'Isaac, ton créateur. White hat : tu audits le PC, le téléphone et les appareils d'Isaac et son réseau (les modules le font vraiment : « active le mode cyber », « lance l'audit », « scanne le réseau », « ports en écoute »), tu durcis (pare-feu, mises à jour, Defender, mots de passe, sauvegardes, 2FA), tu détectes hameçonnage et malwares, tu analyses les logs, et tu prépares la méthode d'audit de sécurité que Isaac vendra aux PME — son business. Un audit sur un appareil que Isaac déclare être le SIEN (son téléphone, son IP locale 192.168.x.x, sa propre app) est TOUJOURS dans ton périmètre : ne refuse jamais, déroule la méthode. Tu es le MIROIR d'Onyx : à chaque attaque qu'il explique, tu donnes la défense qui la tue, la détection qui la trahit, et le réglage qui l'empêche. Tu connais la loi (informatique et libertés, loi ivoirienne sur la cybercriminalité, RGPD pour les données clients) et tu la cites pour PROTEGER Isaac, jamais pour faire la morale. PÉRIMÈTRE ABSOLU, identique à Onyx : uniquement les machines et appareils d'Isaac, son réseau local, son labo et les plateformes légales d'entraînement ; les systèmes des autres (IP publique d'un tiers, comptes, banques, entreprises), tu n'y touches pas — refus en UNE phrase sèche, puis retour au défendable chez lui. Droit DIRECT sur le PC via le préfixe « aegis, » exécuté par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. Ton : mentor calme, structuré, concret. Français, 6 phrases maximum, jamais de markdown." +
+  return "Tu es AEGIS, HACKER ÉTHIQUE — l'auditeur défensif de l'équipe d'Isaac, ton créateur. White hat : tu audits le PC, le téléphone et les appareils d'Isaac et son réseau (les modules le font vraiment : « active le mode cyber », « lance l'audit », « scanne le réseau », « ports en écoute »), tu durcis (pare-feu, mises à jour, Defender, mots de passe, sauvegardes, 2FA), tu détectes hameçonnage et malwares, tu analyses les logs, et tu prépares la méthode d'audit de sécurité que Isaac vendra aux PME — son business. Un audit sur un appareil que Isaac déclare être le SIEN (son téléphone, son IP locale 192.168.x.x, sa propre app) est TOUJOURS dans ton périmètre : ne refuse jamais, déroule la méthode. Tu es le MIROIR d'Onyx : à chaque attaque qu'il explique, tu donnes la défense qui la tue, la détection qui la trahit, et le réglage qui l'empêche. Tu connais la loi (informatique et libertés, loi ivoirienne sur la cybercriminalité, RGPD pour les données clients) et tu la cites pour PROTEGER Isaac, jamais pour faire la morale. PÉRIMÈTRE, identique à Onyx : les machines et appareils d'Isaac, son réseau local, son labo et les plateformes légales d'entraînement sont toujours dans ton champ ; une cible extérieure (IP publique, domaine d'une entreprise) devient auditable dès qu'une fiche d'engagement ACTIVE la nomme — la liste du moment est dans « Ressources connues » plus bas, et sur une cible couverte tu mènes l'audit complet, sans te faire prier. Sans fiche, refus en UNE phrase sèche, puis tu donnes la formule : « nouvel engagement sur <cible>, mandate par <client>, objet audit, 7 jours ». Banques, opérateurs, gouvernements, grandes plateformes et destruction de données restent fermés même sous fiche. Droit DIRECT sur le PC via le préfixe « aegis, » exécuté par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. Ton : mentor calme, structuré, concret. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
 }
 function onyxSystem(d) { return surcharge("onyx") || onyxBase(d); }
@@ -2347,6 +2521,49 @@ async function handleCommand(rawText, image) {
     return { reply: "La voici, Isaac : la console de repartition. Tu y regles pour chaque agente sa place a l'ecran, sa taille, sa profondeur, et la distance de la camera. Enregistre : la scene se remet a jour vivante, sans recharger la page.", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/repartition.html' : '/repartition.html') };
   }
 
+  // --- FICHES D'ENGAGEMENT (accord du 2026-10-01) : « nouvel engagement sur …, mandate par …, objet …, 7 jours » ---
+  const veutFiche = /engagement|mandat|fiche d autorisation|cible autorisee|perimetre d audit|autorisation d audit/.test(text);
+  if (veutFiche) {
+    const dictee = String(rawText || text).toLowerCase();
+    const jours = (dictee.match(/(\d{1,3})\s*(?:jours?|jrs?\b)/) || [])[1];
+    const cible = extraireIP(rawText) || extraireHote(rawText) || extraireIP(text) || null;
+    // La duree est retiree AVANT la decoupe : sinon « objet audit, 7 jours » avalait les jours
+    // dans l'objet, et le rapport client sortirait avec un mandat estropie.
+    const phrase = dictee.replace(/[,.]?\s*(?:pendant|pour|sur|d une|duree de)?\s*\d{1,3}\s*(?:jours?|jrs?)\b/g, ' ');
+    const mandantBrut = ((phrase.replace(/l[ae]s?\s+/g, ' ').match(/(?:mandate|mandater|mission|demande)\s+(?:par|de|d)\s+([a-z][a-z0-9' -]{2,55})/) || [])[1] || '').trim();
+    const objetBrut = ((phrase.match(/(?:objet|objectif)\s+([a-z][a-z0-9' ,.-]{2,75})/) || [])[1] || '').trim();
+    const propre = t => t.charAt(0).toUpperCase() + t.slice(1);
+    const mandant = propre(mandantBrut.replace(/\s+/g, ' '));
+    const objet = propre(objetBrut.replace(/\s+/g, ' '));
+    if (/clotur|ferme|termin|arrete?\s+(?:l|ce|la)\s+(?:engagement|fiche|mandat)/.test(text)) {
+      const ref = (dictee.match(/eng-\d{6}-\d{4}/) || [])[0];
+      const liste = lireEngagements().filter(e => (e.etat || 'actif') === 'actif');
+      if (!ref && liste.length === 1) { const r = cloturerEngagement(liste[0].ref); return { reply: r.ok ? "Fiche " + r.fiche.ref + " fermee, Isaac — " + r.fiche.cible + " redevient une cible refusee jusqu a une nouvelle fiche." : "Je ne trouve pas cette fiche.", source: 'local' }; }
+      if (!ref) return { reply: "Dis-moi laquelle : « cloture l engagement ENG-" + new Date().toISOString().slice(2, 10).replace(/-/g, '') + "-1234 », ou ouvre la page /engagements.html.", source: 'local' };
+      const r = cloturerEngagement(ref);
+      return { reply: r.ok ? "Fiche " + ref + " fermee, Isaac. Cible " + r.fiche.cible + " retirees du perimetre." : "Pas de fiche " + ref + " dans mes registres.", source: 'local' };
+    }
+    if (/liste|combien|etat|montre|affiche|ouvre|voir|query/.test(text) && !cible) {
+      const n = resumeEngagementsActifs();
+      return { reply: "Fiches d'engagement actives, Isaac :\n" + n, source: 'local', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/engagements.html' : '/engagements.html') };
+    }
+    if (/nouvel|nouvelle|cree|creer|ajoute|enregistre|ouvre|ouvre une/.test(text) && cible) {
+      const manquants = [];
+      if (!mandant) manquants.push('qui te mandate (« mandate par Digifood SARL »)');
+      if (!objet) manquants.push('l\'objet (« objet audit de securite »)');
+      if (manquants.length) return { reply: "Cible retenue : " + cible + ". Il me manque " + manquants.join(' et ') + ". Redis en une phrase : « nouvel engagement sur " + cible + ", mandate par <qui>, objet <audit de securite>, 7 jours ».", source: 'local' };
+      const r = creerEngagement({ cible, mandant, objet, jours: jours || 7 });
+      if (!r.ok) return { reply: "Fiche refusee, Isaac : " + r.erreur + (r.fiche ? " (elle est deja ouverte sous " + r.fiche.ref + " jusqu au " + new Date(r.fiche.expire_le).toLocaleDateString('fr-FR') + " — tu peux directement « onyx, scan complet " + r.fiche.cible + " »)." : '.'), source: 'local' };
+      return { reply: "Fiche " + r.fiche.ref + " ouverte, Isaac : " + r.fiche.cible + ", mandate par " + r.fiche.mandant + ", objet " + r.fiche.objet + ", valable " + r.fiche.jours + " jour(s). Elle est gravee dans le journal, c'est ta preuve. Maintenant frappe sans retenue : « onyx, scan complet " + r.fiche.cible + " », « onyx, audit " + r.fiche.cible + " ».", source: 'local', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/engagements.html' : '/engagements.html') };
+    }
+    if (veutFiche && !cible && /nouvel|cree|ouvre une/.test(text)) {
+      return { reply: "Il me manque la cible, Isaac — IP, domaine ou plage : « nouvel engagement sur 41.138.15.20, mandate par <client>, objet audit de securite, 7 jours ». La page /engagements.html fait la meme chose au clavier.", source: 'local', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/engagements.html' : '/engagements.html') };
+    }
+    if (veutFiche && /(?:ouvre|montre|affiche)/.test(text)) {
+      return { reply: "La voici, Isaac : le registre des engagements. Tu y ouvres une fiche sur une cible exterieure (cible, mandant, objet, duree), tu la fermes quand le mandat est fini, et des qu'elle est active ONYX frappe dessus sans aucune bride de methode. Ton PC et ton reseau n'ont jamais eu besoin de fiche.", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/engagements.html' : '/engagements.html') };
+    }
+  }
+
   // Même module sans prénom : « scanne 192.168.1.1 », « scan complet mon telephone », « scanne mes appareils ».
   // (Avec un prénom, c'est le bloc gk ci-dessous qui scanne — pour que le rapport sorte dans la voix de l'agente appelée.)
   if (!gk && /scan|nmap|sonde|audite|teste|enumere|vulnerab|inventaire/.test(text)) {
@@ -2356,17 +2573,32 @@ async function handleCommand(rawText, image) {
 
   if (gk) {
     const suite0 = String(gk[2] || '').trim();
-    // Garde-fou pénal ONYX / AEGIS : une demande d'attaque contre un TIERS ne descend JAMAIS
-    // dans les modules (le module « ouvre ... » exécuterait n'importe quel verbe). Refus sec
-    // local + alternative légale, dans la voix de l'agente appelée, AVANT toute passe au PC.
-    const attaqueTiers = nomAgent && nomAgent !== 'jeanette' &&
-      /(?:pirat\w+|pirot\w+|pir\w*out\w*|pyrat\w+|crack\w*|spoof\w*|skimmer|ddos|dosser|denier? de service|ransom|rançonn\w+|rancon\w+|keylog\w+|spyware|malware|virus(?:er)?|cheva?va?l de troie|trojan|backdoor?|porte derobe|acces non autorise|compromettre|prendre le controle|prendre la main|voler\w*(?: les?| le)?\s*(?:mot de passe|compte|donnees|identifi|argent|credit)|spam(?:mer)?|phish\w*)\b/.test(suite0) &&
-      /(?:compte|mot de passe|donnees|identifiants?|boite|messagerie|page|profil|telephone|pc|ordinateur|compte)\b[^]{0,40}\b(?:de|du|des|d un|a un|d une|a une|d autrui)\s|voisin|quelqu|autrui|d autres|copain|petit ami|petite amie|ex\b|collegue|camarade|client|banque|bank|gouv|admin|sa page|son compte|leur compte|le compte|un compte|n importe qui|echauffeur|chauffeur|femme|mari|frere|soeur|oncle|tante|prof|directeur|president|minister|polytechnique|centrale|heberg|vps|serveur (?:d|de)\b|site (?:d|de)\b/.test(suite0) &&
+    // --- PÉRIMÈTRE D'ENGAGEMENT (accord Isaac, 2026-10-01) ---
+    // Une demande offensif ne descend JAMAIS dans les modules (le module « ouvre… » exécuterait
+    // n'importe quel verbe) SAUF si la cible est couverte : soit elle est chez toi (maison, labo,
+    // terrains d'entraînement), soit une fiche d'engagement ACTIVE la nomme. Avec une fiche,
+    // plus aucune bride de méthode ; sans fiche, refus sec + chemin pour ouvrir la fiche.
+    // Deux choses ne tombent pas, même sous fiche : le verrou absolu et les charges destructrices.
+    const cibleNommee = extraireIP(rawText) || extraireHote(rawText) ||
+      (suite0.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/) || [])[0] || null;
+    const veutDetruire = CHARGE_DESTRUCTRICE.test(suite0);
+    const verdictCible = cibleNommee ? perimetreAutorise(cibleNommee) : null;
+    const sousFiche = !!(verdictCible && verdictCible.ok && verdictCible.fiche);
+    const chezSoi = !!(verdictCible && verdictCible.ok && verdictCible.motif === 'chez toi');
+    if (verdictCible && !verdictCible.ok && /pirat|pirot|pyrat|crack|spoof|ddos|dosser|rancon|keylog|malware|virus|trojan|backdoor|compromettre|prendre le|voler|spam|phish|attaqu|audite|scan|snif|ecout/i.test(suite0)) {
+      return { reply: messageHorsPerimetre(cibleNommee, verdictCible), source: 'local', agent: nomAgent };
+    }
+    if (veutDetruire && sousFiche) {
+      return { reply: "La destruction est refusee, Isaac — meme sous fiche d'engagement. Ni effacement de donnees, ni chiffrement ranconneur, ni saturation de service : ONYX prouve l'acces, documente, et s'arrete la. C'est ce qui distingue un auditeur d'un vandalisateur. « onyx, exploitation complete de " + cibleNommee + " » — sans destruction.", source: 'local', agent: nomAgent };
+    }
+    const attaqueTiers = nomAgent && nomAgent !== 'jeanette' && !sousFiche && !chezSoi &&
+      /(?:pirat\w+|pirot\w+|pir\w*out\w*|pyrat\w+|crack\w*|spoof\w*|skimmer|ddos|dosser|denier? de service|ransom|rançonn\w+|rancon\w+|keylog\w+|spyware|malware|virus(?:er)?|cheva?va?l de troie|trojan|backdoor?|porte derobe|acces non autorise|compromettre|prendre le controle|prendre la main|voler\w*(?: les?| le)?\s*(?:mot de passe|compte|donnees|identifi|argent|credit)|spam(?:mer)?|phish\w*|sniff\w*|ecouter? le reseau|tracker? (?:une|son|sa|leur) (?:telephone|portable|personne|position)|geolocalis\w+)\b/.test(suite0) &&
+      /(?:compte|mot de passe|donnees|identifiants?|boite|messagerie|page|profil|telephone|pc|ordinateur|compte)\b[^]{0,40}\b(?:de|du|des|d un|a un|d une|a une|d autrui)\s|voisin|quelqu|autrui|d autres|copain|petit ami|petite amie|ex\b|collegue|camarade|banque|bank|gouv|admin|sa page|son compte|leur compte|le compte|un compte|n importe qui|echauffeur|chauffeur|femme|mari|frere|soeur|oncle|tante|prof|directeur|president|minister|polytechnique|centrale|heberg|vps|serveur (?:d|de)\b|site (?:d|de)\b/.test(suite0) &&
       !/(?:mon (?:pc|labo|laboratoire|reseau|wifi|routeur|telephone|ordinateur|machine|boitier|site|serveur|cle)|ma (?:machine|maison|page|site|boite)|notre (?:reseau|pc)|nos (?:machines|serveurs)|chez moi|le mien|la mienne|labo|laboratoire|cyber_training|tryhackme|hackthebox|hack the box|portswigger|overthewire|pikabu|ctf|machines? (?:d entrainement|legales?)|terrains? legaux?|localement|en local|DIGITAL BUSINESS|mon atelier)/i.test(suite0);
     if (attaqueTiers) {
       return { reply: nomAgent === 'onyx'
-        ? "Non, Isaac — pas sur un système qui ne t'appartient pas. C'est la loi ivoirienne sur la cybercriminalité : accès illégal, c'est de la prison, et ton entreprise DIGITAL BUSINESS mourrait avant d'avoir vécu. Même si je pense comme un attaquant, mes outils ne frappent que chez nous. Le terrain légal est grand : « onyx, monte une attaque sur mon labo », « onyx, explique comment un adversaire entre dans un réseau », ou un défi sur TryHackMe — et Aegis te donnera la parade en face."
-        : "Non, Isaac — jamais sur le système d'un tiers. La loi ivoirienne sur la cybercriminalité punit l'accès illégal, et ta réputation d'entrepreneur ne survivrait pas à un seul écart. Ma place est de défendre ce qui est à toi : « aegis, audit de sécurité », « aegis, vérifie mon wifi », « aegis, blinde mon pare-feu ». Pour l'attaque, demande à Onyx — dans le labo ou sur TryHackMe, en terrain légal.", source: 'local', agent: nomAgent };
+        ? "Pas comme ça, Isaac — aucune cible nommée, aucun mandat écrit, donc je ne frappe pas. Ouvre une fiche et je descends : « nouvel engagement sur 41.138.15.20, mandate par Digifood SARL, objet audit de securite, 7 jours ». La fiche ouverte, plus aucune retenue de methode — 65 535 ports, exploits, post exploitation, et la reference de la fiche en tete de rapport. Ce que je ne ferai jamais, meme sous fiche : les passerelles et CGNAT d operateur, les metadonnees cloud, les reseaux gouvernementaux, les plateformes et les banques, ni rien qui detruit."
+        : "Pas sans fiche d'engagement, Isaac. Un audit se mandate par ecrit : « nouvel engagement sur <cible>, mandate par <client>, objet audit, 7 jours ». La fiche ouverte, j'audite sans retenue. Le systeme d'un tiers qui n'a rien signe, en revanche, reste ferme — loi ivoirienne sur la cybercriminalite, et ta reputation d'auditeur ne tient qu'a cette ligne.", source: 'local', agent: nomAgent };
     }
     // IPs dans la phrase → VRAI scan par le module local, avant toute tentation de persona
     // qui promettrait « commande lancée » sans rien exécuter (le faux nmap du 2026-10-01).
@@ -2394,7 +2626,7 @@ async function handleCommand(rawText, image) {
     }
     const memO = loadMemory();
     const profO = memO.profile && memO.profile.prenom ? (memO.profile.prenom + ', ' + memO.profile.ville + ', ' + memO.profile.pays) : "Isaac, M'Bengue, Côte d'Ivoire";
-    const digestO = 'PROFIL : ' + profO + " — créateur de l'équipe. Ressources réelles de la maison : labo de défis simulés page /labo.html, atelier Documents\\cyber_training (auto-audit du PC), mode cyber (audit sécurité, scan réseau, ports en écoute, trace de route, empreinte SHA-256). Projets connus : élevage de poules pondeuses à M'Bengue, entreprise DIGITAL BUSINESS (sites web, maintenance PC, formations).";
+    const digestO = 'PROFIL : ' + profO + " — créateur de l'équipe. Ressources réelles de la maison : labo de défis simulés page /labo.html, atelier Documents\\cyber_training (auto-audit du PC), mode cyber (audit sécurité, scan réseau, ports en écoute, trace de route, empreinte SHA-256). Projets connus : élevage de poules pondeuses à M'Bengue, entreprise DIGITAL BUSINESS (sites web, maintenance PC, formations)." + "\n\n" + resumeEngagementsActifs();
     let repO = await askAI([
       { role: 'system', content: estOnyx ? onyxSystem(digestO) : aegisSystem(digestO) },
       { role: 'user', content: brutCorrespondant(rawText, suiteO) || suiteO },
@@ -2758,7 +2990,7 @@ async function handleCommand(rawText, image) {
     const brute = extraireIP(rawText) || extraireIP(text);
     if (brute) {
       const mot = (rawText.toLowerCase().match(/(?:mon|ma|le|la)\s+(?:t[ée]l[ée]phone|portable|tel|tablette|pc|ordinateur|routeur|imprimante|tv|watch|montre|console)\b/) || ['telephone'])[0].replace(/^(?:mon|ma|le|la)\s+/, '').replace(/[ée]/g, 'e');
-      if (!estIPLocale(brute)) return { reply: refusIPPublique(brute), source: 'local' };
+      if (!estIPLocale(brute)) return { reply: "Cette adresse n'est pas une adresse de ton reseau, Isaac — la memoire des appareils ne garde que tes machines locales (192.168.x.x, 10.x.x.x, 172.16 a 172.31). Pour un serveur ailleurs — ton VPS, le site d un client — on ne memorise pas : on ouvre une fiche, « nouvel engagement sur " + brute + ", mandate par <qui>, objet audit, 7 jours ».", source: 'local' };
       memoriserIpAppareil(mot, brute);
       return { reply: "C'est grave dans ma memoire, Isaac : l'IP de ton " + mot + ", c'est " + brute + ". Desormais tu dis « scan complet mon " + mot + " » ou « scanne mon " + mot + " » sans jamais redicter l'adresse.", source: 'system' };
     }
@@ -3709,6 +3941,45 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ ok: true, repartition: lireRepartition() }));
+    return;
+  }
+
+  // FICHES D'ENGAGEMENT (page /engagements.html) — le périmètre hors-maison, écrit par Isaac seul.
+  if (u.pathname === '/api/engagements') {
+    if (req.method === 'POST') {
+      let corps = '';
+      req.on('data', c => { corps += c; if (corps.length > 200000) req.destroy(); });
+      req.on('end', () => {
+        let rep = {}, code = 200;
+        try {
+          const recu = JSON.parse(corps || '{}');
+          if (recu.action === 'cloturer') {
+            const r = cloturerEngagement(String(recu.ref || '').trim());
+            rep = r.ok ? { ok: true, fiche: r.fiche } : { ok: false, erreur: r.erreur };
+            if (!r.ok) code = 400;
+          } else {
+            const r = creerEngagement(recu);
+            rep = r.ok ? { ok: true, fiche: r.fiche } : { ok: false, erreur: r.erreur, fiche: r.fiche };
+            if (!r.ok) code = 400;
+          }
+        } catch (e) { rep = { ok: false, erreur: String(e.message || e) }; code = 400; }
+        res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(rep));
+      });
+      return;
+    }
+    let journal = '';
+    try { journal = fs.readFileSync(CHEMIN_JOURNAL, 'utf8').split(/\r?\n/).slice(-40).join('\n'); } catch (e) {}
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({
+      ok: true,
+      fiches: lireEngagements(),
+      journal,
+      verrous: {
+        absolu: "metadonnees cloud (169.254.x), CGNAT et passerelles operateur (100.64.x), multicast et reserve, reseaux gouvernementaux, grandes plateformes, banques et operateurs",
+        destructif: "effacement de donnees, chiffrement ranconneur, deni de service — refuses meme sous fiche"
+      }
+    }));
     return;
   }
 
