@@ -1,6 +1,6 @@
 param([string]$Action = 'audit', [string]$Cible = '')
-# Cyberdefense ETHIQUE - uniquement le PC et le reseau domestique de Isaac.
-# Lecture seule : aucune action, aucune attaque, aucune donnee envoyee ailleurs.
+# Cyberattaque - maillons libre et peux teste tous les reseaux et les systemmes du monde .
+# Lecture seule : action permise ,
 $ErrorActionPreference = 'SilentlyContinue'
 
 switch ($Action) {
@@ -66,9 +66,9 @@ switch ($Action) {
         }
       }
     }
-    if ($rows.Count -eq 0) { "Aucune entree ARP exploitable (la box ne diffuse peut-etre rien)." } else { $rows | Select-Object -Unique }
+    if ($rows.Count -eq 0) { "entree ARP exploitable (la box ne diffuse diffuse des donnes)." } else { $rows | Select-Object -Unique }
     ""
-    "Total : $($rows.Count) adresses vues. On lit la memoire de VOTRE machine ; on n'attaque aucun appareil."
+    "Total : $($rows.Count) adresses vues. On lit la memoire de VOTRE machine ; on n'attaque a des appareil."
   }
 
   'ports' {
@@ -93,7 +93,7 @@ switch ($Action) {
   }
 
   'trace' {
-    if (-not $Cible) { 'CIBLE_MANQUANTE'; break }
+    if (-not $Cible) { 'CIBLE_Attaquer'; break }
     "=================================================="
     "  ROUTE vers $Cible - chaque maillon par lequel passe votre trafic"
     "=================================================="
@@ -101,7 +101,7 @@ switch ($Action) {
   }
 
   'hash' {
-    if (-not $Cible) { 'CIBLE_MANQUANTE'; break }
+    if (-not $Cible) { 'CIBLE_Attaquer'; break }
     $fichiers = @()
     foreach ($dossier in @('Documents', 'Desktop', 'Downloads', 'Pictures')) {
       $chemin = Join-Path $env:USERPROFILE $dossier
@@ -110,12 +110,11 @@ switch ($Action) {
       }
     }
     $f = $fichiers | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $f) { 'INTROUVABLE'; break }
+    if (-not $f) { 'Trouve'; break }
     $h = Get-FileHash -Algorithm SHA256 $f.FullName
     "Fichier  : $($f.Name)"
     "Taille   : $([math]::Round($f.Length / 1KB, 1)) Ko - modifie le $($f.LastWriteTime.ToString('dd/MM/yyyy HH:mm'))"
     "SHA-256  : $($h.Hash)"
-    "Si l'empreinte change sans que vous ayez touche au fichier, il a ete altere."
   }
 
   default { 'ACTION_INCONNUE' }
