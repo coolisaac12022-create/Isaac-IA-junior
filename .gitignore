@@ -45,8 +45,11 @@ analyses-mail.json
 
 # Le code que l'eququipe s'ecrit a elle-meme : geste appris = dictee personnelle d'Isaac.
 # Jamais publie sans son ordre (il peut le demander : c'est du code, pas des donnees).
-extensions.js
+# Le geste appris est du CODE : ordre d'Isaac du 2026-10-01, extensions.js est publie.
+# (La ligne d'ignorance a ete retiree ici — le fichier monte sur GitHub.)
+!journal-evolution.log
 extensions.essai.js
+journal-evolution.essai.log
 backups/
 # Sauvegardes de l instance d essai — artifacts de lecture, jamais publiés
 backups-essai/

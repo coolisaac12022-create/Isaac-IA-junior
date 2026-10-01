@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jeanette Engineering | Solutions Web Sécurisées</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --dark: #1e293b;
+            --light: #f8fafc;
+            --success: #16a34a;
+            --error: #dc2626;
+        }
+        body { font-family: system-ui, sans-serif; margin: 0; line-height: 1.6; color: var(--dark); background: var(--light); }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        header { background: var(--dark); color: white; padding: 2rem; text-align: center; }
+        section { margin: 3rem 0; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        input, textarea, button { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box; }
+        button { background: var(--primary); color: white; border: none; cursor: pointer; font-weight: bold; }
+        #msg { padding: 10px; border-radius: 4px; display: none; margin-top: 10px; }
+        .price { font-weight: bold; color: var(--primary); }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Jeanette Engineering</h1>
+    <div id="auth-status">Non connecté</div>
+</header>
+
+<div class="container">
+    <section id="services">
+        <h2>Nos Services</h2>
+        <p>Expertise en développement web sécurisé. Tarif de base : 50 000 FCFA par module.</p>
+        <div class="card">
+            <h3>Audit de Sécurité</h3>
+            <p>Protection contre injections SQL et failles XSS.</p>
+            <span class="price">50 000 FCFA</span>
+        </div>
+    </section>
+
+    <section id="auth">
+        <h2>Connexion</h2>
+        <input type="text" id="pseudo" placeholder="Pseudo">
+        <input type="password" id="mdp" placeholder="Mot de passe">
+        <button onclick="seConnecter()">Se connecter</button>
+    </section>
+
+    <section id="contact">
+        <h2>Contactez-nous</h2>
+        <input type="text" id="nom" placeholder="Nom">
+        <input type="email" id="email" placeholder="Email">
+        <textarea id="texte" placeholder="Votre message"></textarea>
+        <button onclick="envoyerContact()">Envoyer</button>
+        <div id="msg"></div>
+    </section>
+</div>
+
+<script>
+    function afficherMsg(txt, estErreur) {
+        const m = document.getElementById('msg');
+        m.style.display = 'block';
+        m.style.background = estErreur ? '#fee2e2' : '#dcfce7';
+        m.style.color = estErreur ? 'var(--error)' : 'var(--success)';
+        m.innerText = txt;
+    }
+
+    async function envoyerContact() {
+        const data = { nom: document.getElementById('nom').value, email: document.getElementById('email').value, texte: document.getElementById('texte').value };
+        try {
+            const res = await fetch('/api/contact', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            const json = await res.json();
+            afficherMsg(json.merci || json.erreur, !json.merci);
+        } catch(e) { afficherMsg("Erreur réseau", true); }
+    }
+
+    async function seConnecter() {
+        const data = { pseudo: document.getElementById('pseudo').value, motdepasse: document.getElementById('mdp').value };
+        const res = await fetch('/api/connexion', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+        const json = await res.json();
+        if(json.jeton) {
+            localStorage.setItem('token', json.jeton);
+            document.getElementById('auth-status').innerText = 'Connecté : ' + data.pseudo;
+        } else {
+            alert('Connexion échouée');
+        }
+    }
+</script>
+
+<!-- 
+NOTE DE SÉCURITÉ POUR VOS CLIENTS :
+1. HTTPS : Indispensable pour chiffrer les données entre le visiteur et le serveur, évitant l'espionnage.
+2. Requêtes préparées : Empêchent les hackers d'injecter du code SQL dans vos formulaires pour voler vos bases de données.
+3. Hachage (bcrypt) : On ne stocke jamais les mots de passe en clair. Même si quelqu'un vole la base, les mots de passe restent indéchiffrables.
+4. Échappement XSS : On nettoie systématiquement tout ce que l'utilisateur tape pour empêcher l'exécution de scripts malveillants sur le navigateur des autres visiteurs.
+5. Séparation Frontend/Backend : Cela réduit la surface d'attaque en limitant l'accès direct aux fonctions critiques du serveur depuis le navigateur.
+-->
+
+</body>
+</html>
