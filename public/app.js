@@ -839,6 +839,27 @@ async function checkRappels() {
 setInterval(checkRappels, 20000);
 setTimeout(checkRappels, 15000);
 
+// ---------- Répartition des agentes : si Isaac a bougé un curseur sur /repartition.html,
+// la scène 3D suit sans recharger la page (l'autre onglet broadcast, le serveur garde la trace).
+let repartitionConnue = null;
+async function checkRepartition() {
+  try {
+    const r = await fetch('/api/repartition', { cache: 'no-store' });
+    const j = await r.json();
+    if (!j || !j.repartition) return;
+    const sig = JSON.stringify(j.repartition.modifie || j.repartition);
+    if (repartitionConnue === sig) return;
+    repartitionConnue = sig;
+    if (window.Avatars && window.Avatars.appliquer) window.Avatars.appliquer(j.repartition);
+  } catch (e) { /* serveur éteint */ }
+}
+setInterval(checkRepartition, 20000);
+window.addEventListener('storage', (e) => {
+  if (e.key === 'isaac-repartition' && e.newValue && window.Avatars && window.Avatars.appliquer) {
+    try { window.Avatars.appliquer(JSON.parse(e.newValue)); } catch (err) {}
+  }
+});
+
 // ---------- L'Académie automatique : la séance de la journée se rejoue à mon retour ----------
 let academieEnCours = false;
 async function checkAcademie() {

@@ -2304,6 +2304,13 @@ async function handleCommand(rawText, image) {
     return { reply: "Le voici, Isaac : la vitrine du cerveau. Tu y lis les ordres bruts que je reçois, mes quatre personnalités écrites mot pour mot, mes lois sacrées, et tout ce que l'équipe sait de toi à l'instant présent. C'est du direct — rien n'est simulé : la page interroge le serveur à chaque ouverture. Tu peux aussi me la demander plus tard : « affiche son cerveau ».", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/cerveau.html' : '/cerveau.html') };
   }
 
+  // --- RÉPARTITION DES AGENTES : « ouvre la partie où on modifie la répartition » ---
+  if (/(?:ouvre|montre|affiche|va sur|rouvre)/.test(text) &&
+      /reparti|repatit|placement|disposition|position|organis|reglage/.test(text) &&
+      /agent|agente|equipe|visage|face|station|chose|partie|travail/.test(text)) {
+    return { reply: "La voici, Isaac : la console de repartition. Tu y regles pour chaque agente sa place a l'ecran, sa taille, sa profondeur, et la distance de la camera. Enregistre : la scene se remet a jour vivante, sans recharger la page.", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/repartition.html' : '/repartition.html') };
+  }
+
   // Même module sans prénom : « scanne 192.168.1.1 », « scan complet mon telephone », « scanne mes appareils ».
   // (Avec un prénom, c'est le bloc gk ci-dessous qui scanne — pour que le rapport sorte dans la voix de l'agente appelée.)
   if (!gk && /scan|nmap|sonde|audite|teste|enumere|vulnerab|inventaire/.test(text)) {
@@ -3567,6 +3574,11 @@ async function handleCommand(rawText, image) {
   };
 }
 
+// La répartition des quatre stations 3D, écrite par Isaac sur /repartition.html (pas dans le code).
+function lireRepartition() {
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'repartition.json'), 'utf8')); } catch (e) { return null; }
+}
+
 // ---------- Serveur HTTP ----------
 
 const server = http.createServer(async (req, res) => {
@@ -3579,8 +3591,61 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // VITRINE DU CERVEAU (page /cerveau.html) : les prompts RÉELS des quatre agentes, lus à la demande,
-  // plus la mémoire vivante. Aucune clé n'y transite — isaac-keys.json n'est jamais lu ici.
+  // RÉPARTITION DES AGENTES (page /repartition.html) : la position de chaque station dans la
+  // scène 3D, la taille, la profondeur et la caméra — écrites dans un fichier, jamais dans le code.
+  if (u.pathname === '/api/repartition') {
+    if (req.method === 'POST') {
+      let corps = '';
+      req.on('data', c => { corps += c; if (corps.length > 200000) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const recu = JSON.parse(corps || '{}');
+          const net = v => (typeof v === 'number' && isFinite(v));
+          const borne = (v, a, b, d) => !net(v) ? d : Math.max(a, Math.min(b, v));
+          const DEF = { x: 0, y: 0, z: 0, scale: 1 };
+          // Rangée d'origine (celle de `avatar3d.js`) : servir de socle quand le fichier
+          // n'existe pas encore — sinon une agente seule reglee empilerait les trois autres au centre.
+          const RANGEe = { aelyra: -2.85, jeanette: -0.95, onyx: 0.95, aegis: 2.85 };
+          // On FUSIONNE avec la disposition deja gravee : une phrase qui ne change qu'une
+          // agente ne doit pas faire tomber les trois autres au centre de l'ecran.
+          const deja = lireRepartition() || { agents: {}, camera: {} };
+          const agents = {};
+          for (const k of ['aelyra', 'jeanette', 'onyx', 'aegis']) {
+            const a = (recu.agents && recu.agents[k]) || {};
+            const base = (deja.agents && deja.agents[k]) || { x: RANGEe[k] };
+            const bon = (p) => (net(a[p]) ? a[p] : (net(base[p]) ? base[p] : DEF[p]));
+            agents[k] = {
+              x: borne(bon('x'), -8, 8, DEF.x), y: borne(bon('y'), -1, 3, DEF.y),
+              z: borne(bon('z'), -4, 2, DEF.z), scale: borne(bon('scale'), 0.4, 2.2, DEF.scale)
+            };
+          }
+          const cam = recu.camera || {};
+          const camBase = (deja.camera || {});
+          const bonCam = (p, d) => (net(cam[p]) ? cam[p] : (net(camBase[p]) ? camBase[p] : d));
+          const data = {
+            agents,
+            camera: {
+              x: borne(bonCam('x', 0), -6, 6, 0), y: borne(bonCam('y', 1.55), 0.6, 3, 1.55),
+              z: borne(bonCam('z', 4.9), 2.6, 9, 4.9), hauteur: borne(bonCam('hauteur', 1.1), 0.4, 2.4, 1.1)
+            },
+            modifie: new Date().toISOString()
+          };
+          fs.writeFileSync(path.join(__dirname, 'repartition.json'), JSON.stringify(data, null, 2));
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ ok: false, erreur: String(e.message || e) }));
+        }
+      });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ ok: true, repartition: lireRepartition() }));
+    return;
+  }
+
+  // VITRINE DU CERVEAU (page /cerveau.html) : les prompts RÉELS des quatre agentes, lus à la demande,  // plus la mémoire vivante. Aucune clé n'y transite — isaac-keys.json n'est jamais lu ici.
   if (u.pathname === '/api/cerveau') {
     let out;
     try {

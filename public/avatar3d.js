@@ -109,12 +109,51 @@
   let parX = 0, parY = 0;
   const t0 = performance.now() / 1000;
 
+  // RÉPARTITION — la place de chacun à l'écran n'est plus écrite dans le code : elle vit dans
+  // `repartition.json` (serveur), et Isaac la règle sur /repartition.html. Les valeurs ici sont
+  // le SECOURS si le fichier n'existe pas encore.
+  const REP = {
+    agents: {
+      aelyra: { x: -2.85, y: 0, z: 0, scale: 1 },
+      jeanette: { x: -0.95, y: 0, z: 0, scale: 1 },
+      onyx: { x: 0.95, y: 0, z: 0, scale: 1 },
+      aegis: { x: 2.85, y: 0, z: 0, scale: 1 }
+    },
+    camera: { z: 4.9, y: 1.55, hauteur: 1.1 }
+  };
+  function appliquerRepartition(d) {
+    if (!d || !d.agents) return;
+    for (const k of Object.keys(REP.agents)) {
+      const a = d.agents[k]; if (!a) continue;
+      const r = REP.agents[k];
+      ['x', 'y', 'z', 'scale'].forEach(p => { if (typeof a[p] === 'number' && isFinite(a[p])) r[p] = a[p]; });
+      if (av[k]) av[k].position.x = r.x;
+    }
+    if (d.camera) for (const p of ['z', 'y', 'hauteur'])
+      if (typeof d.camera[p] === 'number' && isFinite(d.camera[p])) REP.camera[p] = d.camera[p];
+    socles.forEach((s, i) => { s.position.set(EQUIPE[i].k ? REP.agents[EQUIPE[i].k].x : s.position.x, -0.25, 0); });
+  }
+  fetch('api/repartition', { cache: 'no-store' })
+    .then(r => r && r.json ? r.json() : null)
+    .then(j => { if (j && j.repartition) appliquerRepartition(j.repartition); })
+    .catch(() => {});
+
   window.Avatars = {
     setActive(a) { actif = av[a] ? a : 'aelyra'; },
     setState(s) { etat = s || 'idle'; },
+    appliquer: appliquerRepartition,
+    lecture: () => JSON.parse(JSON.stringify(REP)),
     _etat: () => ({ actif, etat }),
     _scene: scene, _renderer: renderer, _camera: camera
   };
+  // La console de répartition est un autre onglet : elle broadcast sa sauvegarde, la scène
+  // se remet à jour vivante — Isaac n'a jamais besoin de recharger la page.
+  if (navigator.broadcastChannel) {
+    try { new navigator.broadcastChannel('isaac-repartition').onmessage = e => appliquerRepartition(e.data); } catch (e) {}
+  }
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'isaac-repartition' && e.newValue) { try { appliquerRepartition(JSON.parse(e.newValue)); } catch (err) {} }
+  });
 
   window.addEventListener('pointermove', (e) => {
     parX = e.clientX / window.innerWidth - 0.5;
@@ -172,9 +211,10 @@
       u.teteGrp.rotation.x = lerp(u.teteGrp.rotation.x, -parY * 0.18, 0.05);
 
       const bob = Math.sin(t * 1.35 + i * 1.7) * 0.05;
-      g.position.y = lerp(g.position.y, avance + bob, 0.08);
-      g.position.z = lerp(g.position.z, vif ? 0.35 : 0, 0.06);
-      g.scale.setScalar(lerp(g.scale.x, scaleCible, 0.07));
+      const base = REP.agents[k];
+      g.position.y = lerp(g.position.y, base.y + avance + bob, 0.08);
+      g.position.z = lerp(g.position.z, base.z + (vif ? 0.35 : 0), 0.06);
+      g.scale.setScalar(lerp(g.scale.x, base.scale * scaleCible, 0.07));
       u.parties.forEach(p => {
         if (p === u.portrait && p.material.map) return; // géré par l'illumination de parole
         p.material.opacity = lerp(p.material.opacity, p.userData.opBase * opCible, 0.08);
@@ -186,8 +226,9 @@
     // Une seule face à l'écran : la caméra se pose droit devant l'agente appelée
     const xVif = (av[actif] ? av[actif].position.x : 0);
     camera.position.x = lerp(camera.position.x, xVif + parX * 0.85, 0.12);
-    camera.position.y = lerp(camera.position.y, 1.55 - parY * 0.5, 0.05);
-    camera.lookAt(xVif, 1.1, 0);
+    camera.position.y = lerp(camera.position.y, REP.camera.y - parY * 0.5, 0.05);
+    camera.position.z = lerp(camera.position.z, REP.camera.z, 0.08);
+    camera.lookAt(xVif, REP.camera.hauteur, 0);
     renderer.render(scene, camera);
   }
   tick();
