@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analyseur de courriel suspect — DIGITAL BUSINESS</title>
+<style>
+  :root { --bl: #e8e8e8; --gr: #8a8a8a; --line: #1e1e1e; --rouge: #ef4444; --vert: #34d399; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; color: var(--bl); font: 14px/1.55 "Segoe UI", system-ui, sans-serif; }
+  header { padding: 18px 22px 12px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 17px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; }
+  .sous { color: var(--gr); font-size: 12.5px; margin-top: 5px; max-width: 1000px; }
+  main { padding: 18px 22px 120px; max-width: 1160px; }
+  .carte { border: 1px solid var(--line); background: #050505; padding: 16px; margin-bottom: 18px; }
+  .carte h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--gr); font-weight: 600; }
+  textarea { width: 100%; min-height: 240px; background: #000; color: #eee; border: 1px solid #2a2a2a; padding: 12px; font: 12.5px/1.6 Consolas, monospace; resize: vertical; }
+  textarea:focus { outline: none; border-color: #4a4a4a; }
+  .bout { background: #fff; color: #000; border: 0; padding: 10px 18px; font: 600 12.5px/1 "Segoe UI", sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+  .bout.sec { background: transparent; color: var(--bl); border: 1px solid #3a3a3a; }
+  .bout:hover, .bout.sec:hover { opacity: .82; }
+  .barre { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  #info { color: var(--gr); font-size: 12px; }
+  .jauge { height: 8px; background: #141414; border: 1px solid #242424; margin: 10px 0 4px; }
+  .jauge i { display: block; height: 100%; background: #fff; width: 0; transition: width .5s ease; }
+  #verdict { font-size: 15px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; }
+  .certain #verdict, .certain #score { color: var(--rouge); }
+  .vif #verdict, .vif #score { color: #f0a94a; }
+  .doute #verdict, .doute #score { color: #d8d8d8; }
+  .propre #verdict, .propre #score { color: var(--vert); }
+  #score { font: 600 34px/1 Consolas, monospace; }
+  .meta { color: var(--gr); font-size: 12.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+  th { text-align: left; color: var(--gr); font: 600 10.5px/1 "Segoe UI", sans-serif; letter-spacing: .14em; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 9px 10px; border-bottom: 1px solid #141414; vertical-align: top; }
+  td.p { font-family: Consolas, monospace; color: #fff; text-align: right; white-space: nowrap; }
+  .bas { color: #6a6a6a; font-size: 11.5px; }
+  code { font: 12px/1.5 Consolas, monospace; color: #d5d5d5; word-break: break-all; }
+  ul { margin: 6px 0 0; padding-left: 18px; }
+  li { margin-bottom: 5px; }
+  .vide { color: #5c5c5c; font-size: 13px; padding: 10px; }
+  a { color: var(--gr); }
+  .garde { border-left: 2px solid var(--vert); padding: 8px 0 8px 14px; color: var(--gr); font-size: 12.5px; }
+  .pied { text-align:center; margin-top: 22px; }
+  .pied a { color:#777; font-size:11px; letter-spacing:3px; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Analyseur de courriel suspect · lecture seule</h1>
+  <div class="sous">Collez la source complète d'un message déjà reçu (en-têtes compris : dans Gmail, « Afficher l'original » ; dans Outlook, « Propriétés du message » ; ou le fichier <b>.eml</b> ouvert au bloc-notes). Le serveur décode les en-têtes, compare <b>From / Reply-To / Return-Path</b>, lit <b>SPF, DKIM, DMARC</b>, suit la chaîne de relais, et décortique chaque lien <b>sans jamais le charger</b>. Rien ne sort de ce PC : aucun envoi, aucune collecte, aucun clic. Le rapport est écrit dans <code>Documents\cyber_training\analyses-mail</code> — c'est la pièce que tu portes chez le client.</div>
+</header>
+
+<main>
+  <section class="carte">
+    <h2>Source du message</h2>
+    <textarea id="brut" spellcheck="false" placeholder="Received: from ...&#10;From: ...&#10;Reply-To: ...&#10;Subject: ...&#10;&#10;Corps du message et liens..."></textarea>
+    <div class="barre">
+      <button class="bout" id="lancer">Analyser</button>
+      <button class="bout sec" id="effacer">Vider</button>
+      <span id="info">Aucun message chargé.</span>
+    </div>
+  </section>
+
+  <section class="carte" id="resultat" hidden>
+    <h2>Verdict</h2>
+    <div style="display:flex; gap:20px; align-items:flex-end; flex-wrap:wrap">
+      <div><div id="score">—</div><div class="bas">SCORE / 100</div></div>
+      <div style="flex:1 1 320px">
+        <div id="verdict">—</div>
+        <div class="jauge"><i id="jauge"></i></div>
+        <div class="meta" id="detaile"></div>
+      </div>
+    </div>
+    <div id="corps" style="margin-top:14px"></div>
+  </section>
+
+  <section class="carte">
+    <h2>Exercices de la maison</h2>
+    <div class="meta">Deux courriers écrits ici, jamais envoyés — comme les défis simulés du labo. Le premier est un hameçonnage grossier, le second un message propre : s'il ne marque pas le second, l'analyseur ne crie pas au loup.</div>
+    <div class="barre" id="exo"><span class="vide">Chargement…</span></div>
+  </section>
+
+  <section class="carte">
+    <h2>Historique des analyses</h2>
+    <div class="meta" id="stats">—</div>
+    <table id="historique"><thead><tr><th>Quand</th><th>Objet</th><th>Expéditeur</th><th>Score</th><th>Indices dominants</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <div class="garde">Ce que cette page ne fait pas, et ne fera pas : envoyer un message, héberger une fausse page de connexion, récupérer une saisie, arper le trafic d'autrui. Elle lit ce que tu as déjà reçu. Un audit d'hameçonnage qui se vend à une PME commence toujours comme ça — par la preuve, pas par le piège.</div>
+  <div class="pied"><a href="engagements.html">FICHES D'ENGAGEMENT →</a> · <a href="labo.html">LABO →</a> · <a href="cerveau.html">CERVEAU →</a></div>
+</main>
+
+<script>
+var $ = function (id) { return document.getElementById(id); };
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function classeDe(score) { return score >= 75 ? 'certain' : score >= 50 ? 'vif' : score >= 28 ? 'doute' : 'propre'; }
+
+function affiche(a) {
+  var r = $('resultat');
+  r.hidden = false;
+  r.className = 'carte ' + classeDe(a.score);
+  $('score').textContent = a.score;
+  $('verdict').textContent = a.verdict;
+  $('jauge').style.width = a.score + '%';
+  $('detaile').textContent = 'Expéditeur : ' + (a.expediteur || '?') + ' · racine : ' + (a.racine_exp || '?') + ' · ' + a.liens.length + ' lien(s) · SPF ' + (a.entetes.spf || 'absent') + ' / DKIM ' + (a.entetes.dkim || 'absent') + ' / DMARC ' + (a.entetes.dmarc || 'absent');
+  var h = '';
+  h += '<h2 style="margin-top:4px">Indices relevés</h2>';
+  if (!a.indices.length) h += '<div class="vide">Aucun indice technique sur cette source. Ce n\'est pas un certificat de sécurité : vérifie le montant, le RIB et le nom du bénéficiaire par un autre canal.</div>';
+  else {
+    h += '<table><thead><tr><th>Indice</th><th>Détail</th><th class="p">Poids</th></tr></thead><tbody>';
+    for (var i = 0; i < a.indices.length; i++) {
+      var n = a.indices[i];
+      h += '<tr><td>' + esc(n.label) + '</td><td class="meta">' + esc(n.detail) + '</td><td class="p">' + (n.poids > 0 ? '+' : '') + n.poids + '</td></tr>';
+    }
+    h += '</tbody></table>';
+  }
+  if (a.liens && a.liens.length) {
+    h += '<h2 style="margin-top:16px">Liens décortiqués (aucun n\'a été chargé)</h2><table><thead><tr><th>Destination réelle</th><th>Hôte</th><th>Pièges</th></tr></thead><tbody>';
+    for (var j = 0; j < a.liens.length; j++) {
+      var L = a.liens[j];
+      h += '<tr><td><code>' + esc(L.url) + '</code></td><td>' + esc(L.hote || '?') + '</td><td class="meta">' + (L.notes.length ? esc(L.notes.join(', ')) : 'rien') + '</td></tr>';
+    }
+    h += '</tbody></table>';
+  }
+  h += '<h2 style="margin-top:16px">Conduite à tenir</h2><ul>';
+  for (var k = 0; k < a.recommandations.length; k++) h += '<li>' + esc(a.recommandations[k]) + '</li>';
+  h += '</ul>';
+  if (a.rapport) h += '<div class="meta" style="margin-top:12px">Rapport gravé : <code>' + esc(a.rapport) + '</code></div>';
+  $('corps').innerHTML = h;
+  r.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+$('lancer').onclick = function () {
+  var brut = $('brut').value;
+  if (brut.replace(/\s/g, '').length < 30) { $('info').textContent = 'Trop court : colle le message avec ses en-têtes.'; return; }
+  $('info').textContent = 'Analyse en cours…';
+  fetch('/api/analyse-mail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brut: brut }) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) { $('info').textContent = 'Erreur : ' + d.erreur; return; }
+      $('info').textContent = 'Analyse terminée — ' + d.analyse.indices.length + ' indice(s), rien n\'a été envoyé nulle part.';
+      affiche(d.analyse);
+      charger();
+    })
+    .catch(function (e) { $('info').textContent = 'Le cerveau ne répond pas : ' + e; });
+};
+$('effacer').onclick = function () { $('brut').value = ''; $('resultat').hidden = true; $('info').textContent = 'Aucun message chargé.'; };
+
+function chargeExemples(liste) {
+  var box = $('exo');
+  box.innerHTML = '';
+  liste.forEach(function (ex) {
+    var b = document.createElement('button');
+    b.className = 'bout sec';
+    b.textContent = ex.nom + ' (attendu : ' + ex.attendu + ')';
+    b.onclick = function () { $('brut').value = ex.brut; $('info').textContent = 'Exercice chargé : ' + ex.nom; $('lancer').click(); };
+    box.appendChild(b);
+  });
+}
+
+function charger() {
+  fetch('/api/analyse-mail', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.exemples && !$('exo').querySelector('button')) chargeExemples(d.exemples);
+      var s = d.stats || {};
+      $('stats').textContent = s.total
+        ? s.total + ' analyse(s) au total — ' + s.severites.certains + ' certain(s), ' + s.severites.suspects + ' très suspect(s), ' + s.severites.vigilance + ' en vigilance, ' + s.severites.propres + ' sans signe. Rapports : ' + s.repertoire
+        : 'Aucune analyse enregistrée pour le moment. Les rapports s\'empilent dans ' + (s.repertoire || 'Documents\\cyber_training\\analyses-mail');
+      var tb = $('historique').querySelector('tbody');
+      tb.innerHTML = '';
+      (d.analyses || []).forEach(function (a) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td class="meta">' + esc(new Date(a.t).toLocaleString('fr-FR')) + '</td><td>' + esc(a.sujet) + '</td><td class="meta">' + esc(a.expediteur) + '</td><td class="p" style="color:' + (a.score >= 75 ? '#ef4444' : a.score >= 50 ? '#f0a94a' : a.score >= 28 ? '#d8d8d8' : '#34d399') + '">' + a.score + '</td><td class="meta">' + esc((a.top || []).join(' · ')) + '</td>';
+        tb.appendChild(tr);
+      });
+      if (!(d.analyses || []).length) tb.innerHTML = '<tr><td colspan="5" class="vide">Rien encore ici — la première analyse arrivera.</td></tr>';
+    })
+    .catch(function () {});
+}
+charger();
+</script>
+</body>
+</html>

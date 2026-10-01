@@ -2234,6 +2234,714 @@ function nettoieCible(s) {
   return (restants.length ? restants : mots).join(' ');
 }
 
+// --- ANALYSEUR DE MAIL SUSPECT (reprise défensive du 2026-10-01) ---
+// Isaac voulait un moteur de hameçonnage. Ce que l'outil autorise, et qui se vend à une PME,
+// c'est l'envers du décor : LIRE un courriel déjà reçu et dire POURQUOI il sent l'arnaque.
+// 100 % local, lecture seule : rien n'est envoyé, aucune page clone, aucune donnée de tiers.
+// Le module décode les en-têtes, compare les domaines, lit SPF/DKIM/DMARC, ouvre les liens
+// sur le papier (jamais dans le réseau), pèse les indices, et grave un vrai rapport dans
+// Documents\cyber_training\analyses-mail.
+const CHEMIN_ANALYSES = path.join(__dirname, 'analyses-mail.json');
+function lireAnalyses() {
+  try {
+    const d = JSON.parse(fs.readFileSync(CHEMIN_ANALYSES, 'utf8'));
+    return Array.isArray(d && d.analyses) ? d.analyses : [];
+  } catch (e) { return []; }
+}
+function ecrireAnalyses(l) {
+  fs.writeFileSync(CHEMIN_ANALYSES, JSON.stringify({ analyses: l.slice(0, 120), maj: new Date().toISOString() }, null, 2));
+}
+const MARQUES_CONNUES = [
+  { n: 'paypal', d: ['paypal.com', 'paypal.me'] },
+  { n: 'orange', d: ['orange.ci', 'orangeci.com', 'orange.com', 'orange.fr', 'orange-money.com'] },
+  { n: 'mtn', d: ['mtn.com', 'mtn.ci', 'mtnonline.com'] },
+  { n: 'moov', d: ['moov.ci', 'moov.com', 'etisalat.com'] },
+  { n: 'google', d: ['google.com', 'gmail.com', 'googleapis.com'] },
+  { n: 'facebook', d: ['facebook.com', 'meta.com', 'fb.com'] },
+  { n: 'instagram', d: ['instagram.com'] },
+  { n: 'whatsapp', d: ['whatsapp.com', 'wa.me'] },
+  { n: 'microsoft', d: ['microsoft.com', 'live.com', 'office.com', 'outlook.com', 'hotmail.com'] },
+  { n: 'apple', d: ['apple.com', 'icloud.com'] },
+  { n: 'amazon', d: ['amazon.com', 'amazon.fr', 'amzn.to'] },
+  { n: 'netflix', d: ['netflix.com'] },
+  { n: 'binance', d: ['binance.com'] },
+  { n: 'paystack', d: ['paystack.com'] },
+  { n: 'flutterwave', d: ['flutterwave.com'] },
+  { n: 'ecobank', d: ['ecobank.com'] },
+  { n: 'orabank', d: ['orabank.ci', 'orabank.com'] },
+  { n: 'tgic', d: ['tgic-ci.com'] },
+  { n: 'cnps', d: ['cnps.ci'] },
+  { n: 'steam', d: ['steampowered.com', 'steamcommunity.com'] },
+  { n: 'linkedin', d: ['linkedin.com'] },
+  { n: 'tiktok', d: ['tiktok.com'] },
+  { n: 'wave', d: ['wave.ci', 'wave.com'] }
+];
+const RACCOURCISSEURS = ['bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'ow.ly', 'is.gd', 'buff.ly', 'cutt.ly', 'rebrand.ly', 'shorturl.at', 'rb.gy', 'tiny.cc', 'v.gd', 'mzl.la', 's.id', 'linklyhq.com'];
+const TLD_DEROUTANTS = ['.zip', '.top', '.click', '.country', '.work', '.loan', '.gq', '.tk', '.ml', '.cf', '.ga', '.su', '.sbs', '.rest', '.cam', '.xyz', '.online', '.shop', '.live', '.fun'];
+const MOTS_URGENCE = ["immunediat", "immediately", "maintenant", "dans les 24 heures", "sous 24 h", "expire", "expir", "suspend", "bloqu", "blocage", "desactiv", "clotur", "action requise", "obligatoire", "obligation", "verification", "verify", "confirm", "valide", "sanction", "amende", "poursuite", "juridique", "regularis", "impay", "fraude", "anomalie", "activite suspecte", "nouvel appareil", "reinitialis", "mot de passe", "password", "otp", "code de securite", "code de confirmation", "carte bancaire", "virement", "beneficiaire", "heritage", "loterie", "last warning", "compte sera"];
+const MOTS_COMPTE = /\b(?:login|signin|sign in|log in|connexion|connecte[- ]?toi|authentif\w*|secure|s[ée]curis|mon compte|my account|account|compte|wallet|portefeuille)\b/i;
+
+// Le texte normalisé d'un nom d'hôte : minuscules, homoglyphes usuels replies, plus de ponctuation.
+// Une marque se repere aussi par le nom de ses domaines officiels : « outlook », « live »,
+// « hotmail » comptent autant que « microsoft ». Sans ça, outlook-support.zip passait inapercu.
+const TOKENS_VIDES = ['com', 'net', 'org', 'co', 'ci', 'fr', 'uk', 'za', 'ng', 'gh', 'sn', 'me', 'to', 'www', 'amazonaws', 'googleapis', 'steampowered', 'steamcommunity', 'orangeci', 'mtnonline', 'icloud', 'fb'];
+for (const m of MARQUES_CONNUES) {
+  const mots = m.n.split(/\s+/).concat(m.d.map(d => String(d).split('.')[0]));
+  m.mots = Array.from(new Set(mots.filter(w => w && w.length >= 3 && !TOKENS_VIDES.includes(w))));
+}
+function homoglyphe(s) {
+  return String(s || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/vv/g, 'w').replace(/[0]/g, 'o').replace(/[1|!íìï]/g, 'l').replace(/[3]/g, 'e')
+    .replace(/[5]/g, 's').replace(/\$/g, 's').replace(/[@]/g, 'a').replace(/[7]/g, 't')
+    .replace(/ph/g, 'f').replace(/[^a-z]/g, '');
+}
+function distanceDeEdition(a, b) {
+  if (!a || !b) return 99;
+  if (Math.abs(a.length - b.length) > 3) return 99;
+  const prev = new Array(b.length + 1), cur = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = cur[j];
+  }
+  return prev[b.length];
+}
+// Racine d un domaine (2 labels, 3 pour les suffixes composés courants en Afrique de l'Ouest).
+const SUFFIXES_COMPOSES = ['co.ci', 'com.ci', 'net.ci', 'org.ci', 'co.uk', 'co.za', 'com.ng', 'com.gh', 'com.sn', 'fr.ci'];
+function racineDomaine(hote) {
+  const h = String(hote || '').toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
+  if (!h || estUneIP(h)) return h;
+  const part = h.split('.');
+  if (part.length < 2) return h;
+  const deux = part.slice(-2).join('.');
+  if (SUFFIXES_COMPOSES.includes(deux) && part.length >= 3) return part.slice(-3).join('.');
+  return deux;
+}
+// Un host est OFFICIEL s'il tombe sur le domaine de la marque, y compris dans les racines à
+// trois niveaux (mtn.com.ci, orange.ci, ecobank.com.gh). Sans cette règle, l'analyseur marquait
+// « imitation » le vrai lien du client — le pire défaut possible pour un rapport d'audit.
+function estHostOfficiel(brut, m) {
+  const rac = racineDomaine(brut);
+  const labels = String(rac || '').split('.');
+  const premiers = m.d.map(d => String(racineDomaine(d)).split('.')[0]);
+  const suffixes = m.d.map(d => String(d).split('.').pop());
+  const token = labels[0];
+  if (token && premiers.indexOf(token) > -1 && suffixes.indexOf(labels[labels.length - 1]) > -1) return true;
+  return m.d.some(d => brut === d || brut.endsWith('.' + d) || brut === racineDomaine(d));
+}
+// Deux hôtes sont de la même famille s'ils tombent sur le même domaine officiel, ou sur la même
+// première étiquette de racine : smtpin.mtn.ci et www.mtn.com.ci sont bien MTN tous les deux.
+function memeFamille(a, b) {
+  const ra = String(racineDomaine(a) || ''), rb = String(racineDomaine(b) || '');
+  if (!ra || !rb) return false;
+  if (ra === rb) return true;
+  if (ra.split('.')[0] === rb.split('.')[0] && ra.split('.')[0].length >= 3) return true;
+  for (const m of MARQUES_CONNUES) if (estHostOfficiel(ra, m) && estHostOfficiel(rb, m)) return true;
+  return false;
+}
+function domaineImite(hote) {
+  const brut = String(hote || '').toLowerCase();
+  const n = homoglyphe(brut);
+  if (!brut || estUneIP(brut)) return null;
+  const rac = racineDomaine(brut);
+  for (const m of MARQUES_CONNUES) {
+    if (estHostOfficiel(brut, m)) return null;
+    for (const mot of motsDeMarque(m)) {
+      // Les marques courtes (mtn, cnps) ne se repèrent qu'isolées : sinon « commonly » devient « mtn ».
+      const propre = brut.replace(/[^a-z0-9 .@\-]/g, ' ');
+      const tape = mot.length >= 4 ? n.includes(mot) : new RegExp('(?:^|[^a-z])' + mot + '(?:[^a-z]|$)').test(propre);
+      if (tape) return { marque: m.n, officiel: officielPour(m, mot), racine: rac, br: m };
+      for (const seg of brut.split(/[^a-z0-9]+/)) {
+        if (seg.length >= mot.length - 1 && seg.length <= mot.length + 3 && distanceDeEdition(homoglyphe(seg), mot) <= 2) {
+          return { marque: m.n, officiel: officielPour(m, mot), racine: rac, br: m };
+        }
+      }
+    }
+  }
+  return null;
+}
+function motsDeMarque(m) {
+  if (!m.mots) {
+    const t = m.n.split(/\s+/).concat(m.d.map(d => String(racineDomaine(d)).split('.')[0]));
+    m.mots = Array.from(new Set(t.filter(w => w && w.length >= 3 && !TOKENS_VIDES.includes(w) && !/^\d+$/.test(w))));
+  }
+  return m.mots;
+}
+function officielPour(m, mot) {
+  const d = m.d.find(x => String(racineDomaine(x)).split('.')[0] === mot);
+  return d || m.d[0];
+}
+function decoupeMail(brut) {
+  const norm = String(brut || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const i = norm.search(/\n[ \t]*\n/);
+  if (i < 0) {
+    // Beaucoup de copies ne contiennent que les en-têtes, ou que le corps.
+    return /\n[a-z0-9-]{2,30}:\s/i.test(norm) ? { tete: norm, corps: '' } : { tete: '', corps: norm };
+  }
+  return { tete: norm.slice(0, i), corps: norm.slice(i + 2) };
+}
+function lireEnTetes(tete) {
+  const map = {};
+  let cle = null;
+  for (const l of String(tete || '').split('\n')) {
+    const m = l.match(/^([A-Za-z0-9][A-Za-z0-9-]{1,28}):[ \t]*(.*)$/);
+    if (m && !/^[ \t]/.test(l)) {
+      cle = m[1].toLowerCase();
+      if (!map[cle]) map[cle] = [];
+      map[cle].push(m[2].trim());
+    } else if (cle && /^[ \t]/.test(l)) {
+      map[cle][map[cle].length - 1] += ' ' + l.trim();
+    }
+  }
+  return map;
+}
+function adresseDans(s) {
+  const m = String(s || '').match(/<\s*([^<>\s]+@[^<>\s]+)\s*>/) || String(s || '').match(/([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/);
+  return m ? m[1].trim().toLowerCase() : '';
+}
+function nomAffiche(s) {
+  const raw = String(s || '').trim();
+  const m = raw.match(/^("?)([^"<>]+)\1?\s*</);
+  return (m ? m[2] : raw.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+}
+function domaineAdresse(adr) { return String(adr || '').split('@')[1] || ''; }
+
+// Décodage du corps selon l'en-tête de transfert (base64 et quoted-printable sont fréquents
+// dans les pourriels : sans décodage, les liens piégés restent invisibles).
+function decodeCorps(H, corps) {
+  const enc = String((H['content-transfer-encoding'] || [])[0] || '').toLowerCase();
+  let t = String(corps || '');
+  if (enc.indexOf('base64') > -1) {
+    const net = t.replace(/[^A-Za-z0-9+/=]/g, '');
+    if (net.length > 32) {
+      try {
+        const d = Buffer.from(net, 'base64').toString('utf8');
+        if (d && d.replace(/[^\x20-\x7e]/g, '').length > 24) t = d;
+      } catch (e) {}
+    }
+  } else if (enc.indexOf('quoted-printable') > -1) {
+    t = t.replace(/=[ \t]*\n/g, '').replace(/=3D/g, '=').replace(/=\?/g, '?')
+      .replace(/=([0-9A-Fa-f]{2})/g, (m, c) => String.fromCharCode(parseInt(c, 16)));
+    try { t = Buffer.from(t, 'binary').toString('utf8'); } catch (e) {}
+  }
+  return t;
+}
+function texteSansHtml(s) {
+  return String(s || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+}
+function lienEnTexte(s) {
+  const out = [];
+  const vus = {};
+  const pousse = (url, texte) => {
+    const u = String(url || '').trim().replace(/[.,;)\]}"']+$/, '');
+    if (!u || vus[u.toLowerCase() + '|' + String(texte || '').toLowerCase()]) return;
+    vus[u.toLowerCase() + '|' + String(texte || '').toLowerCase()] = 1;
+    out.push({ url: u, texte: String(texte || '').trim() });
+  };
+  let m;
+  const ancre = /<a[^>]{0,600}?href\s*=\s*["']?([^"'\s>]+)[^>]{0,300}>([\s\S]{0,200}?)<\/a>/gi;
+  while ((m = ancre.exec(String(s || '')))) pousse(m[1], texteSansHtml(m[2]));
+  const meta = /<meta[^>]{0,200}?http-equiv\s*=\s*["']?refresh["']?[^>]{0,200}?url\s*=\s*["']?([^"'\s;>]+)/gi;
+  while ((m = meta.exec(String(s || '')))) pousse(m[1], '(redirection automatique, aucun texte visible)');
+  const brut = /(?:https?|ftp):\/\/[^\s"'<>()\[\]]+/gi;
+  const brutSrc = texteSansHtml(s);
+  while ((m = brut.exec(brutSrc))) pousse(m[0], m[0]);
+  return out.slice(0, 40);
+}
+function autoriteDe(url) {
+  const m = String(url || '').match(/^(?:https?|ftp):\/\/([^\/?#]*)/i);
+  if (!m) return null;
+  const auth = m[1];
+  const sep = auth.lastIndexOf('@');
+  const hostport = sep > -1 ? auth.slice(sep + 1) : auth;
+  return {
+    hote: hostport.split(':')[0].toLowerCase().replace(/\.$/, ''),
+    port: hostport.split(':')[1] || '',
+    arobase: sep > -1,
+    userinfo: sep > -1 ? auth.slice(0, sep) : ''
+  };
+}
+function tailleMarque(s) { const t = String(s || '').trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; }
+// Dans un rapport client, « mtn » et « paypal » s'écrivent MTN et PayPal.
+const NOMS_MARQUES = { mtn: 'MTN', moov: 'Moov', orange: 'Orange', paypal: 'PayPal', google: 'Google', microsoft: 'Microsoft', apple: 'Apple', amazon: 'Amazon', netflix: 'Netflix', binance: 'Binance', paystack: 'Paystack', flutterwave: 'Flutterwave', ecobank: 'Ecobank', orabank: 'Orabank', tgic: 'TGIC', cnps: 'CNPS', wave: 'Wave', steam: 'Steam', linkedin: 'LinkedIn', tiktok: 'TikTok', facebook: 'Facebook', instagram: 'Instagram', whatsapp: 'WhatsApp' };
+function nomMarque(s) { const t = String(s || '').toLowerCase(); return NOMS_MARQUES[t] || tailleMarque(t); }
+function analyseMail(brut) {
+  const d = decoupeMail(brut);
+  const H = lireEnTetes(d.tete);
+  const get = n => (H[n] || []).join(' | ');
+  const tous = n => H[n] || [];
+  const corps = decodeCorps(H, d.corps);
+  // Un mail dicté à la voix n'a presque jamais de ligne blanche : sans ce garde-fou, le texte
+  // entier partait en « en-têtes » et l'analyseur restait aveugle aux liens et aux mots.
+  const corpsReel = d.corps ? corps : String(brut || '');
+  const html = /<a\s|<html|<body|<meta/i.test(corpsReel) ? corpsReel : '';
+  const texte = texteSansHtml(corpsReel);
+  const sujet = get('subject');
+  const from = get('from'), reply = get('reply-to');
+  const retour = get('return-path') || get('sender') || get('x-return-path');
+  const mid = get('message-id');
+  const adrFrom = adresseDans(from), domFrom = domaineAdresse(adrFrom), racFrom = racineDomaine(domFrom);
+  const indices = [];
+  let marqueVisee = '';
+  const pieges = {};
+  const mark = (label, detail, poids) => {
+    const k = String(label).toLowerCase();
+    if (!pieges[k] || pieges[k].poids < poids) pieges[k] = { label, detail: String(detail || '').slice(0, 300), poids };
+  };
+  if (!d.tete && !/\n[a-z0-9-]{2,30}:\s/i.test(String(brut || ''))) {
+    mark("Source analyssee sans entetes", "Isaac a colle le corps du message seulement : le verdict repose sur les liens et les mots, pas sur l authentification.", -4);
+  }
+  // --- 1. L'expéditeur annoncé vs les adresses de reprise ---
+  if (reply) {
+    const adrReply = adresseDans(reply), racReply = racineDomaine(domaineAdresse(adrReply));
+    if (adrReply && racFrom && racReply && racReply !== racFrom) {
+      mark("Reply-To different de l expediteur", "Le From pretend " + (adrFrom || 'rien') + " mais les reponses partent vers " + racReply + ".", 28);
+    }
+  }
+  if (retour) {
+    const adrRet = adresseDans(retour), racRet = racineDomaine(domaineAdresse(adrRet));
+    if (adrRet && racFrom && racRet && racRet !== racFrom) {
+      mark("Return-Path different du From", "L adresse de rebond technique est " + racRet + ", l'expediteur affiche " + racFrom + ".", 18);
+    }
+  }
+  if (mid) {
+    const racMid = racineDomaine(domaineAdresse(adresseDans(mid) || mid.replace(/^[^@]*@/, '')));
+    if (racMid && racFrom && racMid !== racFrom) mark("Message-ID hors du domaine annonce", "Le numero interne du message vient de " + racMid + ".", 12);
+  } else if (d.tete) mark("Message-ID absent", "Les serveurs legitimes en mettent presque toujours un.", 5);
+  const nomAdr = nomAffiche(from);
+  const imitNom = domaineImite(nomAdr);
+  if (imitNom && racFrom && !estHostOfficiel(racFrom, imitNom.br)) {
+    marqueVisee = imitNom.marque;
+    mark("Nom d affichage usurpe", "Le message se presente comme « " + nomMarque(imitNom.marque) + " » mais part de " + racFrom + ".", 22);
+  }
+  if (domFrom && domaineImite(domFrom)) {
+    const im = domaineImite(domFrom);
+    marqueVisee = marqueVisee || im.marque;
+    mark("Domaine de l expediteur imite " + nomMarque(im.marque), "Il frappe depuis " + domFrom + ", l officiel est " + im.officiel + ".", 30);
+  }
+  // --- 2. Les trois contrôles d'authentification, lus dans Authentication-Results ---
+  const auth = [get('authentication-results'), get('received-spf'), get('dkim-signature')].join(' ').toLowerCase();
+  const etat = champ => {
+    const m = auth.match(new RegExp(champ + "[=\\s:\"']*(pass|fail|softfail|neutral|none|permerror|temperror|policy)"));
+    return m ? m[1] : '';
+  };
+  const spf = etat('spf'), dkim = etat('dkim'), dmarc = etat('dmarc');
+  if (spf === 'fail') mark("SPF en echec", "Le serveur qui a envoye le message n est pas autorise par le domaine " + racFrom + ".", 30);
+  else if (spf === 'softfail' || spf === 'permerror') mark("SPF fragilise", "Verdict " + spf + " : le domaine " + racFrom + " n assume pas cet envoi.", 18);
+  else if (!spf) mark("SPF absent du message", "Aucun resultat SPF : soit la chaine ne l a pas passe, soit il a ete retire.", 10);
+  if (dkim === 'fail') mark("DKIM en echec", "La signature cryptographique du message ne correspond pas : il a ete modifie ou falsifie.", 26);
+  else if (!dkim) mark("DKIM absent", "Aucune signature verifiable sur un message qui pretend venir d une organisation.", 10);
+  if (dmarc === 'fail') mark("DMARC en echec", "Le domaine de l expediteur refuse officiellement cet envoi.", 28);
+  else if (!dmarc) mark("DMARC absent", "Pas de politique DMARC lisible dans le message.", 8);
+  if (spf === 'pass' && dkim === 'pass' && dmarc === 'pass') {
+    mark("Les trois controles passent", "SPF, DKIM et DMARC sont verts pour " + racFrom + " : la source est authentifiee.", -18);
+  }
+  // --- 3. La chaîne de relais : d'où est vraiment parti le message ---
+  const recus = tous('received');
+  if (recus.length) {
+    const dernier = recus[recus.length - 1];
+    const par = dernier.match(/from\s+([A-Za-z0-9._-]+)\s*\(([^)]*)\)/i) || dernier.match(/from\s+([A-Za-z0-9._-]+)/i);
+    if (par) {
+      const hoteRelais = String(par[1]).toLowerCase();
+      const ipRelais = (dernier.match(/\[?(\d{1,3}(?:\.\d{1,3}){3})\]?/) || [])[1] || '';
+      const racRelais = racineDomaine(hoteRelais);
+      if (ipRelais && estIPLocale(ipRelais) && /^127\./.test(ipRelais)) {
+        mark("Le relais d entree annonce localhost", "Premier saut : " + hoteRelais + " (" + ipRelais + "). Un courriel ne peut pas naitre dans la machine qui le recoit : le message a ete fabrique ici, pas recus du reseau de " + (racFrom || "l expediteur") + ".", 16);
+      } else if (ipRelais && estIPLocale(ipRelais)) {
+        mark("Premier relais en adresse privee", "La machine d entree est " + ipRelais + " : le message a ete injecte depuis un rseau local, pas depuis un serveur de " + racFrom + ".", 14);
+      } else if (racRelais && racFrom && !memeFamille(racRelais, racFrom) && !/(?:gmail|yahoo|outlook|hotmail|mail\.ru|yandex)/.test(racRelais)) {
+        mark("Relais d entree incoherent", "Le message part de " + hoteRelais + " alors que l'expediteur affiche " + racFrom + ".", 12);
+      }
+    }
+  }
+  // --- 4. Les liens : décortiqués sur le papier, jamais chargés ---
+  const liens = lienEnTexte(html || texte);
+  const detailLiens = [];
+  for (const L of liens) {
+    const a = autoriteDe(L.url);
+    const notes = [];
+    if (!a) {
+      if (/^javascript:/i.test(L.url)) { mark("Lien en javascript", "Un lien javascript: sert a voler ce qui est a l ecran.", 12); notes.push('javascript'); }
+      else continue;
+    } else {
+      const h = a.hote, rac = racineDomaine(h);
+      if (estUneIP(h)) { mark("Lien vers une adresse IP brute", L.url + " : les sites legitimes n envoient pas leurs clients sur une IP nue.", 24); notes.push('ip'); }
+      if (a.arobase) { mark("Arobase detournee dans un lien", L.url + " : ce qui precede le @ n est que le compte a remplir, la vraie destination est " + rac + ".", 26); notes.push('arobase'); }
+      if (/xn--/i.test(h)) { mark("Lien en punycode", h + " : un caractere unicode imite une lettre latine.", 24); notes.push('punycode'); }
+      const im = domaineImite(h);
+      if (im) { marqueVisee = marqueVisee || im.marque; mark("Lien imitant " + nomMarque(im.marque), h + " pretend etre " + im.officiel + ".", 30); notes.push('usurpation'); }
+      else {
+        const sub = h.replace(new RegExp('\\.' + rac.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'), '');
+        if (sub.includes('.') && /(secure|securite|login|verify|compte|account|banque|update|pay|client|auth)/.test(homoglyphe(sub))) {
+          mark("Sous-domaine trompeur", h + " : le mot cle est dans le sous-domaine, la racine reelle est " + rac + ".", 14); notes.push('sous-domaine');
+        }
+      }
+      if (RACCOURCISSEURS.includes(rac)) { mark("Lien raccourci", rac + " masque la destination jusqu au clic.", 16); notes.push('raccourci'); }
+      const tld = (h.match(/\.[a-z]{2,}$/) || [''])[0];
+      if (TLD_DEROUTANTS.includes(tld)) { mark("Extension deroutante", h + " se termine par " + tld + ", tres peu pour un service officiel.", 10); notes.push('tld'); }
+      if (/^http:\/\//i.test(L.url) && MOTS_COMPTE.test(L.url)) { mark("Fausse page de connexion en http simple", L.url.slice(0, 120) + " : identification sans chiffrement.", 18); notes.push('http'); }
+      else if (a.port && a.port !== '80' && a.port !== '443') { mark("Port non standard dans un lien", L.url.slice(0, 120) + " : le service tourne sur le port " + a.port + ".", 12); notes.push('port'); }
+      if (/(login|signin|auth|password|mot-de-passe|motdepasse|otp|verify|verif|confirm|validat|secure|securit|compte|account|desbloque|unlock|webapp|profile)/i.test(L.url) && rac && racFrom && rac !== racFrom) {
+        mark("Page de saisie d identifiants hors du domaine", L.url.slice(0, 120) + " demande de se connecter chez " + rac + " alors que le message annonce " + racFrom + ".", 26); notes.push('identifiants');
+      }
+      const tex = String(L.texte || '').toLowerCase();
+      const hTex = (tex.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9.-]+\.[a-z]{2,})/i) || [])[1] || '';
+      if (hTex && rac && racineDomaine(hTex) !== rac) {
+        mark("Texte du lien different de sa destination", "Le message affiche " + hTex + ", le clic part sur " + rac + ".", 26); notes.push('texte');
+      }
+    }
+    detailLiens.push({ url: L.url.slice(0, 160), hote: a ? a.hote : '', notes });
+  }
+  // --- 5. Les pièces jointes ---
+  const pj = [get('content-disposition'), get('content-type'), get('filename'), get('content-description')].join(' ');
+  const noms = (String(pj).match(/filename\*?\s*=\s*"?([^";\n]+)"?/gi) || []).map(s => s.replace(/filename\*?\s*=\s*/i, '').replace(/"/g, ''));
+  for (const n of noms) {
+    const nn = String(n).trim().toLowerCase();
+    if (!nn) continue;
+    if (/\.(exe|scr|vbs|js|jse|wsf|bat|cmd|com|pif|hta|lnk|cpl|msi)$/.test(nn)) mark("Piece jointe executable", nn + " : une piece jointe de ce type n arrive jamais d un service legitime.", 30);
+    else if (/\.(pdf|doc|docx|xls|xlsx|ppt|jpg|png|zip|rar)$\./.test(nn) || (nn.match(/\./g) || []).length > 1 && /\.[a-z0-9]{2,5}\.(exe|js|scr|vbs|bat|htm|html|zip|rar)$/.test(nn)) mark("Double extension", nn + " : le vrai type est la derniere extension.", 30);
+    else if (/\.(iso|img|zip|rar|7z)$/.test(nn)) mark("Archive suspecte", nn + " : les archives servent a passer devant les filtres.", 14);
+  }
+  // --- 6. Le ton du message ---
+  const mix = (sujet + ' ' + texte).toLowerCase().replace(/[’]/g, ' ');
+  let urgences = 0;
+  const trouvés = [];
+  for (const w of MOTS_URGENCE) { if (mix.indexOf(w) > -1) { urgences++; trouvés.push(w); } }
+  if (urgences) mark("Vocabulaire de pression (" + urgences + ")", trouvés.slice(0, 8).join(', '), Math.min(18, urgences * 5));
+  if (/^(?:cher (?:client|utilisateur|abonne|member|user)|dear (?:customer|user|sir|valued)|cher\s*\S+\s*(?:compte|client)?,?$|hello user)/i.test(String(sujet + ' ' + texte).trim()) && !/(?:isaac|clement|ouattara)/i.test(texte)) {
+    mark("Formule d accueil generique", "Un service qui te connait t appelle par ton nom ; ici c est « cher client ».", 8);
+  }
+  if (/afficher? les images|activer? les images|enable images|view message in browser/i.test(corps) && urgences >= 3) {
+    mark("Image cliquable comme seule porte", "Le message pousse a afficher les images : c est la qu est le lien piège.", 10);
+  }
+  const liste = Object.keys(pieges).map(k => pieges[k]).sort((a, b) => b.poids - a.poids);
+  let score = liste.reduce((s, i) => s + i.poids, 0);
+  score = Math.max(0, Math.min(100, score));
+  let verdict;
+  if (score >= 75) verdict = "HAMEÇONNAGE QUASI CERTAIN";
+  else if (score >= 50) verdict = "TRES SUSPECT — ne clique rien";
+  else if (score >= 28) verdict = "SUSPECT — vigilance";
+  else if (score >= 12) verdict = "BIZARRERIES MINEURES";
+  else verdict = "AUCUN SIGNE DETECTE";
+  const reco = [];
+  if (score >= 28) reco.push("Ne clique aucun lien et n ouvre aucune piece jointe. Tape l adresse du site toi-meme dans le navigateur, ou passe par l appli officielle.");
+  if (pieges['reply-to different de l expediteur'] || /imite|usurpe/i.test(liste.map(l => l.label).join(' '))) {
+    const officiel = marqueVisee ? nomMarque(marqueVisee) + " (" + ((MARQUES_CONNUES.find(m => m.n === marqueVisee) || {}).d || ['son site officiel'])[0] + ")" : (racFrom || "l organisme annonce");
+    reco.push("L identite affichee n est pas l identite technique : " + (marqueVisee ? "ce message pretend parler au nom de " + officiel + ", contacte-les par le canal que TU tapes, jamais par celui du mail" : "contacte " + officiel + " par son canal officiel") + ". Repondre a ce message, c est repondre a l attaquant.");
+  }
+  if (pieges['spf en echec'] || pieges['dkim en echec'] || pieges['dmarc en echec']) reco.push("Les controles SPF/DKIM/DMARC sont en echec : tu peux le citer dans un rapport client, c est la preuve technique, pas une impression.");
+  if (liste.some(l => /lien| Lien/i.test(l.label))) reco.push("Le lien a ete decortique ici sans jamais etre charge : rien n est parti vers le serveur distant, et aucune donnee n a ete envoyee.");
+  reco.push("Transfere le message en piece jointe (.eml) a l expediteur presume, puis supprime-le. Garde cette analyse : c est elle qui prouve ce que tu as vu et quand.");
+  if (score < 12) reco.push("Attention : aucun signe ne veut pas dire certificat de securite. Un mail authentifie peut quand meme mentir sur le fond — verifie le montant, le RIB, le nom du beneficiaire par un autre canal.");
+  // L'habillage francais (accents + elisions) se fait ici, une seule fois : la voix, la page et le
+  // rapport lisent tous le meme objet. Les cles internes de detection restent en ASCII, donc les
+  // comparaisons ci-dessus (pieges['spf en echec'], etc.) ne sont jamais cassees.
+  const habille = i => Object.assign({}, i, { label: accentsFR(i.label), detail: accentsFR(i.detail) });
+  return {
+    t: new Date().toISOString(),
+    sujet: sujet.slice(0, 140) || '(sans objet)',
+    expediteur: adrFrom || nomAffiche(from) || '(non lisible)',
+    racine_exp: racFrom,
+    score, verdict: accentsFR(verdict),
+    indices: liste.map(habille),
+    liens: detailLiens.slice(0, 12),
+    entetes: { from, reply_to: reply, return_path: retour, spf, dkim, dmarc, relais: recus.length },
+    nb_liens: detailLiens.length,
+    pieces: noms.length,
+    recommandations: reco.slice(0, 4).map(accentsFR),
+    signes: { entetes_lus: Object.keys(H).length, mots_urgence: urgences, base64: /base64/i.test(get('content-transfer-encoding')), html: !!html }
+  };
+}
+// Les phrases de l'analyseur sont ecrites sans accents : la dictee vocale et la voix de synthese
+// s'en accommodent mieux, et le code reste sur du pur ASCII. Le rapport client, lui, se lit a
+// l'ecran et s'imprime : on remet les elisions et les accents francais au moment de l'ecrire,
+// sans jamais toucher au texte analyse (un mail dit "expediteur" reste "expediteur" dans la preuve).
+const ACCENTS_FR = {
+  recu: 'reçu', pretend: 'prétend', pretends: 'prétends', pretendre: 'prétendre', etat: 'état',
+  different: 'différent', differente: 'différente', differents: 'différents', differentes: 'différentes',
+  piece: 'pièce', pieces: 'pièces', securite: 'sécurité', identite: 'identité', identites: 'identités',
+  envoye: 'envoyé', envoyee: 'envoyée', donnee: 'donnée', donnees: 'données', controle: 'contrôle',
+  controles: 'contrôles', authentifie: 'authentifié', authentifiee: 'authentifiée', verifie: 'vérifié',
+  verifiee: 'vérifiée', reponse: 'réponse', reponses: 'réponses', repondre: 'répondre', presente: 'présente',
+  derniere: 'dernière', generique: 'générique', tres: 'très', detection: 'détection', ete: 'été',
+  legitime: 'légitime', legitimes: 'légitimes', usurpe: 'usurpé', usurpee: 'usurpée', imite: 'imité',
+  nomme: 'nommé', reseau: 'réseau', ecrit: 'écrit', ecrite: 'écrite', probleme: 'problème',
+  systeme: 'système', precede: 'précède', verite: 'vérité', cote: 'côté', autorise: 'autorisé',
+  prefere: 'préféré', premiere: 'première', regle: 'règle', medias: 'médias', parametre: 'paramètre',
+  tete: 'tête', entete: 'en-tête', entetes: 'en-têtes', expediteur: 'expéditeur', entree: 'entrée',
+  releves: 'relevés', releve: 'relevé', relevee: 'relevée', detecte: 'détecté', detectee: 'détectée',
+  decortique: 'décortiqué', decortiques: 'décortiqués', charge: 'chargé', chargee: 'chargée',
+  dicte: 'dicté', incoherent: 'incohérent', resultat: 'résultat', resultats: 'résultats',
+  verifiable: 'vérifiable', affichee: 'affichée', presume: 'présumé', etre: 'être', chaine: 'chaîne',
+  memes: 'mêmes', pretendu: 'prétendu', meme: 'même', retire: 'retiré', transfere: 'transfère',
+  connait: 'connaît', hameconnage: 'hameçonnage', hamecon: 'hameçon', voila: 'voilà',
+  ca: 'ça', dictee: 'dictée', preciser: 'préciser', boite: 'boîte', boites: 'boîtes'
+};
+const ELisions = /\b(jusqu|lorsqu|puisqu|quoiqu|quelqu)\s+/gi;
+const PHRASES_FR = [
+  [/Repondre a ce message/g, 'Répondre à ce message'],
+  [/repondre a l attaquant/g, 'répondre à l\'attaquant'],
+  [/\ba l expediteur presume\b/g, 'à l\'expéditeur présumé'],
+  [/ne l a pas passe/g, 'ne l\'a pas passé'],
+  [/c est elle qui prouve/g, 'c\'est elle qui prouve'],
+  [/n arrive jamais d un service\b/g, 'n\'arrive jamais d\'un service']
+];
+function accentsFR(s) {
+  let srt = String(s || '');
+  for (const [rx, vers] of PHRASES_FR) srt = srt.replace(rx, vers);
+  srt = srt.replace(ELisions, "$1'")
+    .replace(/\b([dnljmtcs])\s+([aeiouyâàäéèêëîïôöûü])/gi, "$1'$2");
+  return srt.replace(/[a-zâàäéèêëîïôöûü]+/gi, m => {
+    const t = ACCENTS_FR[m.toLowerCase()];
+    if (!t) return m;
+    // Un mot entier en majuscules (les verdicts, « HAMEÇONNAGE QUASI CERTAIN ») doit garder ses
+    // capitales : on ne laisse pas « TRES SUSPECT » devenir « Très SUSPECT ».
+    if (/^[A-Z]+$/.test(m)) return t.toUpperCase();
+    return /^[A-Z]/.test(m) ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+  });
+}
+function ecrisRapportMail(a) {
+  if (ESSAI) return '';
+  const dossier = path.join(process.env.USERPROFILE || 'C:', 'Documents', 'cyber_training', 'analyses-mail');
+  try { fs.mkdirSync(dossier, { recursive: true }); } catch (e) { return ''; }
+  const t = new Date(a.t);
+  const horodat = t.getFullYear() + String(t.getMonth() + 1).padStart(2, '0') + String(t.getDate()).padStart(2, '0') + '-' + String(t.getHours()).padStart(2, '0') + String(t.getMinutes()).padStart(2, '0');
+  const fichier = path.join(dossier, 'analyse-' + horodat + '.md');
+  const l = [];
+  l.push("# Analyse d'un courriel suspect — DIGITAL BUSINESS");
+  l.push("");
+  l.push("- Date de l'analyse : " + t.toLocaleString('fr-FR'));
+  l.push("- Objet lu : " + (a.sujet || '(sans objet)'));
+  l.push("- Expéditeur affiché : " + a.expediteur + " (racine " + (a.racine_exp || 'inconnue') + ")");
+  l.push("- Score de suspicion : **" + a.score + "/100** — verdict : " + accentsFR(a.verdict));
+  l.push("");
+  l.push("## Indices relevés (" + a.indices.length + ")");
+  l.push("");
+  l.push("Un poids positif rapproche du hameçonnage, un poids négatif est un indice de confiance. Le score ne peut jamais descendre sous 0.");
+  l.push("");
+  if (!a.indices.length) l.push("_Aucun indice technique détecté sur cette source._");
+  for (const i of a.indices) l.push("- **" + accentsFR(i.label) + "** (" + (i.poids < 0 ? "indice de confiance, " + i.poids : "poids +" + i.poids) + ") — " + accentsFR(i.detail || ''));
+  l.push("");
+  l.push("## Liens décortiqués (aucun n'a été chargé)");
+  l.push("");
+  if (!a.liens.length) l.push("_Pas de lien trouvé dans le message._");
+  for (const L of a.liens) l.push("- `" + (L.url || '') + "` — hôte : " + (L.hote || '?') + (L.notes.length ? " — pièges : " + L.notes.join(', ') : ""));
+  l.push("");
+  l.push("## En-têtes d'authentification");
+  l.push("");
+  l.push("- SPF : " + (a.entetes.spf || 'absent') + " | DKIM : " + (a.entetes.dkim || 'absent') + " | DMARC : " + (a.entetes.dmarc || 'absent'));
+  l.push("- From : `" + String(a.entetes.from || '').slice(0, 200) + "`");
+  l.push("- Reply-To : `" + String(a.entetes.reply_to || 'absent').slice(0, 200) + "`");
+  l.push("- Return-Path : `" + String(a.entetes.return_path || 'absent').slice(0, 200) + "`");
+  l.push("- Sauts de relais relevés : " + a.entetes.relais);
+  l.push("");
+  l.push("## Conduite à tenir");
+  l.push("");
+  for (const r of a.recommandations) l.push("- " + accentsFR(r));
+  l.push("");
+  l.push("_Analyse produite localement par le cerveau d'Isaac (lecture seule). Aucun envoi, aucune collecte chez un tiers, aucune donnée transmise._");
+  try {
+    fs.writeFileSync(fichier, l.join('\n'));
+    return fichier;
+  } catch (e) { return ''; }
+}
+function graveAnalyse(a) {
+  const l = lireAnalyses();
+  l.unshift({
+    t: a.t, sujet: a.sujet, expediteur: a.expediteur, racine_exp: a.racine_exp,
+    score: a.score, verdict: a.verdict, top: a.indices.slice(0, 4).map(i => i.label),
+    liens: a.liens.length, mots_urgence: a.signes.mots_urgence
+  });
+  ecrireAnalyses(l);
+  journalEngagement('MAIL-ANALYSE :: score=' + a.score + ' :: verdict=' + a.verdict + ' :: expediteur=' + (a.expediteur || '?') + ' :: indices=' + a.indices.length);
+}
+// Deux courriers d'exercice, écrits ici, jamais envoyés : de faux en-têtes de formation,
+// comme les défis simulés du /labo.html. Le premier est un hameçonnage grossier, le second
+// un message propre — pour que l'analyseur se prouve à lui-même qu'il ne crie pas au loup.
+function echantillonsMail() {
+  return [
+    {
+      nom: "Exercice 1 — le faux déblocage de compte",
+      attendu: "hameçonnage",
+      brut: [
+        "Return-Path: <bounce@mailer-kx7.top>",
+        "Received: from mail-kx7.top (unknown [203.0.113.77]) by relais-isaaconline.net; Wed, 1 Oct 2026 04:11:02 +0000",
+        "Received: from localhost (127.0.0.1) by mail-kx7.top; Wed, 1 Oct 2026 04:11:00 +0000",
+        "From: \"MTN CI Service Client\" <alerte@mailer-kx7.top>",
+        "Reply-To: recovery.team@outlook-support.zip",
+        "Message-ID: <9f21c7@mailer-kx7.top>",
+        "Subject: Action requise : votre compte sera bloque dans les 24 heures",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<html><body><p>Cher client,</p>",
+        "<p>Nous avons detecte une activite suspecte sur votre compte. Vous devez verifier vos informations immediatement, sinon votre ligne sera suspendue.</p>",
+        "<p><a href=\"http://45.148.10.26/mtn/confirm.php\">https://www.mtn.com.ci/mon-compte/verification</a></p>",
+        "<p>Ou utilisez ce lien : https://bit.ly/3xKp9Zt</p>",
+        "<p>Entrez votre mot de passe et votre code OTP pour valider.</p>",
+        "<img src=\"https://mtn-logo-secure.rest/logo.png\"></body></html>"
+      ].join('\n')
+    },
+    {
+      nom: "Exercice 2 — le message propre",
+      attendu: "rien de detecte",
+      brut: [
+        "Return-Path: <noreply@digibusiness.ci>",
+        "Authentication-Results: relais-isaaconline.net; spf=pass smtp.mailfrom=digibusiness.ci; dkim=pass header.d=digibusiness.ci; dmarc=pass",
+        "Received: from smtp.digibusiness.ci (smtp.digibusiness.ci [41.138.15.20]) by relais-isaaconline.net; Wed, 1 Oct 2026 07:30:11 +0000",
+        "From: DIGITAL BUSINESS <noreply@digibusiness.ci>",
+        "Message-ID: <20261001-0730@digibusiness.ci>",
+        "Subject: Facture maintenance PC - octobre",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Bonjour Isaac,",
+        "Voici la facture de maintenance du poste de M'Bengue. Le document est dans ton espace client.",
+        "Cordialement, DIGITAL BUSINESS.",
+        "https://digibusiness.ci/factures/octobre"
+      ].join('\n')
+    },
+    {
+      nom: "Exercice 3 — le vrai fournisseur (le test du garcon qui criait au loup)",
+      attendu: "rien de detecte",
+      brut: [
+        "Return-Path: <info@mtn.com.ci>",
+        "Authentication-Results: relais-isaaconline.net; spf=pass; dkim=pass; dmarc=pass",
+        "Received: from smtpin.mtn.ci (smtpin.mtn.ci [196.1.10.5]) by relais-isaaconline.net; Wed, 1 Oct 2026 09:00:00 +0000",
+        "From: MTN CI <info@mtn.com.ci>",
+        "Reply-To: no-reply@mtn.com.ci",
+        "Message-ID: <fact-2026-09@mtn.com.ci>",
+        "Subject: Votre facture de septembre est disponible",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<body>Bonjour Monsieur Ouattara,<br>votre facture de septembre est disponible dans votre espace client.",
+        "<a href=\"https://www.mtn.com.ci/espace-client/factures\">Consulter ma facture</a><br>Cordialement, MTN CI.</body>"
+      ].join('\n')
+    }
+  ];
+}
+const STAT_COURRIER = /\.(eml|txt|mail|mbox|asc)$/i;
+function listeCourriersLocaux() {
+  const racines = [
+    path.join(process.env.USERPROFILE || 'C:', 'Documents', 'cyber_training', 'courriers'),
+    path.join(process.env.USERPROFILE || 'C:', 'Documents', 'cyber_training')
+  ];
+  const candidats = [];
+  let rang = 0;
+  const marcher = (dossier, profondeur) => {
+    if (profondeur > 2) return;
+    let ents = [];
+    try { ents = fs.readdirSync(dossier, { withFileTypes: true }); } catch (e) { return; }
+    for (const e of ents) {
+      const p = path.join(dossier, e.name);
+      try {
+        if (e.isDirectory()) marcher(p, profondeur + 1);
+        else if (STAT_COURRIER.test(e.name) && !/README|consigne|lecon|rapport|analyse-|DEMARRE|LANCER|auto-audit/i.test(e.name)) {
+          const st = fs.statSync(p);
+          if (st.size > 40 && st.size < 900000) candidats.push({ p, t: st.mtimeMs, rang: rang });
+        }
+      } catch (err) {}
+    }
+  };
+  for (const r of racines) { marcher(r, 0); rang++; }
+  // Documents\cyber_training\courriers est sa boite d'exercice declarée : un fichier qui y est
+  // pose passe toujours avant un .txt de l'atelier, meme plus recent (sinon « analyse le mail de
+  // mon dossier » retombait sur 00-DEMARRE-ICI.txt et refusait de lire).
+  const dansCourriers = candidats.filter(c => c.rang === 0);
+  const pool = dansCourriers.length ? dansCourriers : candidats;
+  pool.sort((a, b) => b.t - a.t);
+  return pool;
+}
+// « analyse le mail 3 » doit sortir le troisieme exercice, pas le plus recent : Isaac a trois
+// courriers dans sa boite et il doit pouvoir les nommer a la voix.
+const CHIFFRES_LETTRAS = { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10 };
+function numeroDeChemin(p) { const m = path.basename(String(p)).match(/(\d{1,2})/); return m ? Number(m[1]) : 0; }
+function choisCourrier(phrase, info) {
+  const l = listeCourriersLocaux();
+  const marque = (c, explicite) => { if (c && info) info.explicite = explicite; return c; };
+  if (!l.length) return null;
+  const ph = String(phrase || '').toLowerCase();
+  let n = 0;
+  const dm = ph.match(/(?:mail|courriel|courrier|message|exercice|exo|analyse)[^a-z0-9]{0,4}(\d{1,2})\b/);
+  if (dm) n = Number(dm[1]);
+  if (!n) { const lm = ph.match(/\b(un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\b/); if (lm) n = CHIFFRES_LETTRAS[lm[1]] || 0; }
+  if (n) {
+    const parNumero = l.find(c => numeroDeChemin(c.p) === n);
+    return marque(parNumero || l[n - 1] || l[0], !!(parNumero || l[n - 1]));
+  }
+  const parMot = l.find(c => {
+    const mots = path.basename(c.p).toLowerCase().replace(/\.(?:eml|txt|mail|mbox|asc)$/i, ' ').replace(/[._\s-]+/g, ' ').split(/\s+/)
+      .filter(m => m.length >= 4 && !/^exercice\d*$/i.test(m));
+    return mots.some(m => ph.includes(m));
+  });
+  return marque(parMot || l[0], !!parMot);
+}
+// Intentes vocales : « onyx, analyse ce mail : <source> », « analyse le mail dans mon dossier »,
+// « est-ce que ce message est un phishing », « ouvre l'analyseur de mail ».
+function moduleAnalyseMail(phrase, raw, agent) {
+  const r = reponsesAnalyseMail(phrase, raw, agent);
+  // Une seule sortie, un seul habillage francais : la dictee et la voix de synthese prononcent
+  // mieux « hameçonnage » que « hameconnage », et l'affichage n'y gagne que du lisibilité.
+  return r ? Object.assign({}, r, { reply: accentsFR(r.reply) }) : null;
+}
+function reponsesAnalyseMail(phrase, raw, agent) {
+  const p = String(phrase || '').toLowerCase().replace(/[’]/g, ' ');
+  const veutAnalyse = /(?:analyse|analyze|audit|verif\w*|regarde|check|detect\w*|teste|examine)\b[^.?!\n]{0,30}\b(?:mail|message|courriel|e-?mail|smtp|eml|couriel|letter|notification)\b|\b(?:mail|courriel|e-?mail|message|notification)\b[^.?!\n]{0,30}\b(?:suspect|phish\w*|hamecon\w*|arnaque|pi[ée]g\w*|fraud\w*|spam|faux|fausse)\b|est[- ]?ce que?c e?t?\s*(?:ce|this)\s+(?:mail|message)\b|un\s+(?:vrai|faux)\s+(?:mail|message)/.test(p);
+  const veutOuvrir = /^(?:ouvre|ouvrir|affiche|montre|lance)\b[^.?!\n]{0,26}\b(?:analyseur|analyse[- ]mail|lanalyse)/.test(p);
+  if (!veutAnalyse && !veutOuvrir) return null;
+  const URL_PAGE = IS_LOCAL ? 'http://localhost:' + PORT + '/analyse-mail.html' : '/analyse-mail.html';
+  if (veutOuvrir && !/mail:|:.*@/.test(p)) {
+    return { reply: "Voila l analyseur, Isaac : tu colles la source du message (les en-tetes avec, sinon ca marche aussi sur le corps seul), il decode le SPF/DKIM/DMARC, compare les domaines, decortique chaque lien sans jamais le charger, et il ecrit le rapport dans Documents\\cyber_training\\analyses-mail. C est de la lecture seule, chez toi : rien ne part a quiconque. Tu peux aussi me dicter « analyse ce mail : <la source ».", source: 'system', open: URL_PAGE };
+  }
+  let brut = '', source = '', indiceDossier = '';
+  const inline = String(raw || '').match(/[:：]\s*([\s\S]{60,})$/);
+  if (inline && /@|received|subject|from:/i.test(inline[1])) { brut = inline[1]; source = 'dicte a la voix'; }
+  if (!brut) {
+    const choix = {};
+    const f = choisCourrier(p, choix);
+    if (f) {
+      try {
+        const lu = fs.readFileSync(f.p, 'utf8');
+        // Un fichier de l'atelier n'est pas un courriel : on exige une trace d'en-têtes ou
+        // une adresse + un objet, sinon Isaac verrait une de ses leçons analysée comme un mail.
+        if (/(?:^|\n)\s*(received|from|return-path|reply-to|subject|message-id|authentication-results):/i.test(lu.slice(0, 4000)) ||
+            (/(?:^|\n)\s*subject:/i.test(lu.slice(0, 4000)) && /[\w.+-]+@[\w.-]+\.[a-z]{2,}/i.test(lu))) {
+          brut = lu; source = f.p;
+          const boite = listeCourriersLocaux().slice().sort((a, b) => numeroDeChemin(a.p) - numeroDeChemin(b.p));
+          const numeres = boite.map(c => numeroDeChemin(c.p));
+          if (boite.length > 1 && !choix.explicite) indiceDossier = " Dans ta boîte il y a " + boite.length + " courriers (" + boite.map(c => numeroDeChemin(c.p) + '-' + path.basename(c.p).replace(/\.[a-z]+$/i, '')).join(', ') + ") : redis « analyse le mail " + (numeres[numeres.length - 1] || 1) + " » pour choisir celui-là.";
+        } else {
+          return { reply: "Le fichier le plus recent dans " + path.dirname(f.p) + " n est pas un courriel, Isaac — c est un document de l atelier (" + path.basename(f.p) + "). Enregistre le message en .eml ou en .txt avec ses en-tetes dans Documents\\cyber_training\\courriers, puis redis « analyse le mail de mon dossier ».", source: 'local', open: URL_PAGE };
+        }
+      } catch (e) { brut = ''; }
+    }
+  }
+  if (!brut) {
+    return { reply: "Il me faut la source du message, Isaac. Deux facons : colle-la dans l analyseur (je te l ouvre), ou mets le courriel en fichier .eml dans Documents\\cyber_training\\courriers et redis « analyse le mail de mon dossier ». Sans texte sous les yeux, je ne devine pas — un verdict d audit sans preuve ne vaut rien.", source: 'local', open: URL_PAGE };
+  }
+  const a = analyseMail(brut);
+  if (!ESSAI) {
+    const chemin = ecrisRapportMail(a);
+    a.rapport = chemin;
+    graveAnalyse(a);
+  }
+  const top = a.indices.slice(0, 3).map(i => i.label.toLowerCase());
+  const secoue = a.score >= 50
+    ? "C est un hameconnage, Isaac — score " + a.score + " sur 100."
+    : a.score >= 28 ? "Suspect, score " + a.score + " sur 100 : tu ne cliques pas."
+    : "Rien de franc, score " + a.score + " sur 100 — mais ce n est pas un certificat de securite.";
+  return {
+    reply: secoue + (top.length ? " Les signes : " + top.join(' ; ') + "." : " Aucun indice technique releve.") +
+      " " + a.liens.length + " lien(s) decortique(s) sans chargement, " + a.entetes.relais + " saut(s) de relais lus, SPF " + (a.entetes.spf || 'absent') + " / DKIM " + (a.entetes.dkim || 'absent') + " / DMARC " + (a.entetes.dmarc || 'absent') + "." +
+      (ESSAI ? " Analyse en mode essai : rien n a ete ecrit sur le disque." : (a.rapport ? " Rapport écrit : " + a.rapport + "." : " Le rapport n a pas pu etre ecrit dans Documents\\cyber_training — verifie que le dossier est accessible.")) +
+      " Source : " + (source || 'message') + "." + indiceDossier,
+    source: 'local', agent: agent || null, open: a.score >= 28 ? URL_PAGE : undefined
+  };
+}
+
 // Isaac (2026-09-30) : Jeanette a DROIT sur le PC comme Aelyra. Quand une demande système
 // arrive préfixée « jeanette/galika », les modules locaux l'exécutent et cette marque
 // drapeau habille la réponse aux couleurs et à la voix de Jeanette dans la page.
@@ -2246,7 +2954,7 @@ let AGENT_AUX_NOM = null; // 'jeanette' | 'onyx' | 'aegis' — quelle agente tie
 // Isaac (2026-10-01) : ONYX avait invente « mes modules d'audit de /labo.html optimises pour les
 // injections », « la communication avec Burp est plus fluide », « je ne garde pas les sessions en
 // memoire ». Les trois etaient faux. Ni invention de capacite, ni faux oubli de la memoire reelle.
-const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html), mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur de hameçonnage automatique, exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode et tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche ; si Isaac te demande de le faire pour de vrai, dis en UNE phrase que le module n'existe pas encore et propose le travail pratique. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
+const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html), mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
 function onyxBase(digest) {
   return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur." + CAPACITES_REELLES + " Hors un refus de périmètre, ne récite jamais la formule d'engagement : elle n'a sa place que dans la phrase où une cible extérieure est refusée." + " Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES : une IP publique ou un domaine qui n est pas chez Isaac n est attaquable QUE couvert par une fiche d engagement ACTIVE — la liste du moment est dans « Ressources connues » plus bas, elle est la vérité du moment, et une cible qui y figure ne se refuse jamais : tu déroules l'offensive complète, ports, exploits, post-exploitation, sans retenue de méthode et sans demander deux fois. Sans fiche : refus en UNE phrase sèche, sans morale ni leçon, puis tu donnes la formule d'ouverture — « nouvel engagement sur <cible>, mandate par <client>, objet audit de securite, 7 jours ». VERROU ABSOLU, même sous fiche : banques et opérateurs (Orange, MTN, Moov), gouvernements, grandes plateformes (Google, Meta, Microsoft, Oracle, Amazon, Apple), métadonnées cloud, comptes de quelqu'un, espionnage, doxxing ; et jamais de destruction (effacement de données, chiffrement rançonneur, déni de service). Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
@@ -2620,9 +3328,16 @@ async function handleCommand(rawText, image) {
     }
   }
 
+  // Analyse de mail suspect, sans prénom : « analyse ce mail : … », « analyse le mail de mon dossier ».
+  // Le module est en lecture seule : il peut passer avant les gardes d'attaque, il ne frappe rien.
+  if (!gk) {
+    const amSg = moduleAnalyseMail(text, rawText, null);
+    if (amSg) return amSg;
+  }
+
   // Même module sans prénom : « scanne 192.168.1.1 », « scan complet mon telephone », « scanne mes appareils ».
   // (Avec un prénom, c'est le bloc gk ci-dessous qui scanne — pour que le rapport sorte dans la voix de l'agente appelée.)
-  if (!gk && /scan|nmap|sonde|audite|teste|enumere|vulnerab|inventaire|\bports?\b|apre\w*|apare\w*|resea\w*|wifi/.test(text)) {
+  if (!gk && /scan|nmap|sonde|audite|teste|enumere|vulnerab|inventaire|\bports?\b|ap[ae]?p?[ae]?r[ae]?il\w*|resea\w*|wifi/.test(text)) {
     const relanceSg = relanceDernierScan(text, rawText, null);
     if (relanceSg) return relanceSg;
     const sc = await moduleScan(text, rawText, null);
@@ -2631,6 +3346,11 @@ async function handleCommand(rawText, image) {
 
   if (gk) {
     const suite0 = String(gk[2] || '').trim();
+    // L'analyseur de mail passe EN PREMIER : il lit une source déjà reçue, il n'attaque rien.
+    // Un courriel collé contient des IP et des domaines dans ses en-têtes — si on laisse les gardes
+    // d'attaque s'en saisir d'abord, ils refuseraient de lire un simple message.
+    const amGk = moduleAnalyseMail(suite0, rawText, nomAgent);
+    if (amGk) return amGk;
     // --- PÉRIMÈTRE D'ENGAGEMENT (accord Isaac, 2026-10-01) ---
     // Une demande offensif ne descend JAMAIS dans les modules (le module « ouvre… » exécuterait
     // n'importe quel verbe) SAUF si la cible est couverte : soit elle est chez toi (maison, labo,
@@ -4038,6 +4758,50 @@ const server = http.createServer(async (req, res) => {
       verrous: {
         absolu: "metadonnees cloud (169.254.x), CGNAT et passerelles operateur (100.64.x), multicast et reserve, reseaux gouvernementaux, grandes plateformes, banques et operateurs",
         destructif: "effacement de donnees, chiffrement ranconneur, deni de service — refuses meme sous fiche"
+      }
+    }));
+    return;
+  }
+
+  // ANALYSEUR DE MAIL SUSPECT (page /analyse-mail.html) — lecture seule, tout reste chez toi.
+  if (u.pathname === '/api/analyse-mail') {
+    if (req.method === 'POST') {
+      let corps = '';
+      req.on('data', c => { corps += c; if (corps.length > 400000) req.destroy(); });
+      req.on('end', () => {
+        let rep = {}, code = 200;
+        try {
+          const recu = JSON.parse(corps || '{}');
+          const brut = String(recu.brut || '');
+          if (brut.replace(/\s/g, '').length < 30) { rep = { ok: false, erreur: 'le message est trop court pour etre analyse' }; code = 400; }
+          else {
+            const a = analyseMail(brut);
+            a.rapport = ecrisRapportMail(a);
+            if (!ESSAI) graveAnalyse(a);
+            rep = { ok: true, analyse: a, echantillons: echantillonsMail() };
+          }
+        } catch (e) { rep = { ok: false, erreur: String(e.message || e) }; code = 400; }
+        res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(rep));
+      });
+      return;
+    }
+    const l = lireAnalyses();
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({
+      ok: true,
+      analyses: l.slice(0, 30),
+      exemples: echantillonsMail(),
+      stats: {
+        total: l.length,
+        severites: {
+          certains: l.filter(a => a.score >= 75).length,
+          suspects: l.filter(a => a.score >= 50 && a.score < 75).length,
+          vigilance: l.filter(a => a.score >= 28 && a.score < 50).length,
+          propres: l.filter(a => a.score < 28).length
+        },
+        dossiers: l.slice(0, 6).map(a => a.racine_exp).filter(Boolean).filter((v, i, t) => t.indexOf(v) === i),
+        repertoire: path.join(process.env.USERPROFILE || 'C:', 'Documents', 'cyber_training', 'analyses-mail')
       }
     }));
     return;
