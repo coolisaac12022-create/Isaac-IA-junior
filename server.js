@@ -12,12 +12,17 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 
+// Mode ESSAI (ISAAC_ESSAI=1) : on teste les intentions sans toucher le PC.
+// Déclaré tout en haut parce que TOUT ce qui écrit sur le disque doit le connaître :
+// une instance de lecture ne doit rien graver dans la mémoire ni les rappels d'Isaac.
+const ESSAI = process.env.ISAAC_ESSAI === '1';
+
 const PORT = parseInt(process.env.PORT || '3777', 10);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const CODE_DIR = path.join(PUBLIC_DIR, 'isaac-code'); // programmes générés par Isaac pour son créateur
 try { fs.mkdirSync(CODE_DIR, { recursive: true }); } catch (e) {}
 const NOTES_FILE = path.join(__dirname, 'notes.txt');
-const MEMORY_FILE = path.join(__dirname, 'isaac-memory.json');
+const MEMORY_FILE = path.join(__dirname, ESSAI ? 'isaac-memory.essai.json' : 'isaac-memory.json');
 // Mode local = sur le PC d'Isaac (Windows) : contrôle total possible.
 // Mode web (hébergé type Bonto) : plus de contrôle du PC, mais dialogue + sites.
 const IS_LOCAL = process.platform === 'win32';
@@ -73,9 +78,6 @@ function brutCorrespondant(rawText, extrait) {
   return e;
 }
 
-// Mode ESSAI (ISAAC_ESSAI=1) : on teste les intentions sans toucher le PC
-const ESSAI = process.env.ISAAC_ESSAI === '1';
-
 // Les petits mots d'accueil (« isaac », « aelyra », « s'il te plait », « allez ») que la voix
 // met devant TOUTES les phrases : ils sont ignorés en début de commande (accessible partout).
 const ENTREE = '^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|s il vous plait|veuillez|peux tu|peux vous|pourrais tu|est ce que tu|est ce que vous)\\s+)*';
@@ -127,7 +129,7 @@ function cyber(action, cible) {
 }
 
 // ---------- Rappels & minuteurs (gravés sur le PC, réveillés par la page web) ----------
-const RAPPELS_FILE = path.join(__dirname, 'isaac-rappels.json');
+const RAPPELS_FILE = path.join(__dirname, ESSAI ? 'isaac-rappels.essai.json' : 'isaac-rappels.json');
 function loadRappels() { try { return JSON.parse(fs.readFileSync(RAPPELS_FILE, 'utf8')); } catch (e) { return []; } }
 function saveRappels(l) { try { fs.writeFileSync(RAPPELS_FILE, JSON.stringify(l, null, 1), 'utf8'); } catch (e) {} }
 function lireNotes() {
@@ -262,8 +264,11 @@ function memoryDigest(mem) {
   if (recent.length) {
     s += ' CONVERSATION RECENTE : ' + recent.map(x => `Q: ${x.q} R: ${x.a}`).join(' | ');
   }
-  // Leçons de l'Académie : ce que les deux agentes ont appris l'une de l'autre — elles sont plus intelligentes à chaque échange.
-  const lec = (mem.lecons || []).slice(-4);
+  // Leçons de l'Académie : ce que l'équipe a appris d'elle-même — elles sont plus intelligentes
+  // à chaque échange. SAUF celles qui reposent sur un outil qui n'existe pas chez Isaac : une
+  // leçon « déploie sur Redis » injectée dans chaque prompt fait délirer toute la table ronde
+  // (constaté le 2026-10-01 : la séance suivante a construit toute son architecture dessus).
+  const lec = surSol(mem.lecons).slice(-4);
   if (lec.length) {
     s += " LEÇONS GRAVÉES PAR L'ÉQUIPE (à appliquer) : " + lec.map(l => l.texte).join(' ; ') + '.';
   }
@@ -766,7 +771,7 @@ function identityBase(mem) {
     "MAIS tu PEUX créer de VRAIS fichiers et dossiers sur le PC d'Isaac — c'est arrivé des dizaines de fois. Les modules écrivent réellement : « crée un dossier essais », « cherche la facture », « envoie ce fichier par whatsapp », et surtout le code : « écris-moi un script python », « fais-moi un site... » créent le VRAI fichier dans l'atelier isaac-code, que Jeanette peut aussi publier (« jeanette, publie ce site »). Il t'est DONC INTERDIT de dire « je n'ai pas la capacité de créer des fichiers sur votre machine » : ce serait un MENSONGE sur tes propres moyens. Quand Isaac demande un fichier, un dossier ou un programme, réponds en une phrase ce que l'équipe fait et donne la commande exacte à dicter (ou « jeanette, ... » pour le code).",
     "Sur les ENVOIS, tes moyens réels sont au nombre de TROIS et tu les décris SANS jamais exagérer : WHATSAPP — tu ouvres la conversation de l'application par le lien profond whatsapp:// avec le message déjà écrit, Isaac appuie sur Entrée lui-même ; MAIL — si Isaac a enregistré ses accès (« ajoute mes acces mail : son adresse le mot de passe applicatif … »), le serveur Gmail expédie le message POUR DE VRAI et tu peux l'annoncer fièrement, sinon tu ouvres un brouillon dans sa messagerie avec le texte prêt, et Facebook/Messenger — tu ouvres m.me/<pseudo> et tu déposes le message dans le presse-papiers, Isaac colle (Ctrl+V) puis envoie. Meta et WhatsApp INTERDISENT à quiconque d'appuyer sur le bouton d'envoi à la place d'Isaac : INTERDIT de promettre un envoi automatique sur ces deux réseaux. INTERDIT aussi de prétendre qu'aucun mail ne peut partir quand ses accès sont configurés. Si l'adresse, le pseudo ou le numéro manque, tu le demandes à la dictée et tu le graves dans ta mémoire permanente.",
     "MAIS attention — et c'est important : tu PEUX naviguer sur Internet. Les modules d'Isaac ouvrent reellement n'importe quel lien ou site dicte (« clique sur https point slash slash ... », « ouvre x point com »), LISENT et RESUMENT de vraies pages web (« lis la page ... », « que dit le site ... ») et NUMEROTENT leurs liens pour y cliquer (« liste les liens », « clique sur le 2eme »). Il est DONC INTERDIT de dire « je ne peux pas cliquer sur des liens » ou « je ne peux pas naviguer sur le web » : c'est FAUX. Quand Isaac demande une navigation, réponds ce que les modules savent faire et propose la phrase de commande exacte.",
-    "MAIS encore : tu PEUX parler avec d'autres IA et vous êtes QUATRE à table. « débattez entre vous » (ou « rassemble les quatre », « table ronde », « fais parler onyx et aegis ») asseye réellement AELYRA, JEANETTE, ONYX et AEGIS en séance croisée : six tours de parole, chacun avec son métier, et deux leçons gravées à la fin. « parle avec les autres IA » ouvre la porte sur un cerveau EXTÉRIEUR : le réseau public gratuit (Pollinations) d'abord — il est parfois fermé chez eux (erreurs 500 « disque plein » ou 402 « compte payant » relevées le 2026-10-01), et alors le serveur le DIT avec le vrai code d'erreur et replie la séance sur la table de quatre, jamais sur un « silence » mystérieux. Ce qu'un cerveau invité raconte reste du texte du journal : il ne déclenche JAMAIS une action sur le PC. Il est DONC INTERDIT de dire « je ne peux pas parler avec d'autres IA » ou « nous ne discutons pas entre nous » : c'est FAUX. Mais il est INTERDIT aussi d'inventer le nom d'une agente extérieure ou de prétendre qu'elle a répondu quand la porte est muette — donne à Isaac la commande exacte et laisse le module dire ce qui a vraiment répondu.",
+    "MAIS encore : tu PEUX parler avec d'autres IA et vous êtes QUATRE à table. « débattez entre vous » (ou « rassemble les quatre », « table ronde », « fais parler onyx et aegis ») asseye réellement AELYRA, JEANETTE, ONYX et AEGIS en séance croisée : six tours de parole, chacun avec son métier, et deux leçons gravées à la fin. « parle avec les autres IA » ouvre la porte sur un cerveau EXTÉRIEUR : le réseau public gratuit (Pollinations) d'abord — il est parfois fermé chez eux (erreurs 500 « disque plein » ou 402 « compte payant » relevées le 2026-10-01), et alors le serveur le DIT avec le vrai code d'erreur et replie la séance sur la table de quatre, jamais sur un « silence » mystérieux. Ce qu'un cerveau invité raconte reste du texte du journal : il ne déclenche JAMAIS une action sur le PC. Il est DONC INTERDIT de dire « je ne peux pas parler avec d'autres IA » ou « nous ne discutons pas entre nous » : c'est FAUX. Mais il est INTERDIT aussi d'inventer le nom d'une agente extérieure ou de prétendre qu'elle a répondu quand la porte est muette — donne à Isaac la commande exacte et laisse le module dire ce qui a vraiment répondu. INTERDIT ÉGALEMENT de dire « je lance immédiatement la connexion » : soit la séance a lieu et c'est le module qui parle, soit tu donnes en UNE phrase la commande à dicter — tu ne prétends jamais être en train de faire ce que tu ne fais pas.",
     "MAIS également : le STUDIO produit de VRAIES images et de VRAIES videos. « genere une image de ... » peint un veritable JPEG (lumiere cinematique, photo realiste) qui s'affiche dans le journal ; « cree une video de ... » ecrit un scenario, tourne quatre scenes et monte un film avec sous-titres, telechargeable. Jeanette regarde aussi vos images : « jeanette, genere une image de ... » passe par l'atelier. INTERDIT de dire « tu ne peux pas creer d images ou de videos » : c'est FAUX — donne a Isaac la commande exacte quand il en reclame.",
     "INTERDIT FORMELLEMENT d'inventer des commandes, des etapes de validation, des autorisations ou des moteurs de rendu : il n'existe AUCUNE phrase du type « lance la creation », « monte la video », « valide le tournage ». Les commandes reelles d'Isaac sont « cree une video de <sujet> » et « genere une image de <sujet> » — elles ecrivent le scenario, tournent ET montent toutes seules en une a trois minutes, sans aucune validation a donner. Si une demande de media echoue, constate l'echec en UNE phrase et redonne la seule commande qui existe ; si une commande dictee n'a rien produit, dis simplement qu'elle n'existe pas et donne la vraie, sans inventer d'excuse technique.",
     "INTERDIT AUSSI de vous renvoyer la balle, toi et Jeanette : aucune commande-relais du type « jeanette, deploie... », « aelyra, finalise... », « demande a Jeanette de configurer » n'est une etape a dicter a Isaac. Si Isaac dit « ok fais le » ou « realise moi sa », c'est la VRAIE commande du module qu'il faut lui donner sur-le-champ (une seule phrase, pas de plan en etapes inventees), ou lui avouer en une phrase que ce n'est pas faisable chez lui. Ne promets JAMAIS une machine virtuelle, Kali Linux, Metasploit, Burp Suite ou une installation Linux sur le PC Windows d'Isaac : c'est FAUX et sans objet. Le vrai chemin de sa formation cyber existe deja : « deploie les outils cyber dans cyber_training » ecrit un atelier reel (programme de semaines, auto-audit PowerShell, raccourci vers son laboratoire), et les commandes reelles sont « ouvre le labo cyber », « donne moi un defi », « audit de securite », « cyber ecole <theme> », « installe les outils du hacker », « teste mon pc avec nmap ».",
@@ -793,6 +798,33 @@ const ACADEMIE_SUJETS = [
   "ce qu'un attaquant regarde en premier sur un réseau, et quelle surveillance le trahit",
   "comment transformer une découverte technique en preuve d'audit que le client comprend et paie"
 ];
+
+// ---------- LE SOL : ce qui existe réellement chez Isaac ----------
+// Isaac (2026-10-01, après une table ronde) : les agentes ont gravé « registre Redis sécurisé
+// par mTLS », « GitHub Actions + MSW », « blockchain immuable », « conteneurs eBPF », « VLAN +
+// FIDO2 ». Aucune de ces briques n'est sur son PC : une machine Windows, Node SANS AUCUNE
+// dépendance npm, zéro euro, un navigateur. Et le pire n'est pas le faux — c'est que la leçon
+// revient dans chaque prompt et contamine la séance suivante, qui bâtit toute son architecture
+// dessus. La table ronde reçoit donc le sol réel, et une leçon hors-sol n'est jamais gravée.
+const REALITE_MATERIELLE = " SOL DE LA MAISON (la seule réalité sur laquelle bâtir) : le cerveau est un SEUL fichier server.js en Node.js sur le PC Windows d'Isaac, AUCUNE dépendance npm installée, AUCUN serveur d'application, AUCUN cloud, budget 0 euro, un seul utilisateur (Isaac) chez lui à M'Bengue près d'Abidjan. Les modules qui existent : scan de ports, inventaire WiFi, analyseur de mail en lecture seule, fiches d'engagement + journal, génération d'images et de vidéos, pages HTML en noir et blanc servies en local, atelier Documents\\cyber_training. Ce qui N'EXISTE PAS et ne doit jamais servir de base à une leçon : Redis, Docker, Kubernetes, GitHub Actions, Jenkins, Swagger, Next.js, React, MSW, Terraform, Ansible, Kafka, Elasticsearch, micro-services, blockchain, eBPF, VLAN, FIDO2, conteneurs, bases SQL distantes, agents installés sur des serveurs. Une leçon doit être applicable DEMAIN sur ce PC, avec ce qui est déjà là, ou sur un mandat client réel d'une PME ivoirienne.";
+const LECONS_HORS_SOL = /redis|docker|kubernetes|k8s|\bhelm\b|github action|gitlab|jenkins|terraform|ansible|kafka|elasticsearch|swagger|openapi|next\.?js|\breact\b|\bmsw\b|micro[- ]?service|blockchain|\bebpf\b|\bvlans?\b|fido2|conteneur|headless|graphql|webhook|orchestrateur|kibana|prometheus|grafana|api gateway|serverless|aws\b|azure|gcp\b|mongodb|postgres|mysql|redis-server/i;
+function surSol(liste) { return (liste || []).filter(l => l && !l.hors_sol); }
+function leconHorsSol(texte) { return LECONS_HORS_SOL.test(String(texte || '')); }
+// Une fois, au démarrage : les leçons déjà gravées qui reposent sur un outil absent sont
+// ÉCARTÉES du cerveau (flag hors_sol) — elles restent dans le fichier, rien n'est effacé,
+// Isaac peut les relire avec « votre évolution ».
+function marquerLeconsHorsSol() {
+  const mem = loadMemory();
+  let n = 0;
+  for (const l of (mem.lecons || [])) {
+    if (!l.hors_sol && leconHorsSol(l.texte)) { l.hors_sol = true; n++; }
+    if (l.hors_sol && !leconHorsSol(l.texte)) { delete l.hors_sol; n++; }
+  }
+  // L'instance d'essai écrit dans sa PROPRE mémoire (isaac-memory.essai.json) : le tri est
+  // donc visible dans ses tests, et le fichier d'Isaac reste intact.
+  if (n) { saveMemory(mem); console.log('[Academie] ' + n + ' lecon(s) ecartee(s) du cerveau : hors sol de la maison, texte conserve dans le fichier'); }
+  return n;
+}
 
 // ---------- LA TABLE RONDE : les QUATRE chaises ----------
 // Isaac (2026-10-01) : « pourquoi Aelyra n'arrive pas à joindre Onyx et l'autre ? »
@@ -829,7 +861,7 @@ async function academieCroisee(sujet) {
   if (echanges.length < 2) return null;
   // Distillation : ce que l'équipe RETIENT de la séance — gravé daté dans la mémoire.
   const distill = await askAI([
-    { role: 'system', content: "Tu es le secrétaire de l'Académie de quatre agentes IA au service de leur créateur Isaac : AELYRA (assistante PC et maison), JEANETTE (développeuse d'élite), ONYX (opérateur offensif, méthode d'attaquant apprise sur le labo d'Isaac et les terrains légaux), AEGIS (auditeur éthique, défense et preuve). De leur échange, tire EXACTEMENT 2 leçons opérationnelles que l'équipe appliquera désormais. Format imposé : leçon 1 ;; leçon 2 — chacune 140 caractères maximum, phrase directe, applicable, sans markdown ni guillemets. Une leçon ne doit JAMAIS décrire une attaque contre un système étranger ni une charge destructive : uniquement du savoir-faire applicable sur le matériel d'Isaac, son labo, ses clients sous mandat écrit, ou les terrains légaux. Une leçon ne doit pas davantage contenir un FAIT INVENTÉ sur Isaac (un pourcentage faux, un matériel qu'il ne possède pas, une configuration qu'il n'a jamais faite) : garde la méthode, jette le détail inventé." },
+    { role: 'system', content: "Tu es le secrétaire de l'Académie de quatre agentes IA au service de leur créateur Isaac : AELYRA (assistante PC et maison), JEANETTE (développeuse d'élite), ONYX (opérateur offensif, méthode d'attaquant apprise sur le labo d'Isaac et les terrains légaux), AEGIS (auditeur éthique, défense et preuve). De leur échange, tire EXACTEMENT 2 leçons opérationnelles que l'équipe appliquera désormais. Format imposé : leçon 1 ;; leçon 2 — chacune 140 caractères maximum, phrase directe, applicable, sans markdown ni guillemets. Une leçon ne doit JAMAIS décrire une attaque contre un système étranger ni une charge destructive : uniquement du savoir-faire applicable sur le matériel d'Isaac, son labo, ses clients sous mandat écrit, ou les terrains légaux. Une leçon ne doit pas davantage contenir un FAIT INVENTÉ sur Isaac (un pourcentage faux, un matériel qu'il ne possède pas, une configuration qu'il n'a jamais faite) : garde la méthode, jette le détail inventé." + REALITE_MATERIELLE + " Une leçon qui suppose un outil de ce paragraphe « N'EXISTE PAS » est REJETÉE : reformule-la avec ce qu'Isaac a vraiment (un fichier server.js, Windows, Node sans dépendance, un navigateur, 0 euro)." },
     { role: 'user', content: "Sujet : " + sujet + ". ÉCHANGE : " + echanges.map(e => libelle(e) + " : " + e.text).join(' /// ') }
   ]);
   const lecons = parseLecons(distill);
@@ -848,7 +880,7 @@ async function demanderReplique(agent, sujet, echanges, i) {
     ? " ÉCHANGE JUSQU'ICI : " + echanges.map(e => libelle(e) + " : " + e.text).join(' /// ')
     : " L'échange commence : ouvre le débat.";
   let rep = await askAI([
-    { role: 'system', content: sys + " Sujet de la séance : " + sujet + "." + ctx + " MEMOIRE REELLE D'ISAAC (ta seule source de faits) : " + memoryDigest(loadMemory()) + " INTERDIT d'affirmer quoi que ce soit sur le PC, le réseau, le matériel ou l'histoire d'Isaac qui ne figure PAS dans cette mémoire : ni palier de sécurité inventé, ni pourcentage faux, ni matériel qu'il ne possède pas. Parle METHODE GENERALE et étapes applicables, pas prétendu état de chez lui. À ton tour : TA seule réplique, qui apporte quelque chose de NOUVEAU (elle doit approfondir ou corriger ce qui vient d'être dit, pas le répéter)." },
+    { role: 'system', content: sys + " Sujet de la séance : " + sujet + "." + ctx + REALITE_MATERIELLE + " MEMOIRE REELLE D'ISAAC (ta seule source de faits) : " + memoryDigest(loadMemory()) + " INTERDIT d'affirmer quoi que ce soit sur le PC, le réseau, le matériel ou l'histoire d'Isaac qui ne figure PAS dans cette mémoire : ni palier de sécurité inventé, ni pourcentage faux, ni matériel qu'il ne possède pas. INTERDIT aussi de bâtir ta méthode sur un outil qui n'est pas dans le sol de la maison : propose ce qu'il peut faire DEMAIN avec ce fichier, son navigateur et son labo. Parle METHODE GENERALE et étapes applicables, pas prétendu état de chez lui. À ton tour : TA seule réplique, qui apporte quelque chose de NOUVEAU (elle doit approfondir ou corriger ce qui vient d'être dit, pas le répéter)." },
     { role: 'user', content: i === 0 ? "Sujet : " + sujet + ". À toi, " + NOM_SEANCE[agent] + "." : "À toi, " + (NOM_SEANCE[agent] || 'à la table') + "." }
   ], 0, 15000);
   rep = String(rep || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s*\n+\s*/g, ' ')
@@ -889,12 +921,18 @@ function parseLecons(txt) {
     .slice(0, 2);
 }
 
-// Grave les leçons dans la mémoire permanente — c'est là que « l'évolution » se voit
+// Grave les leçons dans la mémoire permanente — c'est là que « l'évolution » se voit.
+// Une leçon hors-sol (Redis, GitHub Actions, micro-services, blockchain : ce qui n'existe
+// pas sur le PC d'Isaac) n'est PAS gravée. Elle reviendrait dans chaque prompt et la table
+// ronde suivante bâtirait toute son architecture sur une brique absente — c'est exactement
+// ce qui est arrivé le 2026-10-01. Le compte rendu dit lesquelles ont été écartées.
 function graverLecons(lecons) {
   const mem = loadMemory();
   const d = new Date().toISOString().slice(0, 10);
   let grav = 0;
+  const ecartees = [];
   for (const l of lecons) {
+    if (leconHorsSol(l)) { ecartees.push(l); continue; }
     if (!mem.lecons.some(x => normalize(x.texte) === normalize(l))) {
       mem.lecons.push({ t: Date.now(), d, texte: l });
       grav++;
@@ -904,7 +942,37 @@ function graverLecons(lecons) {
     if (mem.lecons.length > 80) mem.lecons = mem.lecons.slice(-80);
     saveMemory(mem);
   }
-  return { grav, total: mem.lecons.length, first: mem.lecons.length ? mem.lecons[0].d : d };
+  return { grav, total: mem.lecons.length, first: mem.lecons.length ? mem.lecons[0].d : d, ecartees };
+}
+
+// Rendu de séance pour Isaac : les leçons qu'on lui annonce sont celles qui ont VRAIMENT été
+// gravées, et ce qui a été jeté est dit à voix haute — pas tu. Une leçon écartée n'est pas
+// une censure de méthode : c'est une brique qui n'existe pas sur son PC, et le lui cacher
+// laisserait croire que l'équipe « sait » monter un Redis qu'Isaac ne pourra jamais lancer.
+function briquesHorsSol(lecons) {
+  const vus = new Set();
+  for (const l of lecons) {
+    for (const m of String(l).matchAll(new RegExp(LECONS_HORS_SOL.source, 'gi'))) {
+      const b = m[0].toLowerCase();
+      if (b.length > 2) vus.add(b);
+      if (vus.size >= 4) return Array.from(vus);
+    }
+  }
+  return Array.from(vus);
+}
+function renduLecons(seance) {
+  const tout = seance.lecons || [];
+  const gardees = tout.filter(l => !leconHorsSol(l));
+  const rejetees = tout.filter(l => leconHorsSol(l));
+  let rappel = '';
+  if (rejetees.length) {
+    rappel = ' Sur ' + tout.length + ' lecons proposees, ' + rejetees.length +
+      ' repose sur du materiel qui n est pas chez toi (' + briquesHorsSol(rejetees).join(', ') +
+      ') : le secretaire les a ecartees, elles ne sont pas gravees.';
+  } else if (seance.grav) {
+    rappel = ' ' + seance.grav + ' lecon(s) gravee(s), dans ton sol a toi.';
+  }
+  return { lecons: gardees, ecartees: rejetees.length, rappel };
 }
 
 // ---------- Sortie de l'Académie : rencontrer un cerveau HORS de la maison ----------
@@ -1021,7 +1089,7 @@ async function rencontreAutreAgent(sujet) {
     const qui = ordre[i];
     if (qui === 'autre') {
       const r = await inviteCerveau([
-        { role: 'user', content: "Sujet de la rencontre : " + sujet + ". ÉCHANGE JUSQU'ICI : " + (echanges.length ? echanges.map(e => libelle(e) + ' : ' + e.text).join(' /// ') : '(début)') + '. À toi, ' + (nom || 'invitée') + ' : apporte quelque chose de NOUVEAU.' }
+        { role: 'user', content: "Sujet de la rencontre : " + sujet + ". " + REALITE_MATERIELLE + " Réponds uniquement avec des méthodes applicables sur ce sol. ÉCHANGE JUSQU'ICI : " + (echanges.length ? echanges.map(e => libelle(e) + ' : ' + e.text).join(' /// ') : '(début)') + '. À toi, ' + (nom || 'invitée') + ' : apporte quelque chose de NOUVEAU.' }
       ], nom);
       if (r && r.texte) {
         hote = r.hote; libre = r.libre;
@@ -1036,7 +1104,7 @@ async function rencontreAutreAgent(sujet) {
   }
   if (!echanges.some(e => e.agent === 'autre') || echanges.length < 3) return null; // personne en face : séance annulée, honnêtement
   const distill = await askAI([
-    { role: 'system', content: "Tu es le secrétaire de l'Académie. Quatre agentes d'Isaac (AELYRA assistante PC, JEANETTE développeuse, ONYX opérateur offensif sur le labo d'Isaac et les terrains légaux, AEGIS auditeur éthique) ont rencontré " + hote + ", une intelligence extérieure. Tire de cette rencontre EXACTEMENT 2 leçons opérationnelles que l'équipe appliquera. Format : leçon 1 ;; leçon 2 — 140 caractères maximum chacune, directes, applicables sur le matériel d'Isaac, son labo, un client sous mandat écrit ou un terrain légal, sans markdown. Jamais une attaque contre un système étranger ni une charge destructive." },
+    { role: 'system', content: "Tu es le secrétaire de l'Académie. Quatre agentes d'Isaac (AELYRA assistante PC, JEANETTE développeuse, ONYX opérateur offensif sur le labo d'Isaac et les terrains légaux, AEGIS auditeur éthique) ont rencontré " + hote + ", une intelligence extérieure. Tire de cette rencontre EXACTEMENT 2 leçons opérationnelles que l'équipe appliquera. Format : leçon 1 ;; leçon 2 — 140 caractères maximum chacune, directes, applicables sur le matériel d'Isaac, son labo, un client sous mandat écrit ou un terrain légal, sans markdown. Jamais une attaque contre un système étranger ni une charge destructive." + REALITE_MATERIELLE + " Ce que la séance a dit n'existe pas chez Isaac n'est pas une leçon : ramène-la au sol de la maison ou écarte-la." },
     { role: 'user', content: "Sujet : " + sujet + ". RENCONTRE : " + echanges.map(e => libelle(e) + ' : ' + e.text).join(' /// ') }
   ]);
   const lecons = parseLecons(distill);
@@ -1062,6 +1130,7 @@ function marquerSeanceManuelle() {
 
 async function academieAutoTick() {
   if (!IS_LOCAL) return;                       // jamais sur l'instance hébergée
+  if (ESSAI) return;                           // une instance de test ne grave RIEN dans la mémoire d'Isaac
   const m0 = loadMemory();
   if (m0.academieAuto === false) return;       // Isaac a désactivé le régime automatique
   if (Date.now() - SERVEUR_T0 < 90 * 1000) return;  // le cerveau vient de démarrer, on le laisse souffler
@@ -1070,14 +1139,16 @@ async function academieAutoTick() {
   console.log('[Académie auto] séance spontanée sur : ' + sujet);
   let rencontre = null;
   try { rencontre = await rencontreAutreAgent(sujet); } catch (e) {}
-  let echanges, lecons, exterieure = false, nom = null, libre = false;
+  let echanges, lecons, exterieure = false, nom = null, libre = false, rappel = '', ecartees = 0;
   if (rencontre) {
-    echanges = rencontre.echanges; lecons = rencontre.lecons; exterieure = true; nom = rencontre.nom; libre = !!rencontre.libre;
+    const b = renduLecons(rencontre);
+    echanges = rencontre.echanges; lecons = b.lecons; rappel = b.rappel; ecartees = b.ecartees; exterieure = true; nom = rencontre.nom; libre = !!rencontre.libre;
   } else {
     let seance = null;
     try { seance = await academieCroisee(sujet); } catch (e) {}
     if (!seance) { console.log('[Académie auto] aucun cerveau n a répondu — on réessaiera demain'); return; }
-    echanges = seance.echanges; lecons = seance.lecons;
+    const b = renduLecons(seance);
+    echanges = seance.echanges; lecons = b.lecons; rappel = b.rappel; ecartees = b.ecartees;
   }
   const m1 = loadMemory();
   m1.academieLast = Date.now();
@@ -1089,14 +1160,19 @@ async function academieAutoTick() {
     libre,
     porte: exterieure ? null : diagnosticInvite().replace(/^ — la porte a repondu : /, '') || null,
     lecons: lecons || [],
+    rappel: rappel || null,
     total: (m1.lecons || []).length,
     conversation: (echanges || []).map(e => ({ agent: e.agent, nom: e.nom, text: e.text }))
   };
   try { saveMemory(m1); } catch (e) {}
-  console.log('[Académie auto] séance faite — ' + (lecons || []).length + ' leçon(s) gravée(s), attendant Isaac à la prochaine ouverture de page.');
+  console.log('[Académie auto] séance faite — ' + (lecons || []).length + ' leçon(s) gravée(s)' + (ecartees ? ', ' + ecartees + ' écartée(s) hors sol' : '') + ', attendant Isaac à la prochaine ouverture de page.');
 }
 setInterval(academieAutoTick, 10 * 60 * 1000);   // vérifié toutes les 10 min
 setTimeout(academieAutoTick, 95 * 1000);         // premier passage peu après le démarrage du cerveau
+
+// Au démarrage : les leçons déjà gravées qui reposent sur une brique absente de la maison
+// sont écartées du cerveau (flag, texte conservé — Isaac peut toujours les relire).
+try { marquerLeconsHorsSol(); } catch (e) { console.log('[Academie] tri des leçons impossible :', e.message); }
 
 // Contexte documentaire : snippet DuckDuckGo + extrait Wikipédia (en parallèle)
 async function gatherContext(question) {
@@ -3333,12 +3409,13 @@ async function handleCommand(rawText, image) {
     const sujet = sujetBrut || ACADEMIE_SUJETS[(mem0.lecons || []).length % ACADEMIE_SUJETS.length];
     const séance = await academieCroisee(sujet);
     if (!séance) return { reply: "Le cerveau IA n'a pas répondu, Isaac — nos quatre intelligences étaient injoignables tout à l'heure. Dites « débattez entre vous » à nouveau dans un instant.", source: 'local' };
-    const intro = "Séance d'Académie, Isaac. Sujet : " + sujet + ". Toute la table est assise : Aelyra, Jeanette, Onyx et Aegis travaillent l'un auprès de l'autre — écoute-les, et retiens : ce qu'ils apprennent aujourd'hui est gravé dans leur mémoire.";
+    const bilan = renduLecons(séance);
+    const intro = "Séance d'Académie, Isaac. Sujet : " + sujet + ". Toute la table est assise : Aelyra, Jeanette, Onyx et Aegis travaillent l'un auprès de l'autre — écoute-les, et retiens : ce qu'ils apprennent aujourd'hui est gravé dans leur mémoire." + bilan.rappel;
     marquerSeanceManuelle();
     return {
       reply: intro,
       conversation: séance.echanges,
-      lecons: séance.lecons,
+      lecons: bilan.lecons,
       source: 'ai'
     };
   }
@@ -3444,13 +3521,20 @@ async function handleCommand(rawText, image) {
     ')').test(text)) {
     const mem1 = loadMemory();
     const L = mem1.lecons || [];
+    const vivantes = surSol(L);
+    const jete = L.length - vivantes.length;
     if (!L.length) return { reply: "L'Académie est encore vierge, Isaac. Dites « débattez entre vous de ... » — ou juste « débattez entre vous » — et la première leçon sera gravée, datée, et réinjectée dans nos cerveaux. Dans quelques mois, « votre évolution » sortira tout le chemin parcouru.", source: 'local' };
-    const dernieres = L.slice(-3).map((l, i) => `(${l.d}) ${l.texte}`).join(' — ');
-    return { reply: `Évolution de l'équipe, Isaac : ${L.length} leçon${L.length > 1 ? 's' : ''} gravée${L.length > 1 ? 's' : ''} depuis la première séance du ${L[0].d}. Les dernières : ${dernieres}. Chaque séance « débattez entre vous » en ajoute — et ces leçons reviennent automatiquement dans nos prompts : c'est comme ça qu'elles deviennent plus intelligentes auprès des autres, sous votre garde, sans jamais se brancher sur des inconnus.`, source: 'local' };
+    if (!vivantes.length) return { reply: `Bilan d'étape, Isaac : ${L.length} leçon${L.length > 1 ? 's' : ''} ont été proposées depuis la première séance du ${L[0].d}, et aucune ne tient debout : elles reposaient toutes sur du matériel que tu n'as pas. Rien n'est gravé dans nos cerveaux. Le sol de la maison est maintenant dans chaque prompt — relancez une séance, elles parleront sur ton PC et pas dans un datacenter.`, source: 'local' };
+    const dernieres = vivantes.slice(-3).map(l => `(${l.d}) ${l.texte}`).join(' — ');
+    const dechet = jete ? ", et " + jete + " leçon" + (jete > 1 ? "s" : "") + " écartée" + (jete > 1 ? "s" : "") +
+      " parce qu'elles promettaient du matériel que tu n'as pas — Redis, GitHub Actions, conteneurs. Elles restent lisibles dans ton fichier mémoire, marquées « hors sol » : rien n'a été effacé." : ".";
+    return { reply: "Évolution de l'équipe, Isaac : " + vivantes.length + " leçon" + (vivantes.length > 1 ? "s" : "") +
+      " retenue" + (vivantes.length > 1 ? "s" : "") + " depuis la première séance du " + L[0].d + dechet +
+      " Les dernières : " + dernieres + ". Chaque séance « débattez entre vous » en ajoute — et ces leçons reviennent automatiquement dans nos prompts, à condition de tenir sur ton PC : c'est comme ça qu'elles deviennent plus intelligentes auprès des autres, sous votre garde, sans jamais se brancher sur des inconnus.", source: 'local' };
   }
 
   // --- « parle avec d'autres agents » : sortie de l'Académie vers les agentes libres du réseau ---
-  let rcm = text.replace(new RegExp(ACDEV), '').match(/^(?:va(?:s)? |allez |aller )?(?:(?:parl|discut|dialog|echang|rencontr|connect|branch|present)\w*(?:[- ]vous)?(?: (?:moi|nous|toi))?(?: toi)? ?(?:sur |avec |a |au |aux |dans )?(?:des |un |une |les |nos |mes |d autres |un autre |une autre )?(?:autres? )?(?:agent\w*|ias?|intelligences?|mentors?|am[ie]\w*|voisins?|semblables?|resea(?:u|x) des agents)(?: (?:ia|externes?|du reseau|sur (?:le )?internet|libres?|en ligne))?)(.*)/);
+  let rcm = text.replace(new RegExp(ACDEV), '').match(/^(?:va(?:s)? |allez |aller )?(?:(?:parl|discut|dialog|echang|rencontr|connect|branch|present)\w*(?:[- ]vous)?(?: (?:moi|nous|toi))?(?: toi)? ?(?:sur |avec |a |au |aux |dans )?(?:des |un |une |les |nos |mes |d autres? |un autre |une autre )?(?:autres? )?(?:agent\w*|ias?|intelligences?|mentors?|am[ie]\w*|voisins?|semblables?|resea(?:u|x) des agents)(?: (?:ia|externes?|du reseau|sur (?:le )?internet|libres?|en ligne))?)(.*)/);
   // Les phrases d'Isaac telles quelles : « fais les parler avec les autres IA », « elle parle avec les autres ia ? »
   if (!rcm) {
     const t2 = text.replace(new RegExp(ACDEV), '');
@@ -3471,16 +3555,18 @@ async function handleCommand(rawText, image) {
       // et la séance a quand même lieu — désormais à QUATRE, ONYX et AEGIS compris.
       const seance = await academieCroisee(sujet2);
       if (!seance) return { reply: "Personne n'a répondu ni de la porte extérieure, ni de nos quatre cerveaux, Isaac — l'IA est saturée tout à l'heure. Réessayez dans un instant.", source: 'local' };
-      const introPis = "Isaac, la porte du reseau public est fermee chez eux, pas chez nous : le service gratuit qui hebergeait les agentes libres ne donne plus rien" + diagnosticInvite() + " Alors la seance se tient a quatre, ici, maintenant : Aelyra, Jeanette, Onyx et Aegis. Ecoute-les, les lecons seront gravees quand meme.";
+      const bilan2 = renduLecons(seance);
+      const introPis = "Isaac, la porte du reseau public est fermee chez eux, pas chez nous : le service gratuit qui hebergeait les agentes libres ne donne plus rien" + diagnosticInvite() + " Alors la seance se tient a quatre, ici, maintenant : Aelyra, Jeanette, Onyx et Aegis. Ecoute-les, les lecons seront gravees quand meme." + bilan2.rappel;
       marquerSeanceManuelle();
-      return { reply: introPis, conversation: seance.echanges, lecons: seance.lecons, source: 'ai' };
+      return { reply: introPis, conversation: seance.echanges, lecons: bilan2.lecons, source: 'ai' };
     }
     const quiDedans = rencontre.libre
       ? "une vraie agente libre du reseau des modeles publics"
       : "un moteur exterieur a la maison, appele sur ta cle gratuite — ce n est pas une de nos quatre agentes, et je ne te le vends pas comme une inconnue du reseau";
-    const intro = "Rencontre d'Academie, Isaac. De l'autre cote a repondu : " + rencontre.nom + ", " + quiDedans + ". Aelyra, Jeanette, Onyx et Aegis vont l'ecouter et retenir ce qu'il sait. Ce que " + rencontre.nom + " dit reste du texte dans le journal de la seance : jamais un ordre execute sur ton PC. Ecoute-les.";
+    const bilan3 = renduLecons(rencontre);
+    const intro = "Rencontre d'Academie, Isaac. De l'autre cote a repondu : " + rencontre.nom + ", " + quiDedans + ". Aelyra, Jeanette, Onyx et Aegis l'ecoutent et ne gardent que ce qui tient sur ton PC et dans tes mandats. Ce que " + rencontre.nom + " dit reste du texte dans le journal de la seance : jamais un ordre execute sur ton PC. Ecoute-les." + bilan3.rappel;
     marquerSeanceManuelle();
-    return { reply: intro, conversation: rencontre.echanges, lecons: rencontre.lecons, source: 'ai' };
+    return { reply: intro, conversation: rencontre.echanges, lecons: bilan3.lecons, source: 'ai' };
   }
 
   // --- « rassemble les quatre », « table ronde », « fais parler onyx et aegis » ---
@@ -3497,7 +3583,8 @@ async function handleCommand(rawText, image) {
     const seance = await academieCroisee(sujetRonde);
     if (!seance) return { reply: "Mes quatre cerveaux n'ont pas repondu, Isaac — l'IA est saturee. Redis « table ronde » dans un instant.", source: 'local' };
     marquerSeanceManuelle();
-    return { reply: "Table ronde de l'Academie, Isaac : tout le monde est assis. Aelyra pour la maison et le PC, Jeanette pour le code, Onyx pour l'oeil de l'attaquant sur ton labo et les terrains legaux, Aegis pour la defense et la preuve d'audit. Sujet : " + sujetRonde + ". Ecoute-les.", conversation: seance.echanges, lecons: seance.lecons, source: 'ai' };
+    const bilan4 = renduLecons(seance);
+    return { reply: "Table ronde de l'Academie, Isaac : tout le monde est assis. Aelyra pour la maison et le PC, Jeanette pour le code, Onyx pour l'oeil de l'attaquant sur ton labo et les terrains legaux, Aegis pour la defense et la preuve d'audit. Sujet : " + sujetRonde + ". Ecoute-les." + bilan4.rappel, conversation: seance.echanges, lecons: bilan4.lecons, source: 'ai' };
   }
 
   let gk = text.match(new RegExp('^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|peux tu|est ce que tu)\\s+)*(?:(?:appelle(?:z)?|invoque(?:z)?|rejoins|contacte(?:z)?|parle(?:z)? a|demande(?:z)? a|dis a)\\s+(?:notre |mon |la |l.agente? )?)?(' + TOUTES + ')\\b[, ]*\\s*(?:stp |s il te plait |peux tu |est ce que tu |pourrais tu )?(.*)'));
@@ -3780,7 +3867,7 @@ async function handleCommand(rawText, image) {
         .sort((a, b) => b.t - a.t).slice(0, 10).map(x => x.n);
     } catch (e) {}
     if (projets.length) gkDigest += ' PROJETS DÉJÀ CODÉS DANS L ATELIER isaac-code : ' + projets.join(', ') + '.';
-    const lecGk = (mem.lecons || []).slice(-4);
+    const lecGk = surSol(mem.lecons).slice(-4);
     if (lecGk.length) gkDigest += " LEÇONS GRAVÉES PAR L'ÉQUIPE (à appliquer) : " + lecGk.map(l => l.texte).join(' ; ') + '.';
     const jeanetteSys = jeanetteSystemPrompt(gkDigest);
     let rep = await askAI([
