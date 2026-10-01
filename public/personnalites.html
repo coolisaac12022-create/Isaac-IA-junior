@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Personnalités — l'ordre brut des agentes</title>
+<style>
+  :root { --bl: #e8e8e8; --gr: #7a7a7a; --line: #1e1e1e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; color: var(--bl); font: 14px/1.55 "Segoe UI", system-ui, sans-serif; }
+  header { padding: 18px 22px 12px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 17px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; }
+  .sous { color: var(--gr); font-size: 12.5px; margin-top: 5px; max-width: 900px; }
+  .onglets { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 22px 0; }
+  .ong { border: 1px solid var(--line); background: #050505; color: var(--bl); padding: 8px 16px; font: 600 11.5px/1 "Segoe UI", sans-serif; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  .ong[data-k=aelyra].actif { border-color: #3fdcf5; color: #3fdcf5; }
+  .ong[data-k=jeanette].actif { border-color: #b276ff; color: #b276ff; }
+  .ong[data-k=onyx].actif { border-color: #ef4444; color: #ef4444; }
+  .ong[data-k=aegis].actif { border-color: #34d399; color: #34d399; }
+  main { padding: 16px 22px 96px; max-width: 1100px; }
+  .etat { font-size: 12px; color: var(--gr); margin-bottom: 8px; }
+  .etat b { color: var(--bl); font-weight: 600; }
+  textarea { width: 100%; min-height: 420px; background: #050505; color: #e2e2e2; border: 1px solid var(--line); padding: 14px; font: 13px/1.6 Consolas, "Courier New", monospace; resize: vertical; }
+  textarea:focus { outline: none; border-color: #3a3a3a; }
+  details { margin-top: 12px; border: 1px solid var(--line); background: #050505; padding: 10px 14px; }
+  summary { cursor: pointer; color: var(--gr); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+  pre { white-space: pre-wrap; word-break: break-word; color: #9a9a9a; font: 12px/1.6 Consolas, monospace; margin: 10px 0 2px; }
+  .garde { margin-top: 14px; border-left: 2px solid #ef4444; padding: 8px 0 8px 12px; color: var(--gr); font-size: 12.5px; }
+  .barre { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 22px; background: rgba(0,0,0,.94); border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { background: #fff; color: #000; border: 0; padding: 9px 16px; font: 600 12.5px/1 "Segoe UI", sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+  button.second { background: transparent; color: var(--bl); border: 1px solid #3a3a3a; }
+  button:hover { opacity: .82; }
+  #info { color: var(--gr); font-size: 12px; }
+  a { color: var(--gr); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Personnalités · l'ordre brut</h1>
+  <div class="sous">Ce texte est LITTÉRALEMENT celui qui part vers l'IA à chaque question posée à l'agente. Tu le réécris, tu enregistres, la question d'après est déjà traitée avec le nouveau. Rien n'est simulé : la page interroge le serveur vivant.</div>
+</header>
+
+<div class="onglets" id="onglets"></div>
+
+<main>
+  <div class="etat" id="etat">Chargement…</div>
+  <textarea id="texte" spellcheck="false"></textarea>
+  <details id="boiteCode">
+    <summary>Voir le texte codé d'origine (celui du dépôt)</summary>
+    <pre id="code"></pre>
+  </details>
+  <div class="garde">
+    Ce que tes mots ne peuvent pas enlever : le <b>verrou légal du code</b>. Une IP publique est refusée par le serveur avant même d'atteindre une agente, les phrases d'attaque contre un tiers sont coupées localement, et aucune envoiture n'appuie sur « Envoyer » à ta place. Tu peux adoucir ou durcir le ton, les spécialités, la longueur, les phrases d'accroche — le périmètre technique, lui, tient dans le programme.
+  </div>
+</main>
+
+<div class="barre">
+  <button id="enregistrer">Enregistrer et appliquer</button>
+  <button class="second" id="restaurer">Revenir au texte codé</button>
+  <button class="second" id="effacer">Vider cette case</button>
+  <span id="info"></span>
+</div>
+
+<script>
+(function () {
+  var NOMS = [
+    { k: 'aelyra', label: 'Aelyra' }, { k: 'jeanette', label: 'Jeanette' },
+    { k: 'onyx', label: 'Onyx' }, { k: 'aegis', label: 'Aegis' }
+  ];
+  var DATA = { codes: {}, surcharges: {}, actifs: {} }, choisi = 'aelyra';
+  var zone = document.getElementById('texte');
+
+  function onglets() {
+    var h = document.getElementById('onglets'); h.innerHTML = '';
+    NOMS.forEach(function (m) {
+      var b = document.createElement('button');
+      b.className = 'ong' + (m.k === choisi ? ' actif' : ''); b.dataset.k = m.k; b.textContent = m.label;
+      b.onclick = function () { choisi = m.k; onglets(); afficher(); };
+      h.appendChild(b);
+    });
+  }
+  function dire(s) { document.getElementById('etat').innerHTML = s; }
+  function compter() { document.getElementById('info').textContent = zone.value.length + ' caracteres'; }
+
+  function afficher() {
+    var sur = DATA.surcharges[choisi], code = DATA.codes[choisi] || '';
+    zone.value = sur || code;
+    document.getElementById('code').textContent = code;
+    dire(sur
+      ? '<b>' + nom(choisi) + '</b> parle actuellement avec TA version enregistree (' + sur.length + ' caracteres).'
+      : '<b>' + nom(choisi) + '</b> parle avec le texte code d\'origine (' + code.length + ' caracteres).');
+    compter();
+  }
+  function nom(k) { return (NOMS.filter(function (m) { return m.k === k; })[0] || {}).label || k; }
+
+  function charger() {
+    fetch('api/prompts', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j || !j.ok) { dire('Serveur indisponible.'); return; }
+      DATA = { codes: j.codes || {}, surcharges: j.surcharges || {}, actifs: j.actifs || {} };
+      afficher();
+    }).catch(function () { dire('Serveur injoignable — rien n\'a pu être lu.'); });
+  }
+
+  zone.addEventListener('input', compter);
+  document.getElementById('enregistrer').onclick = function () {
+    if (!zone.value.trim()) { dire('Case vide : laisse au moins une phrase, ou clique <b>Revenir au texte codé</b>.'); return; }
+    var envoi = {};
+    envoi[choisi] = zone.value;
+    NOMS.forEach(function (m) {
+      if (m.k !== choisi && DATA.surcharges[m.k]) envoi[m.k] = DATA.surcharges[m.k];
+    });
+    fetch('api/prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(envoi) })
+      .then(function (r) { return r.json(); }).then(function (j) {
+        if (j && j.ok) {
+          DATA.surcharges = {}; // on relit proprement ce qui est gravé
+          return fetch('api/prompts', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (k) {
+            if (k && k.ok) DATA = { codes: k.codes || {}, surcharges: k.surcharges || {}, actifs: k.actifs || {} };
+            afficher(); dire('<b>' + nom(choisi) + '</b> enregistree — sa prochaine question part deja avec ce texte.');
+          });
+        }
+        dire('Le serveur a refuse : ' + ((j && j.erreur) || 'inconnu'));
+      }).catch(function () { dire('Le serveur ne repond pas — rien n\'a ete ecrit.'); });
+  };
+  document.getElementById('restaurer').onclick = function () {
+    zone.value = DATA.codes[choisi] || ''; compter();
+    dire('Texte code recharge dans la case — clique <b>Enregistrer et appliquer</b> pour l\'ecrire.');
+  };
+  document.getElementById('effacer').onclick = function () { zone.value = ''; compter(); zone.focus(); };
+
+  onglets(); charger();
+})();
+</script>
+</body>
+</html>

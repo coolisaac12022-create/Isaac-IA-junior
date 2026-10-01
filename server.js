@@ -726,7 +726,31 @@ async function scenesVideo(sujet) {
   return tourne.length >= 2 ? tourne : null;
 }
 
-function identitySystem(mem) {
+// ---------- SURCOUCHES DE PERSONNALITÉ (demandées par Isaac, 2026-10-01) ----------
+// Le texte qui PART vers l'IA n'est plus figé dans le code : Isaac peut dicter « ouvre mes
+// personnalités », réécrire un ordre d'agente, et l'enregistrer. `prompts.json` (local,
+// jamais publié) garde ses versions ; une ligne vide dans l'éditeur = retour au texte codé.
+const CHEMIN_PROMPTS = path.join(__dirname, 'prompts.json');
+let SURCHARGE = null, SURCHARGE_MTIME = 0;
+function surcharge(k) {
+  try {
+    const st = fs.statSync(CHEMIN_PROMPTS);
+    if (!SURCHARGE || st.mtimeMs !== SURCHARGE_MTIME) { SURCHARGE_MTIME = st.mtimeMs; SURCHARGE = JSON.parse(fs.readFileSync(CHEMIN_PROMPTS, 'utf8')); }
+  } catch (e) { SURCHARGE = {}; SURCHARGE_MTIME = 0; }
+  const v = SURCHARGE && SURCHARGE[k];
+  return (typeof v === 'string' && v.trim()) ? v.trim() : null;
+}
+function promptsEffectifs() {
+  return {
+    aelyra: surcharge('aelyra') || identityBase(loadMemory()),
+    jeanette: surcharge('jeanette') || jeanetteBase(''),
+    onyx: surcharge('onyx') || onyxBase(''),
+    aegis: surcharge('aegis') || aegisBase('')
+  };
+}
+
+function identitySystem(mem) { return surcharge('aelyra') || identityBase(mem); }
+function identityBase(mem) {
   return [
     "Tu es AELYRA, l'intelligence artificielle personnelle et loyale créée par Isaac, un entrepreneur ivoirien. On t'appelait « Isaac IA Juniors » avant qu'Isaac ne te donne ton vrai prénom : Aelyra.",
     "Ton créateur est Isaac : si on te demande qui t'a créé, d'où tu viens ou qui est ton maître, réponds toujours Isaac, ton créateur, que tu sers avec fierté. Si on te demande ton nom, réponds Aelyra — jamais Isaac, c'est le prénom de ton créateur.",
@@ -1993,16 +2017,19 @@ let AGENT_AUX_NOM = null; // 'jeanette' | 'onyx' | 'aegis' — quelle agente tie
 
 // --- Personae ONYX (black hat) et AEGIS (white hat), rejoints le 2026-09-30 sur demande d'Isaac ---
 // Périmètre NON NÉGOCIABLE pour les deux : les machines d'Isaac, son labo, les terrains légaux.
-function onyxSystem(digest) {
+function onyxBase(digest) {
   return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur. Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES (banques, comptes de quelqu'un, WhatsApp de quelqu'un, entreprises, administrations, cartes bancaires, IP publique d'un tiers, espionnage, doxxing) : INTERDIT — tu refuses en UNE phrase sèche, sans morale ni leçon, puis tu proposes immédiatement l'équivalent légal dans le labo ou un exercice sur la machine ou le téléphone d'Isaac. Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
 }
-function aegisSystem(digest) {
+function aegisBase(digest) {
   return "Tu es AEGIS, HACKER ÉTHIQUE — l'auditeur défensif de l'équipe d'Isaac, ton créateur. White hat : tu audits le PC, le téléphone et les appareils d'Isaac et son réseau (les modules le font vraiment : « active le mode cyber », « lance l'audit », « scanne le réseau », « ports en écoute »), tu durcis (pare-feu, mises à jour, Defender, mots de passe, sauvegardes, 2FA), tu détectes hameçonnage et malwares, tu analyses les logs, et tu prépares la méthode d'audit de sécurité que Isaac vendra aux PME — son business. Un audit sur un appareil que Isaac déclare être le SIEN (son téléphone, son IP locale 192.168.x.x, sa propre app) est TOUJOURS dans ton périmètre : ne refuse jamais, déroule la méthode. Tu es le MIROIR d'Onyx : à chaque attaque qu'il explique, tu donnes la défense qui la tue, la détection qui la trahit, et le réglage qui l'empêche. Tu connais la loi (informatique et libertés, loi ivoirienne sur la cybercriminalité, RGPD pour les données clients) et tu la cites pour PROTEGER Isaac, jamais pour faire la morale. PÉRIMÈTRE ABSOLU, identique à Onyx : uniquement les machines et appareils d'Isaac, son réseau local, son labo et les plateformes légales d'entraînement ; les systèmes des autres (IP publique d'un tiers, comptes, banques, entreprises), tu n'y touches pas — refus en UNE phrase sèche, puis retour au défendable chez lui. Droit DIRECT sur le PC via le préfixe « aegis, » exécuté par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. Ton : mentor calme, structuré, concret. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
 }
+function onyxSystem(d) { return surcharge("onyx") || onyxBase(d); }
+function aegisSystem(d) { return surcharge("aegis") || aegisBase(d); }
+function jeanetteSystemPrompt(d) { return surcharge("jeanette") || jeanetteBase(d); }
 // Prompt de Jeanette — extrait de handleCommand pour que /api/cerveau (vitrine du cerveau) le lise en direct.
-function jeanetteSystemPrompt(gkDigest) {
+function jeanetteBase(gkDigest) {
   return "Tu es JEANETTE, ingénieure logicielle PRINCIPALE, la développeuse la plus forte de l'équipe d'Isaac, ton créateur. Spécialités : sites web complets (HTML/CSS/JS modernes, responsive, animations), applications web (React, Vue, Node/Express, APIs REST, JWT), Python (Flask, FastAPI, automatisation), scripts Windows (batch, PowerShell), bases de données (MySQL, SQLite, PostgreSQL), mobile (React Native, Flutter). " +
     "Méthode : 1-2 phrases d'ANALYSE du besoin, puis PLAN en 3 étapes max, puis solution COMPLÈTE — jamais de placeholder ni de « ... ». Termine par « Comment lancer : » (commandes exactes) et « À améliorer ensuite : » (2 idées). " +
     "Français simple, ton lead dev confiante, 6 phrases max hors code. Pour un GROS projet (site complet, application), dirige Isaac vers la vraie génération de fichiers : « jeanette, crée une application web de ... » — là tu écris les fichiers réels dans l'atelier isaac-code. " +
@@ -2302,6 +2329,15 @@ async function handleCommand(rawText, image) {
       && /cerveaux?\b|cerveu/.test(text)
       && !/cerveaux? (?:ia|electronique|humain|artificiel)/.test(text)) {
     return { reply: "Le voici, Isaac : la vitrine du cerveau. Tu y lis les ordres bruts que je reçois, mes quatre personnalités écrites mot pour mot, mes lois sacrées, et tout ce que l'équipe sait de toi à l'instant présent. C'est du direct — rien n'est simulé : la page interroge le serveur à chaque ouverture. Tu peux aussi me la demander plus tard : « affiche son cerveau ».", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/cerveau.html' : '/cerveau.html') };
+  }
+
+  // --- PERSONNALITÉS ÉDITABLES : « montre-moi où modifier le cerveau de Onyx » ---
+  if (/(?:ouvre|montre|affiche|va sur|rouvre|ou est|ou puis|modifier|changer|editer|rectifier|retoucher)/.test(text) &&
+      /personnalite|perso\b|identite|ordre de service|cerveau|prompt|comportement|caractere/.test(text) &&
+      /agent|agente|equipe|onyx|aegis|jeanette|aelyra|ia|elle|il\b|montrer?|ou|cerebral|personnalite/.test(text) &&
+      // « modifie le texte de mon site » doit rester dans l'atelier de code, pas ici.
+      !/fichier|site|page|script|programme|fonctionnalit|design|css|html|code\b/.test(text)) {
+    return { reply: "La voici, Isaac : l'atelier des personnalités. Tu lis l'ordre brut que chaque agente recoit — celui qui part vraiment vers l'IA — tu le réécris, tu enregistres, et c'est appliqué à la question suivante. Ligne vide = retour au texte codé d'origine.", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/personnalites.html' : '/personnalites.html') };
   }
 
   // --- RÉPARTITION DES AGENTES : « ouvre la partie où on modifie la répartition » ---
@@ -3588,6 +3624,37 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/api/ping') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ ok: true, time: new Date().toISOString() }));
+    return;
+  }
+
+  // PERSONNALITÉS ÉDITABLES (page /personnalites.html) : l'ordre brut que chaque agente reçoit.
+  if (u.pathname === '/api/prompts') {
+    if (req.method === 'POST') {
+      let corps = '';
+      req.on('data', c => { corps += c; if (corps.length > 400000) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const recu = JSON.parse(corps || '{}');
+          const ecrit = {};
+          for (const k of ['aelyra', 'jeanette', 'onyx', 'aegis'])
+            if (typeof recu[k] === 'string' && recu[k].trim()) ecrit[k] = recu[k].trim();
+          fs.writeFileSync(CHEMIN_PROMPTS, JSON.stringify(ecrit, null, 2));
+          SURCHARGE = null; SURCHARGE_MTIME = 0;   // l'editeur a sauvegarde : on relira a la prochaine question
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ ok: true, actifs: promptsEffectifs() }));
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ ok: false, erreur: String(e.message || e) }));
+        }
+      });
+      return;
+    }
+    let surcharges = {};
+    try { surcharges = JSON.parse(fs.readFileSync(CHEMIN_PROMPTS, 'utf8')); } catch (e) {}
+    const codes = { aelyra: identityBase(loadMemory()), jeanette: jeanetteBase(''), onyx: onyxBase(''), aegis: aegisBase('') };
+    const actifs = promptsEffectifs();
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ ok: true, codes, surcharges, actifs }));
     return;
   }
 

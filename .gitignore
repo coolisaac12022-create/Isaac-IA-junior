@@ -29,3 +29,6 @@ public/creations/
 
 # Repartition 3D reglee par Isaac (gout personnel, local)
 repartition.json
+
+# Personnalites reecrites par Isaac (gout local, jamais publie)
+prompts.json
