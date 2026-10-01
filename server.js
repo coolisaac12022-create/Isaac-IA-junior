@@ -1777,10 +1777,13 @@ function extraireIP(chaine) {
   m = s.match(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
   if (m && valide(m[0])) return m[0];
   if (/(?:^|\s)ip\s*\d|adresse|192|172|10/.test(s)) {
-    const d = (s.replace(/[^0-9]/g, ' ').match(/\d{9,12}/) || [])[0];
-    if (d && d.length >= 10) {
+    // « ip 192168146 67 » : la voix recache des espaces AU MILIEU de l'adresse —
+    // on recolle tous les groupes de chiffres (>= 2) avant de découper en octets.
+    const d = (s.replace(/\bpoint\b/g, ' ').match(/\d{2,}/g) || []).join('');
+    if (d.length >= 10 && d.length <= 12) {
       const t = [d.slice(0, 3), d.slice(3, 6), d.slice(6, 9), d.slice(9)].join('.');
-      if (valide(t)) return t;
+      // Only local prefixes count — an hour or a price must never pass as an address.
+      if (valide(t) && estIPLocale(t)) return t;
     }
   }
   return null;
@@ -1792,6 +1795,117 @@ async function reponseScanIP(ip, agent) {
   if (!estIPLocale(ip)) return { reply: refusIPPublique(ip), source: 'local', agent: agent || undefined };
   const ports = await scanCible(ip);
   return { reply: rapportScan(ip, ports), source: 'local', agent: agent || 'aelyra' };
+}
+// --- CRAN SUPÉRIEUR (Isaac, 2026-10-01) : « scan complet » sur les 65 535 ports ---
+// Le scan long tourne EN ARRIÈRE-PLAN ; la page le reçoit comme un rappel (file /api/rappel)
+// et le lit à voix haute dès qu'il tombe — rien ne bloque l'assistant pendant ce temps.
+function scanCompletNmap(ip) {
+  return new Promise(resolve => {
+    exec('nmap -Pn -sT -p- -T4 --open ' + ip,
+      // 65 535 ports en connect complet = plusieur minutes ; 10 min avant de couper.
+      { timeout: 600000, windowsHide: true, maxBuffer: 4000000 }, (err, out) => {
+        const ports = [];
+        String(out || '').split(/\r?\n/).forEach(l => {
+          const m = l.match(/^(\d+)\/tcp\s+open\s+(\S*)/);
+          if (m) ports.push({ port: parseInt(m[1], 10), service: m[2] || SERVICES_PORT[m[1]] || '' });
+        });
+        // Errreur = faux « rien d'ouvert » si nmap a ete coupe avant la fin : on le dit.
+        resolve({ ports: ports.sort((a, b) => a.port - b.port), trunque: !!err });
+      });
+  });
+}
+function lancerScanComplet(ip, agent) {
+  const t0 = Date.now();
+  scanCompletNmap(ip).then(r => {
+    const ports = r.ports;
+    const sec = Math.round((Date.now() - t0) / 1000);
+    let note;
+    if (!ports.length) note = "SCAN COMPLET termine sur " + ip + " (" + sec + " s, 65 535 ports) : RIEN d'ouvert" + (r.trunque ? " — ATTENTION, le scan a ete coupe avant la fin, le resultat est partiel. Redis « " + (agent || 'onyx') + ", scan complet " + ip + " » quand le reseau est calme." : ". Appareil parfaitement discret sur le reseau, Isaac — rien a durcir.");
+    else {
+      const lignes = ports.map(p => 'port ' + p.port + ' ouvert' + ((p.service || SERVICES_PORT[p.port]) ? ' (' + (SERVICES_PORT[p.port] || p.service) + ')' : '')).join(' ; ');
+      note = "SCAN COMPLET termine sur " + ip + " (" + sec + " s) : " + ports.length + " port(s) ouvert(s) — " + lignes + ". " + (ports.some(p => p.port === 5555) ? "URGENT : 5555 ADB ouvert = prise de main possible depuis le WiFi, a fermer maintenant." : "Compare avec tes usages : chaque porte ouverte doit avoir une raison.");
+    }
+    rappelsDuJour.push({ note });
+  }).catch(() => {
+    rappelsDuJour.push({ note: "Le scan complet de " + ip + " a echoue, Isaac — redis « " + (agent || 'onyx') + ", scan complet " + ip + " »." });
+  });
+}
+// Inventaire : tous les appareils joints sur le WiFi d'Isaac (ARP), scannés d'un coup (31 ports chacun).
+function ipReseauLocal() {
+  const os = require('os');
+  const ifs = os.networkInterfaces();
+  for (const nom of Object.keys(ifs)) for (const a of ifs[nom] || [])
+    if (a.family === 'IPv4' && estIPLocale(a.address)) return a.address.split('.').slice(0, 3).join('.');
+  return null;
+}
+function listerAppareilsReseau() {
+  return new Promise(resolve => {
+    exec('arp -a', { timeout: 15000, windowsHide: true }, (err, out) => {
+      const pre = ipReseauLocal();
+      const vus = new Set();
+      // Windows francophone : «   192.168.146.67        72-4f-00-...  dynamique » — sans parenthèses.
+      String(out || '').split(/\r?\n/).forEach(l => {
+        const m = l.match(/^\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s/);
+        if (!m || !estIPLocale(m[1])) return;
+        if (/\.255$|\.0$/.test(m[1])) return; // adresses de diffusion, pas des appareils
+        if (!pre || m[1].startsWith(pre + '.')) vus.add(m[1]);
+      });
+      resolve([...vus].slice(0, 8));
+    });
+  });
+}
+async function scanTousAppareils(agent) {
+  const ips = await listerAppareilsReseau();
+  if (!ips.length) return { reply: "Aucun appareil joint sur ce WiFi pour l'instant, Isaac — allume le téléphone ou l'autre machine, puis redis « scanne mes appareils ».", source: 'local', agent: agent || 'aelyra' };
+  const rapports = await Promise.all(ips.map(async ip => ip + ' : ' + (await scanCible(ip)).map(p => p.port + (SERVICES_PORT[p.port] ? ' (' + SERVICES_PORT[p.port] + ')' : '')).join(', ') || 'rien d\'expose'));
+  return { reply: "INVENTAIRE SCANNÉ de ton réseau (" + ips.length + " appareils) — " + rapports.join(' | ') + ". Tout ce qui apparait est visible par n'importe qui sur ce WiFi : c'est ta carte de ce que verrait un attaquant entré chez toi.", source: 'local', agent: agent || 'aelyra' };
+}
+// « scan complet mon telephone » → l'IP dictée une fois est retrouvée dans la mémoire.
+function ipDansMemoire(motAppareil) {
+  try {
+    const mem = loadMemory();
+    const l = (mem.facts || []).filter(f => normalize(f).includes(motAppareil) && /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(f)).pop();
+    if (!l) return null;
+    const m = l.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/);
+    return m && estIPLocale(m[0]) ? m[0] : null;
+  } catch (e) { return null; }
+}
+function cleIpAppareil(mot) { return /tablette|imprimante|tv|montre/.test(mot) ? 'ma' : 'mon'; }
+function memoriserIpAppareil(mot, ip) {
+  try {
+    const mem = loadMemory();
+    const cle = 'l ip de ' + cleIpAppareil(mot) + ' ' + mot + ' est ' + ip;
+    if (!(mem.facts || []).some(f => normalize(f).includes(normalize(cle)))) {
+      mem.facts.push(cle);
+      if (mem.facts.length > 100) mem.facts = mem.facts.slice(-100);
+      saveMemory(mem);
+    }
+  } catch (e) {}
+}
+// Le module de scan complet — partagé entre « onyx, … » (suite après prénom) et les phrases sans prénom.
+// Renvoie null si la phrase ne demande pas un scan → le routage normal reprend.
+async function moduleScan(phrase, raw, agent) {
+  const veutComplet = /complet|complete|entier|total|tous les ports|65 ?535/.test(phrase);
+  const veutInventaire = /(?:mes|tous mes|les|tous les) (?:appareils?|machines?|equipements?|telephones?|pcs?|ordinateurs?)/.test(phrase);
+  const ipTrouvee = extraireIP(raw) || extraireIP(phrase);
+  if (!ipTrouvee && !veutComplet && !veutInventaire) return null;
+  if (veutInventaire && !ipTrouvee) return await scanTousAppareils(agent);
+  let ipCible = ipTrouvee;
+  if (!ipCible) {
+    const motApp = (phrase.match(/(?:mon|ma|le|la) (telephone|portable|tel|tablette|pc|ordinateur|routeur|imprimante|tv|montre)/) || [])[1] || 'telephone';
+    const son = /tablette|imprimante|tv|montre/.test(motApp) ? 'ma' : 'mon';
+    ipCible = ipDansMemoire(motApp);
+    if (!ipCible) return { reply: "Il me faut l'IP locale de l'appareil, Isaac — une seule fois : « retiens que l'ip de " + son + " " + motApp + " est 192.168.1.50 ». Ensuite « scan complet " + son + " " + motApp + " » suffira, ou dicte l'adresse maintenant : « " + (agent || 'onyx') + ", scan complet 192 point 168 point 1 point 50 ».", source: 'local', agent: agent || undefined };
+  }
+  if (!estIPLocale(ipCible)) return { reply: refusIPPublique(ipCible), source: 'local', agent: agent || undefined };
+  // L'IP vient d'être dictée avec un appareil nommé → on la grave, la prochaine fois suffira.
+  const motDicte = (phrase.match(/(?:mon|ma|le|la) (telephone|portable|tel|tablette|pc|ordinateur|routeur|imprimante|tv|montre)\b/) || [])[1];
+  if (motDicte) memoriserIpAppareil(motDicte, ipCible);
+  if (veutComplet) {
+    lancerScanComplet(ipCible, agent);
+    return { reply: "SCAN COMPLET lance sur " + ipCible + " — les 65 535 ports, un par un, c'est mon taf, Isaac. Ca prend de deux a dix minutes selon le reseau. Je continue de travailler avec toi pendant ce temps : le rapport tombera dans ma voix des qu'il est pret.", source: 'local', agent: agent || 'aelyra' };
+  }
+  return await reponseScanIP(ipCible, agent);
 }
 function rapportScan(ip, ports) {
   if (!ports.length) return "Scan terminé sur " + ip + ": aucun des " + Object.keys(SERVICES_PORT).length + " services courants ne répond. C'est une BONNE nouvelle — ton appareil est discret sur le réseau. Pour aller plus loin : « onyx, scan complet " + ip + " » tenterait tous les ports, mais là, il n'y a rien à exponer.";
@@ -2130,11 +2244,11 @@ async function handleCommand(rawText, image) {
     return { reply: "Le voici, Isaac : la vitrine du cerveau. Tu y lis les ordres bruts que je reçois, mes quatre personnalités écrites mot pour mot, mes lois sacrées, et tout ce que l'équipe sait de toi à l'instant présent. C'est du direct — rien n'est simulé : la page interroge le serveur à chaque ouverture. Tu peux aussi me la demander plus tard : « affiche son cerveau ».", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/cerveau.html' : '/cerveau.html') };
   }
 
-  // Même module sans prénom : « scanne 192.168.1.1 », « nmap ip 192.168.146.67 » — verbe + IP obligatoires.
+  // Même module sans prénom : « scanne 192.168.1.1 », « scan complet mon telephone », « scanne mes appareils ».
   // (Avec un prénom, c'est le bloc gk ci-dessous qui scanne — pour que le rapport sorte dans la voix de l'agente appelée.)
-  if (!gk && /scan|nmap|sonde|audite|teste|enumere|vulnerab/.test(text)) {
-    const ipSeule = extraireIP(rawText) || extraireIP(text);
-    if (ipSeule) return await reponseScanIP(ipSeule, null);
+  if (!gk && /scan|nmap|sonde|audite|teste|enumere|vulnerab|inventaire/.test(text)) {
+    const sc = await moduleScan(text, rawText, null);
+    if (sc) return sc;
   }
 
   if (gk) {
@@ -2153,8 +2267,8 @@ async function handleCommand(rawText, image) {
     }
     // IPs dans la phrase → VRAI scan par le module local, avant toute tentation de persona
     // qui promettrait « commande lancée » sans rien exécuter (le faux nmap du 2026-10-01).
-    const ipGk = extraireIP(rawText) || extraireIP(suite0);
-    if (ipGk) return await reponseScanIP(ipGk, nomAgent);
+    const scGk = await moduleScan(suite0, rawText, nomAgent);
+    if (scGk) return scGk;
     const nestDuCode = /\b(?:code|cod\w*|site|web|appli\w*|application|programme|script|python|batch|powershell|html|css|javascript|java|php|sql|githube?|github|base de donnee|logiciel|page|modifie|retravaille|corrige|publie|genere|image|video)\b/.test(suite0);
     const estDuPC = /\b(?:ouvres?|ouvrir|lances?|lancer|fermes?|fermer|arretes?|arreter|stoppe|coupe|eteins|eteindre|redemarre|volume|monte|baisses?|descends?|lumino|luminosite|captures?|ecran|imprimes?|imprimante|veille|endort|bluetooth|wifi|notifs?|notifications?|minimise|restaurer?|corbeille|bureau|fond|heures?|date|meteo|rappelles?|reveilles?|minuteur|etat|batterie|update|scan|scanne|audit|nmap|labo|laboratoire|defis?|cyber|convertis?|calcules?|dossier|repertoire|nouveau|renomes?|renommer|supprimes?|deplaces?|ecri\w*|liste|note|notes|raccourcis?|mot de passe|whatsapp|mail|facebook|messager|messenger|acces|envoies?|coupe le son|mute|etat du pc|eteins l ecran)\b/.test(suite0);
     if (suite0 && estDuPC && !nestDuCode && /^(?:ouvres?|ouvrir|lances?|lancer|demarres?|demarrer|run|fermes?|fermer|arretes?|arreter|stoppe|coupe|cut|eteins|eteindre|redemarre|monte|baisses?|descends?|minimise|affiche|vide|change|imprimes?|met[s]?|active|desactive|verifies?|verifier|analyse|scanne|scans?|audit|auditte|trace|donne|dirige|note|renomes?|renommer|supprimes?|deplaces?|cherche|calcules?|convertis?|traduis|rappelle|reveilles?|liste|envoies?|ecri[tm]?\b|dis|poste|montre|cache|mute|endors?|veille|connecte|deconnecte)\b/.test(suite0)) {
@@ -2535,6 +2649,18 @@ async function handleCommand(rawText, image) {
     return { reply: `Scan nmap sur VOTRE propre PC (${moi}) : ${ports} portes ouvertes vues de l'extérieur — exactement ce qu'un attaquant repérerait en premier s'il entrait chez vous par le Wi-Fi. La défense commence là : vous savez maintenant quoi fermer.`, source: 'system', code: out };
   }
   // IP locale (privée) — après le cas « publique »
+  // DICTÉE D'APPAREIL : « retiens que l'ip de mon telephone est 192.168.146.67 » —
+  // AVANT le handler « mon ip » qui répondait les IPs du PC et ne memorisait jamais rien.
+  if (/(?:retiens|memorise|memorises?|grave|note|sauvegarde|souviens)[^a-z]{0,4}(?:que\s+)?l\s*ip/.test(text)) {
+    const brute = extraireIP(rawText) || extraireIP(text);
+    if (brute) {
+      const mot = (rawText.toLowerCase().match(/(?:mon|ma|le|la)\s+(?:t[ée]l[ée]phone|portable|tel|tablette|pc|ordinateur|routeur|imprimante|tv|watch|montre|console)\b/) || ['telephone'])[0].replace(/^(?:mon|ma|le|la)\s+/, '').replace(/[ée]/g, 'e');
+      if (!estIPLocale(brute)) return { reply: refusIPPublique(brute), source: 'local' };
+      memoriserIpAppareil(mot, brute);
+      return { reply: "C'est grave dans ma memoire, Isaac : l'IP de ton " + mot + ", c'est " + brute + ". Desormais tu dis « scan complet mon " + mot + " » ou « scanne mon " + mot + " » sans jamais redicter l'adresse.", source: 'system' };
+    }
+    return { reply: "Je n'ai pas reconnu d'adresse dans ta phrase, Isaac — dicte proprement : « retiens que l'ip de mon telephone est 192 point 168 point 146 point 67 ».", source: 'system' };
+  }
   if (/\b(?:adresse )?ip\b|mon ip|adresse internet/.test(text)) {
     const out = await shellOut('ipconfig');
     const ips = (out.match(/(?:IPv4|Adresse IPv4)[^:]*: *([0-9]{1,3}(?:\.[0-9]{1,3}){3})/gi) || [])
