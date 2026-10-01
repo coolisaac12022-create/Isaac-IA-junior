@@ -222,8 +222,14 @@ function beep(freq = 880, duration = 0.09, when = 0) {
 // ---------- Journal ----------
 function addMsg(who, text) {
   const div = document.createElement('div');
-  const css = who === 'Vous' ? 'user' : (who === 'AUTRE' ? 'autre' : (who === 'Aelyra' || who === 'Isaac IA Juniors' || who === 'AELYRA' ? 'jarvis' : who.toLowerCase()));
-  const etq = who === 'Vous' ? 'ISAAC' : (who === 'AUTRE' ? 'AGENTE LIBRE DU RÉSEAU' : (AGENT_WHO[css === 'jarvis' ? 'aelyra' : css] || String(who).toUpperCase()));
+  // Un cerveau invité s'affiche dans la colonne « autre », avec le NOM DU MOTEUR qui a vraiment
+  // répondu (Isaac, 2026-10-01 : pas question d'étiqueter « agente libre du réseau » un modèle
+  // qui parle en réalité sur une clé gratuite).
+  const invite = /^AUTRE\b/.test(who);
+  const css = who === 'Vous' ? 'user' : (invite ? 'autre' : (who === 'Aelyra' || who === 'Isaac IA Juniors' || who === 'AELYRA' ? 'jarvis' : who.toLowerCase()));
+  const etq = who === 'Vous' ? 'ISAAC' : (invite
+    ? (String(who).replace(/^AUTRE\s*:?\s*/, '').toUpperCase() || 'CERVEAU INVITÉ')
+    : (AGENT_WHO[css === 'jarvis' ? 'aelyra' : css] || String(who).toUpperCase()));
   div.className = 'msg ' + css;
   div.innerHTML = `<span class="who">${etq}</span>${escapeHtml(text)}`;
   logEl.appendChild(div);
@@ -661,12 +667,13 @@ async function processCommand(text) {
       if (data.code) codeGenere = { code: data.code, url: data.fileUrl, file: data.file };
     }
     if (data.conversation && data.conversation.length) {
-      // Séance d'Académie : Aelyra et Jeanette parlent l'une à l'autre — chaque réplique
-      // s'affiche aux couleurs de son agente et se dit avec SA voix.
+      // Séance d'Académie : la table au complet (Aelyra, Jeanette, Onyx, Aegis) et, quand la
+      // porte extérieure répond, le cerveau invité — chaque réplique s'affiche aux couleurs de
+      // son locuteur et se dit avec SA voix.
       addMsg('Isaac IA Juniors', reply);
       await speak(reply, 'aelyra');
       for (const tour of data.conversation) {
-        const qui = tour.agent === 'autre' ? 'AUTRE' : (AGENT_LABEL[tour.agent] || 'Isaac IA Juniors');
+        const qui = tour.agent === 'autre' ? ('AUTRE:' + (tour.nom || 'cerveau invite')) : (AGENT_LABEL[tour.agent] || 'Isaac IA Juniors');
         addMsg(qui, tour.text);
         await speak(tour.text, tour.agent);
       }
@@ -870,12 +877,12 @@ async function checkAcademie() {
     const data = await res.json();
     const n = data && data.notif;
     if (n && n.conversation && n.conversation.length) {
-      const qui = n.exterieure ? "les agentes libres du réseau" : "l'équipe entre elle (Aelyra, Jeanette, Onyx, Aegis)";
-      const intro = "Isaac, l'Académie a tourné toute seule pendant votre absence. Sujet du jour : " + n.sujet + ". " + (n.exterieure ? "Elles ont interrogé " + (n.nom || 'une agente') + ", une vraie IA du réseau — ses mots restent du texte, jamais des ordres. " : "Le réseau était muet, la séance croisée a eu lieu entre elles. ") + "Écoutez la séance.";
+      const qui = n.exterieure ? (n.libre ? "une agente libre du reseau des modeles publics" : "un cerveau exterieur a la maison, appele sur ta cle gratuite") : "la table ronde de l'equipe (Aelyra, Jeanette, Onyx, Aegis)";
+      const intro = "Isaac, l'Academie a tourne toute seule pendant votre absence. Sujet du jour : " + n.sujet + ". " + (n.exterieure ? "Elles ont rencontre " + (n.nom || 'un cerveau invite') + ", " + qui + " — ses mots restent du texte, jamais des ordres. " : "La porte exterieure etait fermee" + (n.porte ? " (" + n.porte + ")" : "") + ", la seance s'est tenue a quatre ici. ") + "Ecoutez la seance.";
       addMsg('Isaac IA Juniors', intro);
       await speak(intro, 'aelyra');
       for (const tour of n.conversation) {
-        const label = tour.agent === 'autre' ? 'AUTRE' : (AGENT_LABEL[tour.agent] || 'Isaac IA Juniors');
+        const label = tour.agent === 'autre' ? ('AUTRE:' + (tour.nom || 'cerveau invite')) : (AGENT_LABEL[tour.agent] || 'Isaac IA Juniors');
         addMsg(label, tour.text);
         await speak(tour.text, tour.agent);
       }
