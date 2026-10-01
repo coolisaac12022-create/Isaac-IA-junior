@@ -12,11 +12,16 @@
   h1 { margin: 0; font-size: 17px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; }
   .sous { color: var(--gr); font-size: 12.5px; margin-top: 5px; max-width: 980px; }
   main { padding: 18px 22px 110px; max-width: 1100px; }
+  @media (max-width: 780px) { main { padding-bottom: 260px; } .barre { flex-direction: column; align-items: stretch; } .barre .bout { width: 100%; } }
   .carte { border: 1px solid var(--line); background: #050505; padding: 16px; margin-bottom: 18px; }
   .carte h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--gr); font-weight: 600; }
   label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--gr); margin: 12px 0 4px; }
-  input, select { width: 100%; background: #000; color: #eee; border: 1px solid #2a2a2a; padding: 10px 12px; font: 14px/1.4 Consolas, monospace; }
-  input:focus, select:focus { outline: none; border-color: #4a4a4a; }
+  input, select, textarea { width: 100%; background: #000; color: #eee; border: 1px solid #2a2a2a; padding: 10px 12px; font: 14px/1.4 Consolas, monospace; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: #4a4a4a; }
+  textarea { resize: vertical; min-height: 62px; }
+  .note { color: #6d6d6d; font-size: 12px; margin-top: 8px; }
+  .preuve { color: #b8b8b8; font-size: 12px; margin-top: 4px; }
+  .preuve b { color: #e0e0e0; font-weight: 600; }
   .grille { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
   .full { grid-column: 1 / -1; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -43,6 +48,7 @@
 <header>
   <h1>Fiches d'engagement · périmètre offensif</h1>
   <div class="sous">Chez toi — ton PC, ton réseau 192.168.x, ton labo <b>cyber_training</b>, les plateformes d'entraînement — aucune fiche n'est demandée : ça frappe tout de suite, comme avant. Dehors — une IP publique, le domaine d'un client — la fiche est la seule porte : une fois ouverte, ONYX travaille sans aucune retenue de méthode (65 535 ports, exploits, post-exploitation), et la référence de la fiche tombe en tête de chaque rapport. Ce n'est pas une permission de l'assistant : c'est ta trace à toi, écrite chez toi, dans <span style="color:#c9c9c9">journal-engagements.log</span>.</div>
+  <div class="sous" style="margin-top:9px">Pas besoin de papier notarié ni d'acte commercial : ce que demande la loi ivoirienne sur la cybercriminalité (loi 2013-455), c'est <b>l'accord du propriétaire</b>. Un whatsapp, un SMS, un mail du client, la photo de son devis paraphé — ça suffit, et ça tient. Dépose la pièce dans <span style="color:#c9c9c9">Documents\cyber_training\mandats</span> : elle est scellée par empreinte SHA-256, gravée au journal, citée en tête du rapport. Ce qui ne passe pas, c'est l'auto-déclaration — la preuve doit venir de <b>lui</b>, pas de toi.</div>
 </header>
 
 <main>
@@ -66,6 +72,26 @@
       </div>
       <div><label>Durée (jours)</label><input id="jours" type="number" min="1" max="90" value="7"></div>
     </div>
+    <div class="note">Astuce vocal : « nouvel engagement sur 41.138.15.20, mandate par Digifood, objet audit de securite, 7 jours, preuve par whatsapp : autorise moi a auditer mon site ».</div>
+  </section>
+
+  <section class="carte">
+    <h2>Preuve d'autorisation — ce qui remplace le papier notarié</h2>
+    <div class="ligne">
+      <div><label>Sur quelle fiche</label><select id="pfiche"><option value="">La fiche que je suis en train d'ouvrir</option></select></div>
+      <div><label>Comment l'accord t'est parvenu</label><select id="forme"></select></div>
+    </div>
+    <div class="ligne">
+      <div class="full"><label>Ce que le client a écrit (ses mots, tels que reçus)</label><textarea id="texte" placeholder="« oui tu peux tester mon site, fais le audit complet » — Moussa, Digifood, whatsapp du 01/10 a 20:14"></textarea></div>
+    </div>
+    <div class="ligne">
+      <div><label>Piece deposee dans le dossier des mandats</label><select id="piece"><option value="">aucune (le texte suffit)</option></select></div>
+      <div style="flex:2 1 320px"><label>Dossier où glisser la capture ou la photo</label><input id="dossier" readonly spellcheck="false" style="color:#9a9a9a" value="—"></div>
+    </div>
+    <div class="ligne" style="margin-top:12px">
+      <button class="bout" id="sceller">Sceller la preuve</button>
+      <div style="flex:2 1 320px"><div class="note" id="etatPreuve">Une preuve enregistrée = forme + mots du client + empreinte SHA-256 de la pièce, gravées au journal à l'heure UTC. Tu ne peux pas la modifier en douce : la fiche garde la date de chaque dépôt.</div></div>
+    </div>
   </section>
 
   <section class="carte">
@@ -82,6 +108,7 @@
     <div class="garde">
       Trois choses ne s'achètent avec aucune fiche, parce qu'elles sont écrites dans le programme et non dans un prompt : <b>le verrou absolu</b> (métadonnées cloud 169.254.x, CGNAT et passerelles d'opérateur 100.64.x, multicast et réservé, réseaux gouvernementaux, grandes plateformes, banques et opérateurs), <b>les charges destructrices</b> (effacement de données, chiffrement rançonneur, déni de service), et <b>le fait que l'assistant n'appuie jamais sur « Envoyer » à ta place</b>. Le reste t'appartient.
     </div>
+    <div class="note" style="margin-top:12px">Ce que la fiche n'accepte pas : ta propre déclaration. La forme (whatsapp, sms, mail, photo du devis) et les mots du client doivent venir de lui — c'est ce qui rend le document opposable, et c'est ce qui te protège toi si un mandat est contesté.</div>
   </section>
 </main>
 
@@ -101,6 +128,39 @@
     var j = Math.floor(m / 86400000), h = Math.floor((m % 86400000) / 3600000);
     return m <= 0 ? 'expiree' : (j ? j + ' j ' + h + ' h' : h + ' h');
   };
+  var echap = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  // Le même résumé que côté serveur, pour que la page et la voix disent la meme chose.
+  function mention(p) {
+    if (!p || p.forme === 'aucune' || !p.forme) return '<div class="preuve" style="color:#8a6a2a">autorisation : <b>aucune trace</b> — dict « ajoute la preuve sur cette fiche : whatsapp de &lt;le client&gt;, il ecrit &lt;ses mots&gt; »</div>';
+    var s = '<div class="preuve">autorisation : <b>' + echap(p.forme) + '</b>';
+    if (p.enregistree_le) s += ' du ' + fmt(p.enregistree_le);
+    if (p.texte) s += ' — « ' + echap(String(p.texte).slice(0, 140)) + (String(p.texte).length > 140 ? '…' : '') + ' »';
+    if (p.empreinte) s += '<br>piece <b>' + echap(p.nom) + '</b> (' + p.taille + ' octets) — SHA-256 ' + echap(p.empreinte);
+    if (p.fichier_absent) s += '<br><span style="color:#8a6a2a">piece annoncee mais introuvable : ' + echap(p.fichier_absent) + '</span>';
+    return s + '</div>';
+  }
+  function remplir(d) {
+    var fSel = document.getElementById('forme');
+    var garde = fSel.value;
+    var formes = d.formes || ['whatsapp', 'sms', 'mail', 'document'];
+    fSel.innerHTML = '<option value="">choisir la forme…</option>' + formes.map(function (x) { return '<option value="' + x + '">' + x + '</option>'; }).join('');
+    if (garde) fSel.value = garde;
+    var pSel = document.getElementById('piece');
+    var gpiece = pSel.value;
+    pSel.innerHTML = '<option value="">aucune (le texte suffit)</option>' + (d.pieces || []).map(function (p) {
+      return '<option value="' + echap(p.nom) + '">' + echap(p.nom) + ' · ' + Math.max(1, Math.round(p.taille / 1024)) + ' Ko · ' + fmt(p.modifie_le) + '</option>';
+    }).join('');
+    if (gpiece) pSel.value = gpiece;
+    document.getElementById('dossier').value = d.dossier || '—';
+    // Les fiches actives, pour coller une preuve sur une fiche deja ouverte.
+    var cSel = document.getElementById('pfiche');
+    var gcible = cSel.value;
+    var vivantes = (d.fiches || []).filter(function (f) { return (f.etat || 'actif') === 'actif' && Number(f.expire_le) > Date.now(); });
+    cSel.innerHTML = '<option value="">La fiche que je suis en train d\'ouvrir</option>' + vivantes.map(function (f) {
+      return '<option value="' + f.ref + '">' + f.ref + ' · ' + echap(f.cible) + ' · ' + echap(f.mandant) + '</option>';
+    }).join('');
+    if (gcible) cSel.value = gcible;
+  }
 
   function dessiner(d) {
     var fiches = d.fiches || [];
@@ -115,7 +175,7 @@
         h += '<tr><td style="font-family:Consolas,monospace;color:#9a9a9a">' + (f.ref || '—') + '</td>' +
           '<td class="cible">' + (f.cible || '—') + '</td>' +
           '<td>' + (f.mandant || '—') + '</td>' +
-          '<td style="color:#a8a8a8">' + (f.objet || '—') + '<br><span style="color:#6d6d6d;font-size:12px">' + (f.portee || '—') + '</span></td>' +
+          '<td style="color:#a8a8a8">' + (f.objet || '—') + '<br><span style="color:#6d6d6d;font-size:12px">' + (f.portee || '—') + '</span>' + mention(f.preuve) + '</td>' +
           '<td class="' + (vivant ? 'actif' : 'clos') + '">' + (vivant ? 'ACTIVE · expire dans ' + reste(f.expire_le) : 'FERMEE') + '</td>' +
           '<td>' + (vivant ? '<button class="bout sec mini" data-c="1" data-ref="' + f.ref + '">Fermer</button>' : '') + '</td></tr>';
       });
@@ -132,8 +192,17 @@
   function lire() {
     return fetch('api/engagements', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
       if (!d.ok) { info.textContent = 'serveur muet'; return; }
+      remplir(d);
       dessiner(d);
     }).catch(function () { info.textContent = 'le cerveau ne repond pas — lance cerveau.bat'; });
+  }
+
+  function valeurPreuve() {
+    return {
+      preuve_forme: document.getElementById('forme').value,
+      preuve_texte: document.getElementById('texte').value.trim(),
+      preuve_fichier: document.getElementById('piece').value
+    };
   }
 
   function ouvrir() {
@@ -146,6 +215,11 @@
       jours: Number(document.getElementById('jours').value) || 7
     };
     if (!d.cible || !d.mandant || !d.objet) { info.textContent = 'cible, mandant et objet sont obligatoires — c\'est ce qui fait la preuve'; return; }
+    // La preuve dictée/tapée dans la même séance part avec la fiche, si aucune fiche n'est visée.
+    if (!document.getElementById('pfiche').value) {
+      var pv = valeurPreuve();
+      if (pv.preuve_forme || pv.preuve_texte || pv.preuve_fichier) Object.assign(d, pv);
+    }
     info.textContent = 'ouverture…';
     fetch('api/engagements', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d)
@@ -158,6 +232,33 @@
       }).catch(function () { info.textContent = 'erreur reseau'; });
   }
 
+  // « Sceller la preuve » : sur une fiche active choisie, ou sur celle qui vient d'être créée.
+  function sceller() {
+    var ref = document.getElementById('pfiche').value;
+    var pv = valeurPreuve();
+    if (!pv.preuve_forme && !pv.preuve_texte && !pv.preuve_fichier) {
+      document.getElementById('etatPreuve').textContent = 'Rien à sceller : dis comment l\'accord est arrivé (whatsapp, sms, mail, photo du devis) et recopie ce que le client a écrit.';
+      return;
+    }
+    if (!ref) {
+      var vivantes = Array.prototype.filter.call(document.getElementById('pfiche').options, function (o) { return o.value; });
+      if (vivantes.length === 1) ref = vivantes[0].value;
+      else { document.getElementById('etatPreuve').textContent = 'Choisis d\'abord la fiche concernée — ou ouvre-la avec « nouvel engagement sur … ».'; return; }
+    }
+    pv.action = 'preuve'; pv.ref = ref;
+    document.getElementById('etatPreuve').textContent = 'scellement…';
+    fetch('api/engagements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pv) })
+      .then(function (r) { return r.json().then(function (j) { return { code: r.status, j: j }; }); })
+      .then(function (x) {
+        if (!x.j.ok) { document.getElementById('etatPreuve').textContent = 'refus : ' + x.j.erreur; return; }
+        var p = x.j.fiche.preuve || {};
+        document.getElementById('etatPreuve').textContent = 'preuve scellée sur ' + ref + ' (' + x.j.fiche.cible + ') : ' + (p.forme || '—') +
+          (p.empreinte ? ', piece ' + p.nom + ' → SHA-256 ' + p.empreinte : '') + '. Gravee au journal, citee en tete de rapport.';
+        document.getElementById('texte').value = '';
+        lire();
+      }).catch(function () { document.getElementById('etatPreuve').textContent = 'erreur reseau — le cerveau repond-il ?'; });
+  }
+
   function cloturer(ref) {
     fetch('api/engagements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cloturer', ref: ref }) })
       .then(function (r) { return r.json(); })
@@ -166,6 +267,7 @@
   }
 
   document.getElementById('ouvrir').onclick = ouvrir;
+  document.getElementById('sceller').onclick = function () { sceller(); };
   document.getElementById('rafraichir').onclick = lire;
   document.getElementById('retour').onclick = function () { location.href = 'index.html'; };
   lire();

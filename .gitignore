@@ -35,5 +35,7 @@ prompts.json
 
 # Fiches d'engagement d'Isaac — ses mandats clients, jamais publies
 engagements.json
+# Fiches de séance d'essai — ne touchent jamais le registre légal
+engagements.essai.json
 # Analyses de courriels suspects — le contenu des messages recus par Isaac ne sort pas du PC
 analyses-mail.json

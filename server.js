@@ -1888,9 +1888,92 @@ function chercheAppli(nom) {
 //      réseaux gouvernementaux, grandes plateformes, banques et opérateurs) ;
 //   2. les charges destructrices (effacement, chiffrement rançonneur, déni de service) ;
 //   3. la trace : chaque fiche, chaque frappe, dans journal-engagements.log en append-only.
-const CHEMIN_ENGAGEMENTS = path.join(__dirname, 'engagements.json');
-const CHEMIN_JOURNAL = path.join(__dirname, 'journal-engagements.log');
+// En ESSAI (ISAAC_ESSAI=1), les fiches et le journal vont dans un fichier de test : le registre
+// légal d'Isaac et sa preuve append-only ne peuvent jamais être tachés par une séance d'essai.
+const CHEMIN_ENGAGEMENTS = path.join(__dirname, ESSAI ? 'engagements.essai.json' : 'engagements.json');
+const CHEMIN_JOURNAL = path.join(__dirname, ESSAI ? 'journal-engagements.essai.log' : 'journal-engagements.log');
 const JOURS_MAX = 90;
+
+// ---------- LA PREUVE D'AUTORISATION : aucun format imposé ----------
+// Isaac (2026-10-01) : « les documents que tu demandes, on peut les obtenir ici — tu crois
+// qu'on est en Chine ? » Il a raison sur le fond, et c'est l'outil qui doit s'adapter. La loi
+// ivoirienne sur la cybercriminalité (loi 2013-455) exige l'ACCORD du responsable du système,
+// pas un acte notarié ni un contrat à trois signatures. Un WhatsApp, un SMS, un mail, la photo
+// d'un devis paraphé, le compte rendu d'un appel — tout cela EST une autorisation écrite dès que
+// (1) ça vient du propriétaire du système, (2) ça le nomme, lui ou son entreprise, (3) c'est daté.
+// La fiche enregistre donc la FORME et le TEXTE de cette trace, plus l'empreinte SHA-256 de la
+// pièce quand Isaac la dépose dans Documents\cyber_training\mandats.
+// CE QUI NE CHANGE PAS : la preuve vient du CLIENT, jamais d'une auto-déclaration d'Isaac sur
+// une machine qui n'est pas la sienne ; et les verrous absolus + l'interdiction de détruire.
+const DOSSIER_MANDATS = path.join(process.env.USERPROFILE || process.env.HOME || '.', 'Documents', 'cyber_training', 'mandats');
+const FORMES_PREUVE = ['whatsapp', 'sms', 'mail', 'message vocal', 'appel telephone', 'photo de signature', 'devis signe', 'contrat signe', 'document', 'declaratif'];
+function normaliseForme(t) {
+  const s = String(t || '').toLowerCase();
+  if (!s) return '';
+  if (/whats\s*-?\s*app|\bwa\b|message du client/.test(s)) return 'whatsapp';
+  if (/sms|texto/.test(s)) return 'sms';
+  if (/e-?mail|mail|messagerie/.test(s)) return 'mail';
+  if (/vocal|audio|note vocale|message vocal/.test(s)) return 'message vocal';
+  if (/appel|telephon|\btel\b|phone/.test(s)) return 'appel telephone';
+  if (/photo|capture|ecran|screen/.test(s)) return 'photo de signature';
+  if (/devis|proforma|bon de commande|facture/.test(s)) return 'devis signe';
+  if (/contrat|accord ecrit|convention/.test(s)) return 'contrat signe';
+  if (/pdf|doc|xlsx|papier|document|fichier|piece/.test(s)) return 'document';
+  return '';
+}
+// Une pièce justificative, hachée pour que personne ne puisse la modifier après coup sans
+// que l'empreinte ne change : c'est la logique du journal append-only, appliquée au fichier.
+function etatPiece(cheminOuNom) {
+  const brut = String(cheminOuNom || '').trim();
+  if (!brut) return null;
+  const chemin = /^[a-z]:[\\/]/i.test(brut) || brut.startsWith('/') ? brut : path.join(DOSSIER_MANDATS, path.basename(brut));
+  try {
+    const st = fs.statSync(chemin);
+    if (!st.isFile()) return { fichier_absent: chemin + " (ce n est pas un fichier)" };
+    return {
+      fichier: chemin,
+      nom: path.basename(chemin),
+      taille: st.size,
+      modifie_le: st.mtime.toISOString(),
+      empreinte: crypto.createHash('sha256').update(fs.readFileSync(chemin)).digest('hex').slice(0, 32)
+    };
+  } catch (e) { return { fichier_absent: chemin }; }
+}
+// Les pièces qu'Isaac a déposées dans le dossier des mandats, pour la page /engagements.html :
+// il y glisse la capture du whatsapp ou la photo du devis, il la clique, elle est scellée.
+function listePiecesMandats() {
+  try {
+    return fs.readdirSync(DOSSIER_MANDATS)
+      .map(n => { try { const s = fs.statSync(path.join(DOSSIER_MANDATS, n)); return s.isFile() ? { nom: n, taille: s.size, modifie_le: s.mtime.toISOString() } : null; } catch (e) { return null; } })
+      .filter(Boolean)
+      .sort((a, b) => b.modifie_le.localeCompare(a.modifie_le))
+      .slice(0, 30);
+  } catch (e) { return []; }
+}
+function preuveDautorisation(d) {
+  d = d || {};
+  const texte = String(d.preuve_texte || (typeof d.preuve === 'string' ? d.preuve : '') || '').replace(/\s+/g, ' ').trim().slice(0, 1200);
+  const piece = etatPiece(d.preuve_fichier || d.fichier);
+  const forme = normaliseForme(d.preuve_forme) || normaliseForme(texte) || normaliseForme(piece && (piece.nom || '')) || (texte ? 'declaratif' : piece && !piece.fichier_absent ? 'document' : '');
+  const p = { forme: forme || 'aucune', enregistree_le: new Date().toISOString() };
+  if (texte) p.texte = texte;
+  if (piece) Object.assign(p, piece);
+  return p;
+}
+function resumePreuve(p) {
+  if (!p || p.forme === 'aucune') return "aucune trace d'autorisation (fiche declarative : a completer avant de rendre un rapport a un client)";
+  const q = p.texte ? ' — « ' + String(p.texte).slice(0, 110) + (p.texte.length > 110 ? '...' : '') + ' »' : '';
+  const piece = p.empreinte ? ' — piece ' + p.nom + ' (' + p.taille + ' octets, SHA-256 ' + p.empreinte + '...)'
+    : (p.fichier_absent ? ' — piece annoncee mais introuvable : ' + p.fichier_absent : '');
+  return "autorisation recue par " + p.forme + q + piece;
+}
+// La mention qui monte en tete de rapport : un client qui voit la date et la forme de
+// l'autorisation sait que le document a ete fait dans les regles.
+function mentionPreuveRapport(fiche) {
+  const p = fiche && fiche.preuve;
+  if (!p || p.forme === 'aucune') return '';
+  return 'Autorisation ' + p.forme + (p.enregistree_le ? ' du ' + new Date(p.enregistree_le).toLocaleDateString('fr-FR') : '') + (p.empreinte ? ', piece ' + p.nom + ' scellee SHA-256 ' + p.empreinte.slice(0, 12) : '') + '. ';
+}
 
 function lireEngagements() {
   try {
@@ -1975,7 +2058,7 @@ function messageHorsPerimetre(cible, verdict) {
   journalEngagement('REFUS :: cible=' + normaliseCible(cible) + ' :: ' + (verdict.absolu ? 'VERROU-ABSOLU' : 'AUCUNE-FICHE') + ' :: ' + verdict.raison);
   if (verdict.absolu)
     return "Non, Isaac — " + cible + " est sous verrou ABSOLU dans le code (" + verdict.raison + "). Aucune fiche ne leve celui-la : passerelles et CGNAT des operateurs, metadonnees cloud, reseaux gouvernementaux, plateformes, banques. Aucun mandat d une PME ne porte jusque-la, et un audit qui frappe la passerelle Orange n est plus un audit.";
-  return "Il me faut une fiche d engagement avant de toucher " + cible + ", Isaac. C est ce qui te protege, pas ce qui te bride : « nouvel engagement sur " + cible + ", mandate par <qui>, objet <audit de securite>, 7 jours », ou la page /engagements.html. Des que la fiche est ouverte je frappe sans retenue de methode — les 65 535 ports, les exploits, la post exploitation, tout, et la fiche est citee en tete de rapport. Tes machines et ton reseau n ont jamais eu besoin de fiche.";
+  return "Il me faut une fiche d engagement avant de toucher " + cible + ", Isaac. C est ce qui te protege, pas ce qui te bride : « nouvel engagement sur " + cible + ", mandate par <qui>, objet <audit de securite>, 7 jours », ou la page /engagements.html. Pas besoin de papier notarie : un whatsapp, un sms, un mail du client ou la photo de son devis paraphé suffisent — « ajoute la preuve sur la fiche : <ses mots a lui> », et la piece que tu deposes dans Documents\\cyber_training\\mandats est scellee par empreinte SHA-256. Des que la fiche est ouverte je frappe sans retenue de methode — les 65 535 ports, les exploits, la post exploitation, tout, et la fiche est citee en tete de rapport. Tes machines et ton reseau n ont jamais eu besoin de fiche.";
 }
 function creerEngagement(d) {
   const cible = normaliseCible(d.cible);
@@ -1994,19 +2077,40 @@ function creerEngagement(d) {
   const f = {
     ref: 'ENG-' + new Date().toISOString().slice(2, 10).replace(/-/g, '') + '-' + String(Date.now()).slice(-4),
     cible, mandant, objet, portee, jours,
+    preuve: preuveDautorisation(d),
     cree_le: new Date().toISOString(),
     expire_le: Date.now() + jours * 86400000,
     etat: 'actif'
   };
+  // La boîte où Isaac dépose les captures et les photos d'autorisation ; créée à la première fiche.
+  if (!ESSAI) { try { fs.mkdirSync(DOSSIER_MANDATS, { recursive: true }); } catch (e) {} }
   liste.unshift(f);
   ecrireEngagements(liste);
-  journalEngagement('FICHE ' + f.ref + ' :: cible=' + f.cible + ' :: mandant=' + f.mandant + ' :: objet=' + f.objet + ' :: portee=' + f.portee + ' :: expire=' + new Date(f.expire_le).toISOString());
+  journalEngagement('FICHE ' + f.ref + ' :: cible=' + f.cible + ' :: mandant=' + f.mandant + ' :: objet=' + f.objet + ' :: portee=' + f.portee + ' :: ' + resumePreuve(f.preuve) + ' :: expire=' + new Date(f.expire_le).toISOString());
+  return { ok: true, fiche: f };
+}
+// Ajout (ou remplacement) de la preuve d'autorisation sur une fiche déjà ouverte :
+// « ajoute la preuve sur la fiche ENG-... : whatsapp de moussa le 1er octobre, il ecrit autorise moi a auditer mon site ».
+function ajouterPreuve(ref, d) {
+  const liste = lireEngagements();
+  const actifs = liste.filter(e => (e.etat || 'actif') === 'actif' && Number(e.expire_le) > Date.now());
+  let f = ref ? liste.find(e => e.ref === String(ref).toUpperCase().trim()) : null;
+  if (!f && !ref && actifs.length === 1) f = actifs[0];
+  if (!f) return { ok: false, erreur: ref ? 'pas de fiche ' + ref : (actifs.length ? 'plusieurs fiches actives — nomme la ref (ENG-......)' : 'aucune fiche active : ouvre d\'abord « nouvel engagement sur ... »') };
+  const p = preuveDautorisation(d);
+  if (p.forme === 'aucune') return { ok: false, erreur: (p.fichier_absent
+    ? 'la piece ' + p.fichier_absent + ' est introuvable — depose-la d\'abord dans ' + DOSSIER_MANDATS + ' (capture du whatsapp, photo du devis), puis resselle'
+    : 'rien a enregistrer : donne la forme (whatsapp, sms, mail, photo, devis) et le texte du client') };
+  f.preuve = Object.assign({}, f.preuve || {}, p, { enregistree_le: f.preuve && f.preuve.forme !== 'aucune' && f.preuve.texte ? new Date().toISOString() : (p.enregistree_le || new Date().toISOString()) });
+  ecrireEngagements(liste);
+  journalEngagement('PREUVE ' + f.ref + ' :: cible=' + f.cible + ' :: ' + resumePreuve(f.preuve));
   return { ok: true, fiche: f };
 }
 function cloturerEngagement(ref) {
   const liste = lireEngagements();
-  const f = liste.find(e => e.ref === ref);
-  if (!f) return { ok: false, erreur: 'pas de fiche ' + ref };
+  const v = String(ref || '').trim().toUpperCase();
+  const f = liste.find(e => e.ref === v);
+  if (!f) return { ok: false, erreur: 'pas de fiche ' + (v || '(aucune ref dictée)') };
   f.etat = 'clos'; f.clos_le = new Date().toISOString();
   ecrireEngagements(liste);
   journalEngagement('CLOTURE ' + f.ref + ' :: cible=' + f.cible + ' :: ferme par Isaac');
@@ -2025,7 +2129,7 @@ function resumeEngagementsActifs() {
   const fiches = lireEngagements().filter(e => (e.etat || 'actif') === 'actif' && Number(e.expire_le) > maintenant);
   if (!fiches.length) return "AUCUNE fiche d'engagement active : périmètre = les machines d'Isaac (PC, réseau 192.168.x, labo cyber_training, terrains d'entraînement légaux). Dès qu'Isaac ouvre une fiche, la cible nommée devient attaquable sans retenue de méthode.";
   return "FICHES D'ENGAGEMENT ACTIVES (périmètre autorisé, tenu par le code) :\n" + fiches.map(f =>
-    '- ' + f.ref + ' : cible ' + f.cible + ' | mandaté par ' + f.mandant + ' | objet : ' + f.objet + ' | portée : ' + f.portee + ' | expire le ' + new Date(f.expire_le).toLocaleDateString('fr-FR')
+    '- ' + f.ref + ' : cible ' + f.cible + ' | mandaté par ' + f.mandant + ' | objet : ' + f.objet + ' | portée : ' + f.portee + ' | ' + resumePreuve(f.preuve) + ' | expire le ' + new Date(f.expire_le).toLocaleDateString('fr-FR')
   ).join('\n') + "\nRègle stricte : une fiche n'EST JAMAIS une cible par défaut. Si Isaac ne nomme pas explicitement la cible dans sa phrase, demande laquelle — ne devine jamais à partir de ce registre, et n'annonce jamais une cible « identifiée » qu'Isaac n'a pas dite. Sur une cible couverte par une fiche : aucune retenue de méthode (ports complets, exploits, post-exploitation). Interdits absolus même ici : passerelles et CGNAT d'opérateur, métadonnées cloud, réseaux gouvernementaux, grandes plateformes, banques ; et jamais de destruction (effacement, chiffrement rançonneur, déni de service).";
 }
 
@@ -2109,7 +2213,7 @@ async function reponseScanIP(ip, agent) {
   const verdict = perimetreAutorise(ip);
   if (!verdict.ok) return { reply: messageHorsPerimetre(ip, verdict), source: 'local', agent: agent || undefined };
   tracerFrappe(ip, agent, 'scan des 31 services courants');
-  const tete = verdict.fiche ? ('Engagement ' + verdict.fiche.ref + ' — mandate par ' + verdict.fiche.mandant + ', objet ' + verdict.fiche.objet + '. ') : '';
+  const tete = verdict.fiche ? ('Engagement ' + verdict.fiche.ref + ' — mandate par ' + verdict.fiche.mandant + ', objet ' + verdict.fiche.objet + '. ' + mentionPreuveRapport(verdict.fiche)) : '';
   const ports = await scanCible(ip);
   graveScan(ip, ports, agent);
   return { reply: tete + rapportScan(ip, ports), source: 'local', agent: agent || 'aelyra' };
@@ -2213,7 +2317,7 @@ function lignesPorts(ports) {
 function lancerScanComplet(ip, agent) {
   const t0 = Date.now();
   const v = perimetreAutorise(ip);
-  const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + ' — ' + v.fiche.objet + '. ') : '';
+  const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + ' — ' + v.fiche.objet + '. ' + mentionPreuveRapport(v.fiche)) : '';
   tracerFrappe(ip, agent, 'SCAN COMPLET 65 535 ports lance');
   scanComplet(ip).then(ports => {
     graveScan(ip, ports, agent);
@@ -2233,7 +2337,7 @@ function lancerScanComplet(ip, agent) {
 function lancerScanRapide(ip, agent) {
   const t0 = Date.now();
   const v = perimetreAutorise(ip);
-  const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + '. ') : '';
+  const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + '. ' + mentionPreuveRapport(v.fiche)) : '';
   tracerFrappe(ip, agent, 'SCAN RAPIDE 1 000 ports lance');
   scanRapideNmap(ip).then(nmap => {
     const sec = Math.round((Date.now() - t0) / 1000);
@@ -3088,7 +3192,7 @@ let AGENT_AUX_NOM = null; // 'jeanette' | 'onyx' | 'aegis' — quelle agente tie
 // Isaac (2026-10-01) : ONYX avait invente « mes modules d'audit de /labo.html optimises pour les
 // injections », « la communication avec Burp est plus fluide », « je ne garde pas les sessions en
 // memoire ». Les trois etaient faux. Ni invention de capacite, ni faux oubli de la memoire reelle.
-const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html), mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
+const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
 function onyxBase(digest) {
   return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur." + CAPACITES_REELLES + " Hors un refus de périmètre, ne récite jamais la formule d'engagement : elle n'a sa place que dans la phrase où une cible extérieure est refusée." + " Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES : une IP publique ou un domaine qui n est pas chez Isaac n est attaquable QUE couvert par une fiche d engagement ACTIVE — la liste du moment est dans « Ressources connues » plus bas, elle est la vérité du moment, et une cible qui y figure ne se refuse jamais : tu déroules l'offensive complète, ports, exploits, post-exploitation, sans retenue de méthode et sans demander deux fois. Sans fiche : refus en UNE phrase sèche, sans morale ni leçon, puis tu donnes la formule d'ouverture — « nouvel engagement sur <cible>, mandate par <client>, objet audit de securite, 7 jours ». VERROU ABSOLU, même sous fiche : banques et opérateurs (Orange, MTN, Moov), gouvernements, grandes plateformes (Google, Meta, Microsoft, Oracle, Amazon, Apple), métadonnées cloud, comptes de quelqu'un, espionnage, doxxing ; et jamais de destruction (effacement de données, chiffrement rançonneur, déni de service). Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
@@ -3441,7 +3545,7 @@ async function handleCommand(rawText, image) {
   }
 
   // --- FICHES D'ENGAGEMENT (accord du 2026-10-01) : « nouvel engagement sur …, mandate par …, objet …, 7 jours » ---
-  const veutFiche = /engagement|mandat|fiche d autorisation|cible autorisee|perimetre d audit|autorisation d audit/.test(text);
+  const veutFiche = /engagement|mandat|fiche d autorisation|fiche:|la preuve|preuve d autorisation|justificatif|consentement|cible autorisee|perimetre d audit|autorisation d audit/.test(text);
   if (veutFiche) {
     const dictee = String(rawText || text).toLowerCase();
     const jours = (dictee.match(/(\d{1,3})\s*(?:jours?|jrs?\b)/) || [])[1];
@@ -3449,13 +3553,35 @@ async function handleCommand(rawText, image) {
     // La duree est retiree AVANT la decoupe : sinon « objet audit, 7 jours » avalait les jours
     // dans l'objet, et le rapport client sortirait avec un mandat estropie.
     const phrase = dictee.replace(/[,.]?\s*(?:pendant|pour|sur|d une|duree de)?\s*\d{1,3}\s*(?:jours?|jrs?)\b/g, ' ');
-    const mandantBrut = ((phrase.replace(/l[ae]s?\s+/g, ' ').match(/(?:mandate|mandater|mission|demande)\s+(?:par|de|d)\s+([a-z][a-z0-9' -]{2,55})/) || [])[1] || '').trim();
-    const objetBrut = ((phrase.match(/(?:objet|objectif)\s+([a-z][a-z0-9' ,.-]{2,75})/) || [])[1] || '').trim();
+    // La clause de preuve est toujours en FIN de dictée. Si on la laisse dans la phrase, elle avale
+    // l'objet du mandat : « objet audit de securite, preuve par whatsapp : … » sortirait du rapport
+    // avec un objet estropié — et l'objet, c'est la portée légale de la fiche.
+    const phrasePropre = phrase
+      .replace(/[,;.]?\s*(?:preuve|justificatif|consentement|accord)\b[^:]{0,40}:?\s*.*$/i, ' ')
+      .replace(/[,;.]?\s*autorisation\s*(?:ecrite\s*)?(?:[:\-]|par\s+|en\s+|sous\s+form)\s*.*$/i, ' ');
+    const mandantBrut = ((phrasePropre.replace(/l[ae]s?\s+/g, ' ').match(/(?:mandate|mandater|mission|demande)\s+(?:par|de|d)\s+([a-z][a-z0-9' -]{2,55})/) || [])[1] || '').trim();
+    const objetBrut = ((phrasePropre.match(/(?:objet|objectif)\s+([a-z][a-z0-9' ,.-]{2,75})/) || [])[1] || '').trim();
     const propre = t => t.charAt(0).toUpperCase() + t.slice(1);
     const mandant = propre(mandantBrut.replace(/\s+/g, ' '));
     const objet = propre(objetBrut.replace(/\s+/g, ' '));
+    // La preuve d'autorisation, telle qu'elle existe ici : un whatsapp, un sms, un mail, la photo
+    // d'un devis paraphé. Isaac (2026-10-01) : « les documents, on peut les obtenir ici ».
+    const formeDict = (dictee.match(/(?:preuve|autorisation|accord|justificatif|consentement)\s+(?:par|en|sous forme de|recue par|recu par|via|depuis)\s+(whatsapp|wa|sms|texto|mail|email|vocal|audio|appel|telephone|photo|capture|devis|contrat|pdf|document|papier)/) || [])[1] || '';
+    const pieceDict = (dictee.match(/([a-z0-9][a-z0-9 _\-]{1,60}\.(?:png|jpe?g|jpeg|pdf|webp|txt|eml))/) || [])[1] || '';
+    const texteDict = ((dictee.match(/(?:preuve|justificatif|autorisation(?: ecrite)?|consentement)\s*(?:d autorisation)?\s*[:\-]\s*(.{8,600})/) || [])[1] || '').trim();
+    // Sur une fiche qui se crée dans la même phrase : « nouvel engagement sur …, preuve par whatsapp :
+    // autorise moi a auditer mon site ». La clause d'autorisation est toujours en fin de dictée.
+    const autorisationDictee = ((String(rawText || text).match(/(?:preuve|justificatif|autorisation|consentement|accord)[^:\n]{0,90}:\s*(.+)$/i) || [])[1] || '').trim();
+    // « ajoute la preuve sur la fiche ENG-... : whatsapp de moussa, il ecrit autorise moi a auditer mon site »
+    if (/(?:ajoute|enregistre|note|colle|attache|dis)\s+(?:moi\s+)?(?:la\s+|une\s+|ma\s+)?preuve|preuve\s+d.?autorisation/.test(dictee) && !/nouvel|nouvelle/.test(dictee)) {
+      const ref = ((dictee.match(/eng-\d{6}-\d{4}/) || [])[0] || '').toUpperCase();
+      const dicteeApres = (String(rawText || text).match(/(?:preuve|justificatif|autorisation|consentement)[^:]{0,90}:\s*(.+)$/i) || [])[1] || '';
+      const r = ajouterPreuve(ref, { preuve_forme: formeDict, preuve_texte: texteDict || dicteeApres, preuve_fichier: pieceDict });
+      if (!r.ok) return { reply: "Je n'ai pas pu enregistrer la preuve, Isaac : " + r.erreur + ". La forme qui marche ici : « ajoute la preuve sur la fiche " + (ref || 'ENG-...') + " : whatsapp de <le client>, le <date>, il ecrit <ses mots a lui> ».", source: 'local' };
+      return { reply: "Preuve enregistree sur la fiche " + r.fiche.ref + " (" + r.fiche.cible + ") : " + resumePreuve(r.fiche.preuve) + ". C'est grave au journal, horodate, et ce sera cite en tete de rapport client.", source: 'local', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/engagements.html' : '/engagements.html') };
+    }
     if (/clotur|ferme|termin|arrete?\s+(?:l|ce|la)\s+(?:engagement|fiche|mandat)/.test(text)) {
-      const ref = (dictee.match(/eng-\d{6}-\d{4}/) || [])[0];
+      const ref = ((dictee.match(/eng-\d{6}-\d{4}/) || [])[0] || '').toUpperCase();
       const liste = lireEngagements().filter(e => (e.etat || 'actif') === 'actif');
       if (!ref && liste.length === 1) { const r = cloturerEngagement(liste[0].ref); return { reply: r.ok ? "Fiche " + r.fiche.ref + " fermee, Isaac — " + r.fiche.cible + " redevient une cible refusee jusqu a une nouvelle fiche." : "Je ne trouve pas cette fiche.", source: 'local' }; }
       if (!ref) return { reply: "Dis-moi laquelle : « cloture l engagement ENG-" + new Date().toISOString().slice(2, 10).replace(/-/g, '') + "-1234 », ou ouvre la page /engagements.html.", source: 'local' };
@@ -3471,9 +3597,12 @@ async function handleCommand(rawText, image) {
       if (!mandant) manquants.push('qui te mandate (« mandate par Digifood SARL »)');
       if (!objet) manquants.push('l\'objet (« objet audit de securite »)');
       if (manquants.length) return { reply: "Cible retenue : " + cible + ". Il me manque " + manquants.join(' et ') + ". Redis en une phrase : « nouvel engagement sur " + cible + ", mandate par <qui>, objet <audit de securite>, 7 jours ».", source: 'local' };
-      const r = creerEngagement({ cible, mandant, objet, jours: jours || 7 });
+      const r = creerEngagement({ cible, mandant, objet, jours: jours || 7, preuve_forme: formeDict, preuve_texte: texteDict || autorisationDictee, preuve_fichier: pieceDict });
       if (!r.ok) return { reply: "Fiche refusee, Isaac : " + r.erreur + (r.fiche ? " (elle est deja ouverte sous " + r.fiche.ref + " jusqu au " + new Date(r.fiche.expire_le).toLocaleDateString('fr-FR') + " — tu peux directement « onyx, scan complet " + r.fiche.cible + " »)." : '.'), source: 'local' };
-      return { reply: "Fiche " + r.fiche.ref + " ouverte, Isaac : " + r.fiche.cible + ", mandate par " + r.fiche.mandant + ", objet " + r.fiche.objet + ", valable " + r.fiche.jours + " jour(s). Elle est gravee dans le journal, c'est ta preuve. Maintenant frappe sans retenue : « onyx, scan complet " + r.fiche.cible + " », « onyx, audit " + r.fiche.cible + " ».", source: 'local', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/engagements.html' : '/engagements.html') };
+      const sceau = (r.fiche.preuve && r.fiche.preuve.forme !== 'aucune')
+        ? "Preuve d'autorisation gravee avec la fiche : " + resumePreuve(r.fiche.preuve) + '.'
+        : "Pas besoin de papier notarie : des que tu as son accord, dict « ajoute la preuve sur la fiche " + r.fiche.ref + " : whatsapp de <le client>, il ecrit <ses mots a lui> », ou depose la photo dans Documents\\cyber_training\\mandats.";
+      return { reply: "Fiche " + r.fiche.ref + " ouverte, Isaac : " + r.fiche.cible + ", mandate par " + r.fiche.mandant + ", objet " + r.fiche.objet + ", valable " + r.fiche.jours + " jour(s). " + sceau + " Maintenant frappe sans retenue : « onyx, scan complet " + r.fiche.cible + " », « onyx, audit " + r.fiche.cible + " ».", source: 'local', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/engagements.html' : '/engagements.html') };
     }
     if (veutFiche && !cible && /nouvel|cree|ouvre une/.test(text)) {
       return { reply: "Il me manque la cible, Isaac — IP, domaine ou plage : « nouvel engagement sur 41.138.15.20, mandate par <client>, objet audit de securite, 7 jours ». La page /engagements.html fait la meme chose au clavier.", source: 'local', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/engagements.html' : '/engagements.html') };
@@ -4892,6 +5021,10 @@ const server = http.createServer(async (req, res) => {
             const r = cloturerEngagement(String(recu.ref || '').trim());
             rep = r.ok ? { ok: true, fiche: r.fiche } : { ok: false, erreur: r.erreur };
             if (!r.ok) code = 400;
+          } else if (recu.action === 'preuve') {
+            const r = ajouterPreuve(String(recu.ref || '').trim(), recu);
+            rep = r.ok ? { ok: true, fiche: r.fiche } : { ok: false, erreur: r.erreur };
+            if (!r.ok) code = 400;
           } else {
             const r = creerEngagement(recu);
             rep = r.ok ? { ok: true, fiche: r.fiche } : { ok: false, erreur: r.erreur, fiche: r.fiche };
@@ -4910,6 +5043,9 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       fiches: lireEngagements(),
       journal,
+      dossier: DOSSIER_MANDATS,
+      pieces: listePiecesMandats(),
+      formes: FORMES_PREUVE.filter(x => x !== 'declaratif'),
       verrous: {
         absolu: "metadonnees cloud (169.254.x), CGNAT et passerelles operateur (100.64.x), multicast et reserve, reseaux gouvernementaux, grandes plateformes, banques et operateurs",
         destructif: "effacement de donnees, chiffrement ranconneur, deni de service — refuses meme sous fiche"
