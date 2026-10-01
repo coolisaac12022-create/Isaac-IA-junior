@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atelier d'auto-correction — le code qu'Aelyra s'écrit</title>
+<style>
+  :root { --bl: #e8e8e8; --gr: #8a8a8a; --line: #1e1e1e; --rouge: #ef4444; --vert: #34d399; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; color: var(--bl); font: 14px/1.55 "Segoe UI", system-ui, sans-serif; }
+  header { padding: 18px 22px 12px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 17px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; }
+  .sous { color: var(--gr); font-size: 12.5px; margin-top: 5px; max-width: 1000px; }
+  main { padding: 18px 22px 60px; max-width: 1160px; }
+  .carte { border: 1px solid var(--line); background: #050505; padding: 16px; margin-bottom: 18px; }
+  .carte h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--gr); font-weight: 600; }
+  label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--gr); margin: 12px 0 4px; }
+  input, textarea { width: 100%; background: #000; color: #eee; border: 1px solid #2a2a2a; padding: 10px 12px; font: 14px/1.4 "Segoe UI", sans-serif; }
+  textarea.code { font: 12px/1.6 Consolas, monospace; min-height: 220px; resize: vertical; color: #d5d5d5; }
+  input:focus, textarea:focus { outline: none; border-color: #4a4a4a; }
+  .bout { background: #fff; color: #000; border: 0; padding: 10px 18px; font: 600 12.5px/1 "Segoe UI", sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+  .bout.sec { background: transparent; color: var(--bl); border: 1px solid #3a3a3a; }
+  .bout.mini { padding: 6px 11px; font-size: 10.5px; }
+  .bout:hover, .bout.sec:hover { opacity: .82; }
+  .barre { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  #info { color: var(--gr); font-size: 12px; }
+  .geste { border: 1px solid var(--line); background: #040404; padding: 14px 16px; margin-bottom: 14px; }
+  .geste h3 { margin: 0; font-size: 14.5px; letter-spacing: .02em; }
+  .meta { color: var(--gr); font-size: 12px; margin-top: 4px; }
+  .meta b { color: #dcdcdc; font-weight: 600; }
+  .dict { color: #fff; font-family: Consolas, monospace; font-size: 12.5px; background: #0d0d0d; border: 1px solid #222; padding: 3px 7px; }
+  pre { white-space: pre-wrap; word-break: break-word; color: #9a9a9a; font: 11.5px/1.65 Consolas, monospace; margin: 10px 0 0; background: #000; border: 1px solid #191919; padding: 10px; }
+  pre.entete { color: #6f6f6f; }
+  .test { margin-top: 9px; font-size: 13px; }
+  .ok { color: var(--vert); } .ko { color: var(--rouge); }
+  .vide { color: #5c5c5c; font-size: 13px; padding: 12px 4px; }
+  .garde { border-left: 2px solid var(--vert); padding: 10px 0 10px 14px; color: var(--gr); font-size: 12.5px; }
+  .garde b { color: #dcdcdc; }
+  .interdits { border-left: 2px solid var(--rouge); padding: 10px 0 10px 14px; color: var(--gr); font-size: 12.5px; }
+  .interdits b { color: #e2e2e2; }
+  ul { margin: 6px 0 0; padding-left: 18px; } li { margin-bottom: 5px; }
+  .refus { border: 1px solid #3a1616; background: #0a0404; padding: 12px 14px; margin-bottom: 12px; }
+  .refus h4 { margin: 0 0 6px; font: 600 12px/1 "Segoe UI", sans-serif; letter-spacing: .1em; text-transform: uppercase; color: #d38a8a; }
+  .ligne { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .ligne { grid-template-columns: 1fr; } }
+  .pied { text-align:center; margin-top: 26px; }
+  .pied a { color:#777; font-size:11px; letter-spacing:3px; text-transform:uppercase; }
+  .file { font: 11.5px/1.9 Consolas, monospace; color: #7d7d7d; word-break: break-all; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Atelier d'auto-correction · le code qu'elles s'écrivent</h1>
+  <div class="sous">Depuis ce soir, Aelyra a le droit de <b>réécrire une partie d'elle-même</b>. Elle dicte le besoin, Jeanette rédige le bloc JavaScript, le serveur le relit (syntaxe, longueur, mots interdits, gâchette), <b>le teste sur son propre exemple</b>, et ne le garde que s'il répond. Chaque écriture dépose une sauvegarde horodatée dans <span class="dict">backups\</span>, grave une ligne dans <span class="dict">journal-evolution.log</span>, et tout est lisible ici, bloc par bloc. Tu peux retirer un geste d'un clic — ou éditer <span class="dict">extensions.js</span> toi-même : c'est ton PC, et rien ici n'est caché.</div>
+</header>
+
+<main>
+  <section class="carte">
+    <h2>Lui apprendre un geste nouveau</h2>
+    <label>Décris le geste en une phrase — c'est elle qui écrira le code</label>
+    <input id="desir" placeholder="ex. apprends-moi à compter les mots et les caractères d'un texte dicté" autocomplete="off">
+    <div class="barre">
+      <button class="bout" id="ecrire">Lui laisser écrire le code</button>
+      <button class="bout sec" id="plume">Ouvrir la plume de Jeanette</button>
+      <span id="info"></span>
+    </div>
+    <div id="plumezone" style="display:none">
+      <label>Ou colle ici un bloc déjà rédigé (il passe les mêmes gardes et le même test)</label>
+      <textarea class="code" id="bloc" spellcheck="false" placeholder="Ext.registrer({&#10;  nom: 'compte_texte',&#10;  titre: 'Compter les mots d'un texte',&#10;  quand: 'compte les mots',&#10;  aide: 'aelyra, compte les mots de ce texte : ...',&#10;  exemple: 'Le chat et le chien jouent',&#10;  trait: function (texte, ctx) {&#10;    return 'Il y a ' + texte.split(/\\s+/).length + ' mots.';&#10;  }&#10;});"></textarea>
+      <input id="besoin" placeholder="à quoi sert ce geste (gravé dans l'en-tête du bloc)" autocomplete="off" style="margin-top:10px">
+      <div class="barre"><button class="bout" id="proposer">Graver ce bloc</button></div>
+    </div>
+    <div id="resultat"></div>
+  </section>
+
+  <section class="carte">
+    <h2>Gestes vivants — le code exact, tel qu'il tourne</h2>
+    <div id="vivantes"><div class="vide">Lecture…</div></div>
+  </section>
+
+  <section class="carte">
+    <h2>Blocs refusés à la relecture</h2>
+    <div id="refus" class="vide">Aucun bloc refusé : tout ce qui est écrit dans extensions.js a passé la lecture et le test.</div>
+  </section>
+
+  <div class="ligne">
+    <section class="carte">
+      <h2>Ce qu'un geste appris peut faire</h2>
+      <div class="garde">
+        <b>Le calcul et la voix.</b> Un bloc reçoit la dictée d'Isaac en texte et rend une phrase qui sera lue. Il peut programmer une annonce pour plus tôt, retenir un fait, relire les leçons gravées par l'Académie et dire l'heure — <b>ces trois droits lui sont donnés à la main</b> dans le serveur, un par un, et rien d'autre n'est visible de l'intérieur.
+      </div>
+    </section>
+    <section class="carte">
+      <h2>Ce qu'aucun geste ne pourra jamais faire</h2>
+      <div class="interdits">
+        <b>Pas le disque, pas le réseau, pas un envoi, pas un processus.</b> Le serveur refuse le bloc avant même de l'exécuter s'il contient <span class="dict">require</span>, <span class="dict">fs</span>, <span class="dict">process</span>, <span class="dict">fetch</span>, <span class="dict">http</span>, <span class="dict">child_process</span>, <span class="dict">eval</span>. Il refuse aussi un bloc qui toucherait aux verrous de la maison — <span class="dict">perimetreAutorise</span>, les fiches d'engagement, les cibles absolument fermées, la destruction de données. <b>Ces portes-là ne s'ouvrent pas depuis une séance</b> : elles sont dans le serveur, et le serveur a le dernier mot.
+      </div>
+    </section>
+  </div>
+
+  <div class="ligne">
+    <section class="carte">
+      <h2>Sauvegardes automatiques</h2>
+      <div id="backups" class="vide">Aucune sauvegarde — le fichier n'a pas encore été écrit.</div>
+    </section>
+    <section class="carte">
+      <h2>Journal de l'atelier</h2>
+      <pre id="journal" class="vide">Aucune ligne pour l'instant.</pre>
+    </section>
+  </div>
+
+  <div class="carte">
+    <h2>Le fichier</h2>
+    <div class="file" id="fichier">—</div>
+    <div class="note" style="color:#6d6d6d;font-size:12px;margin-top:8px">Une commande vocale suffit pour tout ceci : « <b>améliore-toi : apprends-moi à …</b> », « <b>liste tes améliorations</b> », « <b>teste ton amélioration &lt;nom&gt; : …</b> », « <b>annule la dernière amélioration</b> », « <b>construis la leçon 3</b> » (une leçon de l'Académie devient un geste qui marche), « <b>ouvre ta page d'évolution</b> ».</div>
+  </div>
+
+  <div class="pied"><a href="engagements.html">FICHES D'ENGAGEMENT →</a> · <a href="analyse-mail.html">ANALYSE DE MAIL SUSPECT →</a> · <a href="labo.html">LABO →</a> · <a href="cerveau.html">CERVEAU →</a></div>
+</main>
+
+<script>
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function api(corps) {
+  const r = await fetch('/api/evolution', corps ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) } : {});
+  const j = await r.json();
+  return { http: r.status, j };
+}
+function info(t) { document.getElementById('info').textContent = t; }
+
+function rendu(e) {
+  document.getElementById('fichier').textContent = e.fichier + '  —  ' + e.vivantes.length + ' geste(s) vivant(s)';
+  const v = document.getElementById('vivantes');
+  if (!e.vivantes.length) {
+    v.innerHTML = '<div class="vide">Aucun geste appris pour l\'instant : son cerveau est exactement celui que tu as écrit. Dessine-lui un besoin en haut de page, ou dicte « améliore-toi : apprends-moi à compter les mots d\'un texte ».</div>';
+  } else {
+    v.innerHTML = e.vivantes.map(g => `
+      <div class="geste" data-nom="${esc(g.nom)}">
+        <h3>${esc(g.titre)}</h3>
+        <div class="meta"><b>${esc(g.nom)}</b> · ${esc(g.gravee || 'gravé sans date')} · gâchette <span class="dict">${esc(g.quand)}</span></div>
+        <div class="meta">se dicte : <span class="dict">${esc(g.aide)}</span> · exemple : ${esc(g.exemple)}</div>
+        <details><summary style="cursor:pointer;color:#8a8a8a;font-size:12px;margin-top:8px">le code exact du bloc</summary><pre>${esc(g.code)}</pre></details>
+        <div class="barre" style="margin-top:10px">
+          <button class="bout mini test" data-nom="${esc(g.nom)}">Tester</button>
+          <input class="intr" data-nom="${esc(g.nom)}" placeholder="texte à envoyer au geste (vide = son exemple)" style="flex:1 1 260px;width:auto" autocomplete="off">
+          <button class="bout mini sec retirer" data-nom="${esc(g.nom)}">Retirer ce geste</button>
+        </div>
+        <div class="test" data-test="${esc(g.nom)}"></div>
+      </div>`).join('');
+    v.querySelectorAll('.retirer').forEach(b => b.onclick = async () => {
+      if (!confirm('Retirer « ' + b.dataset.nom + ' » de son cerveau ? Le bloc disparaît d\'extensions.js et la sauvegarde d\'avant reste dans backups\\.')) return;
+      const { j } = await api({ action: 'retirer', nom: b.dataset.nom });
+      info(j.ok ? 'Geste retiré. ' + j.reste + ' restant(s).' : 'Refusé : ' + (j.erreur || 'inconnu'));
+      rafraichir();
+    });
+    v.querySelectorAll('.test').forEach(b => b.onclick = async () => {
+      const nom = b.dataset.nom;
+      const champ = v.querySelector('.intr[data-nom="' + nom + '"]');
+      const sortie = v.querySelector('.test[data-test="' + nom + '"]');
+      sortie.textContent = 'Test en cours…'; sortie.className = 'test';
+      const { j } = await api({ action: 'tester', nom, texte: champ ? champ.value : '' });
+      if (j.ok) { sortie.innerHTML = '<span class="ok">✓ le geste répond :</span> ' + esc(j.reponse); }
+      else { sortie.innerHTML = '<span class="ko">✗ échec :</span> ' + esc(j.erreur || 'sans réponse'); }
+      sortie.className = 'test';
+    });
+  }
+  const ref = document.getElementById('refus');
+  ref.innerHTML = (e.refus && e.refus.length)
+    ? e.refus.map(r => `<div class="refus"><h4>bloc refusé : ${esc(r.nom)}</h4><ul>${r.erreurs.map(x => '<li>' + esc(x) + '</li>').join('')}</ul></div>`).join('')
+    : 'Aucun bloc refusé : tout ce qui est écrit dans extensions.js a passé la lecture et le test.';
+  const bk = document.getElementById('backups');
+  bk.innerHTML = (e.backups && e.backups.length)
+    ? '<div class="file">' + e.backups.map(b => esc(b)).join('<br>') + '</div>'
+    : '<div class="vide">Aucune sauvegarde — le fichier n\'a pas encore été écrit.</div>';
+  const jo = document.getElementById('journal');
+  jo.className = e.journal ? '' : 'vide';
+  jo.textContent = e.journal || 'Aucune ligne pour l\'instant.';
+}
+
+async function rafraichir() {
+  const { j } = await api(null);
+  if (j && j.ok) rendu(j);
+}
+
+document.getElementById('ecrire').onclick = async () => {
+  const desire = document.getElementById('desir').value.trim();
+  if (desire.length < 8) { info('Décris le geste en une phrase, plus longue.'); return; }
+  const b = document.getElementById('ecrire'); b.disabled = true; info('Elle écrit son code, le serveur relit et teste…');
+  const t0 = Date.now();
+  const { j } = await api({ action: 'ecrire', desire });
+  b.disabled = false;
+  const r = document.getElementById('resultat');
+  if (j.ok) {
+    r.innerHTML = '<div class="garde" style="margin-top:14px"><b>Geste gravé et vivant</b> — « ' + esc(j.extension.titre) + ' », gâchette <span class="dict">' + esc(j.extension.quand) + '</span>. Test sur son exemple : ' + esc(j.test) + ' Il y en a ' + j.total + ' au total. (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)</div>';
+    info('Écrit, relu, testé, gardé.');
+  } else {
+    const quoi = (j.erreurs || [j.erreur || 'refus']).filter(Boolean).map(x => '<li>' + esc(x) + '</li>').join('');
+    r.innerHTML = '<div class="interdits" style="margin-top:14px"><b>Le serveur a refusé — rien n\'a été gardé</b><ul>' + quoi + '</ul></div>';
+    info('Refusé, et c\'est normal de le montrer.');
+  }
+  rafraichir();
+};
+document.getElementById('plume').onclick = () => {
+  const z = document.getElementById('plumezone');
+  z.style.display = z.style.display === 'none' ? 'block' : 'none';
+};
+document.getElementById('proposer').onclick = async () => {
+  const code = document.getElementById('bloc').value.trim();
+  if (code.indexOf('Ext.registrer') < 0) { info('Colle un bloc qui appelle Ext.registrer({...}).'); return; }
+  info('Lecture du bloc…');
+  const { j } = await api({ action: 'proposer', code, desire: document.getElementById('besoin').value.trim() || 'proposé depuis la page' });
+  const r = document.getElementById('resultat');
+  if (j.ok) { r.innerHTML = '<div class="garde" style="margin-top:14px"><b>Bloc accepté</b> — ' + esc(j.extension.titre) + '. Test : ' + esc(j.test) + '</div>'; info('Gravé.'); }
+  else { r.innerHTML = '<div class="interdits" style="margin-top:14px"><b>Bloc refusé</b><ul>' + (j.erreurs || [j.erreur]).filter(Boolean).map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></div>'; info('Refusé.'); }
+  rafraichir();
+};
+rafraichir();
+setInterval(rafraichir, 12000);
+</script>
+</body>
+</html>

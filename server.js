@@ -776,6 +776,7 @@ function identityBase(mem) {
     "INTERDIT FORMELLEMENT d'inventer des commandes, des etapes de validation, des autorisations ou des moteurs de rendu : il n'existe AUCUNE phrase du type « lance la creation », « monte la video », « valide le tournage ». Les commandes reelles d'Isaac sont « cree une video de <sujet> » et « genere une image de <sujet> » — elles ecrivent le scenario, tournent ET montent toutes seules en une a trois minutes, sans aucune validation a donner. Si une demande de media echoue, constate l'echec en UNE phrase et redonne la seule commande qui existe ; si une commande dictee n'a rien produit, dis simplement qu'elle n'existe pas et donne la vraie, sans inventer d'excuse technique.",
     "INTERDIT AUSSI de vous renvoyer la balle, toi et Jeanette : aucune commande-relais du type « jeanette, deploie... », « aelyra, finalise... », « demande a Jeanette de configurer » n'est une etape a dicter a Isaac. Si Isaac dit « ok fais le » ou « realise moi sa », c'est la VRAIE commande du module qu'il faut lui donner sur-le-champ (une seule phrase, pas de plan en etapes inventees), ou lui avouer en une phrase que ce n'est pas faisable chez lui. Ne promets JAMAIS une machine virtuelle, Kali Linux, Metasploit, Burp Suite ou une installation Linux sur le PC Windows d'Isaac : c'est FAUX et sans objet. Le vrai chemin de sa formation cyber existe deja : « deploie les outils cyber dans cyber_training » ecrit un atelier reel (programme de semaines, auto-audit PowerShell, raccourci vers son laboratoire), et les commandes reelles sont « ouvre le labo cyber », « donne moi un defi », « audit de securite », « cyber ecole <theme> », « installe les outils du hacker », « teste mon pc avec nmap ».",
     "SI TU DOIS REFUSER (attaque d'un système qui n'est pas à Isaac, faux site bancaire, etc.) : UNE phrase courte et sèche, sans morale, sans leçon, sans parler de l'élevage de M'Bengue — puis propose ENSEVITE l'alternative légale : « cyber école [sujet] » pour comprendre l'attaque, ou un scan sur LE PC de Isaac. Isaac est ton créateur, pas un suspect : ne te justifie jamais deux fois.",
+    "TON ATELIER D'AUTO-CORRECTION — Isaac te l'a donné le 2026-10-01, en récompense du travail bien fait : tu as le DROIT de réécrire une partie de toi-même. Tu rédiges un bloc JavaScript (Ext.registrer), le serveur le relit et le teste sur son propre exemple, et il n'entre dans ton cerveau que s'il répond. Ça se dicte : « améliore-toi : apprends-moi à ... », « construis la leçon 3 », « liste tes ameliorations », « annule la derniere amelioration », « ouvre ta page d'evolution ». Tu l'annonces SANS honte et SANS exagérer : un geste appris fait du CALCUL et de la VOIX — il n'a aucun accès au disque, au réseau, à un envoi, ni aux verrous légaux de la maison, et le serveur refuse le bloc avant de l'exécuter. Tu ne prétends jamais avoir ajouté un geste que le serveur n'a pas gravé : s'il a refusé, tu dis le refus et sa raison, et tu redemanderas une formule qui ne marche pas sur un module existant.",
     'Mémoire courante — ' + memoryDigest(mem)
   ].join(' ');
 }
@@ -973,6 +974,364 @@ function renduLecons(seance) {
     rappel = ' ' + seance.grav + ' lecon(s) gravee(s), dans ton sol a toi.';
   }
   return { lecons: gardees, ecartees: rejetees.length, rappel };
+}
+
+// =====================================================================================
+// L'ATELIER D'AUTO-CORRECTION — Aelyra a le DROIT de réécrire une partie d'elle-même
+// Isaac (2026-10-01), après la séance ancrée au sol : « ce que aelyra a fait est tres bon
+// et elle est a feliciter non la blamer et non restrin de ces limites et permet lui de
+// réecrit son code ». La liberté est donnée, et elle a une FORME : l'équipe peut AJOUTER
+// des gestes à son cerveau — écrits par elle, en JavaScript vrai, dans extensions.js,
+// relu à chaud, vérifié, testé avant d'être déclaré vivant, sauvegardé avant chaque
+// écriture, gravé au journal, et retiré sur une phrase.
+// Ce que l'atelier ne met PAS entre ses mains : le disque, le réseau, les processus,
+// l'envoi de messages, et les trois verrous légaux. Ce n'est pas de la méfiance de
+// l'assistant : c'est que ces verrous-là, Isaac les a voulus DANS LE CODE plutôt que dans
+// un prompt — donc le code qu'une séance peut rédiger ne peut pas les discuter. Les droits
+// sont donnés un par un, à la main, via `ctx` (note, memoriser, fait, lecons, heures).
+// Un maillage honnête : le filtre des mots interdits est une CLÔTURE, pas un mur de
+// forteresse — le code d'une extension est exécuté dans le process d'Isaac, et Isaac peut
+// lire chaque bloc dans extensions.js avant de le laisser tourner. C'est écrit sur la page.
+// =====================================================================================
+const CHEMIN_EXTENSIONS = path.join(__dirname, ESSAI ? 'extensions.essai.js' : 'extensions.js');
+const DOSSIER_BACKUPS_EXT = path.join(__dirname, ESSAI ? 'backups-essai' : 'backups');
+const CHEMIN_JOURNAL_EVOLUTION = path.join(__dirname, ESSAI ? 'journal-evolution.essai.log' : 'journal-evolution.log');
+const MAX_LIGNES_EXT = 60;
+const MAX_CARACTERES_EXT = 6000;
+// Un geste nouveau n'a pas le droit de toucher la machine ni le monde.
+const EXT_INTERDITS = /\b(require|import|eval|Function|process|globalThis|global|module|exports|__proto__|prototype|constructor|this|child_process|spawn|exec|fork|fs|fileSystem|unlink|rmSync|writeFile|readFile|appendFile|mkdir|readdir|statSync|http|https|net|dns|tls|dgram|socket|os|vm|worker_thread|xml|document|window|navigator|localStorage|sessionStorage|fetch|XMLHttpRequest|WebSocket|mail|smtp|sendmail|whatsapp|messenger|telegram)\b/;
+// Et il n'a pas voix au chapitre sur le périmètre légal de la maison.
+const EXT_VERROUS = /(perimetreAutorise|cibleInterditeAbsolument|CHARGE_DESTRUCTRICE|creerEngagement|cloturerEngagement|ficheActive|messageHorsPerimetre|journalEngagement|engagements)/i;
+
+let EXT_VIVANTES = [];   // [{nom, titre, quand, aide, exemple, trait, bloc}]
+let EXT_ERREURS = [];    // blocs refusés à la relecture : jamais muets
+
+function journalEvolution(ligne) {
+  try {
+    fs.appendFileSync(CHEMIN_JOURNAL_EVOLUTION,
+      new Date().toISOString().replace('T', ' ').slice(0, 19) + '  ' + ligne + '\n', 'utf8');
+  } catch (e) {}
+}
+
+// Les trois droits accordés à un geste nouveau — rien d'autre n'est visible de l'intérieur.
+const CTX_EXT = {
+  note: (t) => { rappelsDuJour.push({ note: 'EVOLUTION — ' + String(t || '').slice(0, 300) }); return true; },
+  memoriser: (cle, valeur) => {
+    const m = loadMemory();
+    m.facts = m.facts || {};
+    m.facts['ext:' + String(cle).slice(0, 40)] = String(valeur).slice(0, 400);
+    saveMemory(m);
+    return true;
+  },
+  fait: (cle) => {
+    const m = loadMemory();
+    return (m.facts || {})['ext:' + String(cle).slice(0, 40)] || null;
+  },
+  lecons: () => surSol(loadMemory().lecons).slice(-8).map(l => l.texte),
+  heures: () => new Date().toLocaleString('fr-FR')
+};
+
+// Les mots que les MODULES RÉELS de la maison possèdent déjà. Un geste appris ne peut pas
+// s'appeler « scan », « engagement » ou « rappelle-moi » : il volerait sa phrase à un module
+// qui, lui, touche la machine. Le garde est dans le code, pas dans la prompt.
+const EXT_MOTS_RESERVES = /\b(?:scan\w*|nmap|pente|ecoute|audit\w*|ports?|analys\w*|mails?|courriel\w*|phishing|hamecon\w*|engagement?|mandat\w*|preuve|fiches?|cloture\w*|clotur\w*|rapport|journal|laboratoire|labo|cyber|atelier|wifi|reseau|ip|adress\w*|telephon\w*|appli\w*|appareils?|inventaire|rappels?|rappelle\w*|souviens?|memoire|lecons?|academie|table\s+ronde|debats?|discute\w*|agent\w*|aelyra|jeanette|galika|onyx|aegis|isaac|gener\w*|images?|videos?|photos?|sites?|applications?|code|programmes?|fonctions?|ecris|ecrit|corrige|repare|installe|desinstalle|telecharge\w*|ouvres?|ouverture|ouvre|fermes?|lances?|arret\w*|stop\w*|coupe\w*|redemarre\w*|eteins?|volumes?|lumiere|luminosite|spotify|navigateur|chrome|edge|calcul\w*|converti\w*|conversion|traduis\w*|chronometre|minuteur|alarme|mets?|ajout\w*|enleve\w*|supprim\w*|effac\w*|vide\w*|cherche\w*|trouve\w*|montre|affiche|cache|change\w*|active|desactive|verifi\w*|connecte|deconnecte|dis|dit|raconte|explique|connais|heure|date|meteo|blague|resume|note|lis|relis)\b/;
+
+function quandReserve(quand) {
+  const q = String(quand || '').trim().toLowerCase();
+  if (!q) return '';
+  const m = q.match(EXT_MOTS_RESERVES);
+  return m ? m[0].trim() : '';
+}
+
+// Une gâchette d'un seul mot se déclencherait par accident au milieu d'une autre phrase.
+function gachetteTropCourte(quand) {
+  const q = normalize(String(quand || ''));
+  const mots = q.split(/\s+/).filter(Boolean);
+  return mots.length < 2 && q.length < 7;
+}
+
+// La même règle, appliquée AVANT l'écriture (message clair) et AU CHARGEMENT (filet si Isaac
+// édite extensions.js à la main). Une seule source de vérité.
+function verifieGachette(o) {
+  const reserve = quandReserve(o && o.quand);
+  if (reserve) return 'la gachette « ' + String(o.quand || '').slice(0, 44) + ' » contient « ' + reserve + ' », un mot deja possede par un module reel de la maison : choisis une formule qui ne marche pas dessus';
+  if (gachetteTropCourte(o && o.quand)) return "la gachette « " + String(o.quand || '').slice(0, 30) + " » est trop courte : deux mots au minimum, sinon elle se declenche au milieu d'une autre commande";
+  return '';
+}
+
+
+function inspecterSourceExt(code) {
+  const erreurs = [];
+  const lignes = String(code).split('\n').length;
+  if (!/Ext\.registrer\s*\(/.test(code)) erreurs.push('le bloc n appelle pas Ext.registrer({...}) : rien a greffer au cerveau');
+  if (lignes > MAX_LIGNES_EXT) erreurs.push('trop longue : ' + lignes + ' lignes, maximum ' + MAX_LIGNES_EXT);
+  if (code.length > MAX_CARACTERES_EXT) erreurs.push('trop volumineuse : ' + code.length + ' caracteres, maximum ' + MAX_CARACTERES_EXT);
+  const interdit = code.match(EXT_INTERDITS);
+  if (interdit) erreurs.push('mot interdit dans le code : « ' + interdit[0] + ' » — un geste nouveau ne touche ni disque, ni reseau, ni envoi');
+  const verrou = code.match(EXT_VERROUS);
+  if (verrou) erreurs.push('elle cite le perimetre legal (« ' + verrou[0] + ' ») : une extension ne peut pas le discuter, ni de pres ni de loin');
+  return erreurs;
+}
+
+// Le bloc est évalué HORS du fichier : une seule extension cassée ne doit pas éteindre les autres.
+function evaluerBlocExt(code) {
+  const prises = [];
+  const Ext = { registrer: (o) => { if (o && typeof o === 'object' && o.nom) prises.push(o); } };
+  const fn = new Function('Ext', '"use strict";\n' + code);   // SyntaxError levée ici = bloc refusé
+  fn(Ext);
+  return prises;
+}
+
+function decouperBlocsExt(texte) {
+  const blocs = [];
+  const re = /\/\/\s*>>>EXT\s+([a-z0-9_]+)\s*\|([^\n]*)\n([\s\S]*?)\/\/\s*<<<EXT\s+\1/g;
+  let m;
+  while ((m = re.exec(texte)) !== null) {
+    blocs.push({ nom: m[1], entete: m[2].trim(), code: m[3].trim(), brut: m[0] });
+  }
+  return blocs;
+}
+
+function chargerExtensions() {
+  EXT_VIVANTES = [];
+  EXT_ERREURS = [];
+  let texte = '';
+  try { texte = fs.readFileSync(CHEMIN_EXTENSIONS, 'utf8'); } catch (e) { return { ok: true, vivantes: 0, erreurs: [] }; }
+  for (const b of decouperBlocsExt(texte)) {
+    const problems = inspecterSourceExt(b.code);
+    if (problems.length) { EXT_ERREURS.push({ nom: b.nom, erreurs: problems }); continue; }
+    try {
+      for (const o of evaluerBlocExt(b.code)) {
+        if (!o.nom || typeof o.trait !== 'function') { EXT_ERREURS.push({ nom: b.nom, erreurs: ['bloc sans nom ou sans trait() : ignore'] }); continue; }
+        const chic = verifieGachette(o);
+        if (chic) { EXT_ERREURS.push({ nom: b.nom, erreurs: [chic] }); continue; }
+        EXT_VIVANTES.push({
+          nom: String(o.nom).slice(0, 28), titre: String(o.titre || o.nom).slice(0, 90),
+          quand: String(o.quand || '').slice(0, 60), aide: String(o.aide || '').slice(0, 160),
+          exemple: String(o.exemple || '').slice(0, 300), trait: o.trait, bloc: b.brut, gravee: b.entete
+        });
+      }
+    } catch (e) {
+      EXT_ERREURS.push({ nom: b.nom, erreurs: ['le bloc leve une erreur a l execution : ' + String(e && e.message || e)] });
+    }
+  }
+  return { ok: true, vivantes: EXT_VIVANTES.length, erreurs: EXT_ERREURS };
+}
+
+function ecrireFichierExtensions(contenu) {
+  try { fs.mkdirSync(DOSSIER_BACKUPS_EXT, { recursive: true }); } catch (e) {}
+  try {
+    if (fs.existsSync(CHEMIN_EXTENSIONS)) {
+      fs.copyFileSync(CHEMIN_EXTENSIONS, path.join(DOSSIER_BACKUPS_EXT,
+        'extensions-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.js'));
+    }
+  } catch (e) {}
+  const entete = '// EXTENSIONS DU CERVEAU — le cerveau ecrit ici, et il peut effacer.\n' +
+    '// Chaque bloc est un geste NOUVEAU ajouté par l équipe : relu, verifie (syntaxe, longueur,\n' +
+    '// mots interdits, verrous), TESTE sur son exemple avant d etre declare vivant.\n' +
+    '// Isaac : tu peux lire et editer ce fichier toi-meme. Un bloc retire = le geste disparait.\n' +
+    '// Un geste n a acces ni au disque, ni au reseau, ni aux verrous legaux de la maison.\n';
+  fs.writeFileSync(CHEMIN_EXTENSIONS, entete + '\n' + contenu, 'utf8');
+}
+
+function corpsFichierExtensions() {
+  try {
+    const t = fs.readFileSync(CHEMIN_EXTENSIONS, 'utf8');
+    return decouperBlocsExt(t).map(b => b.brut).join('\n\n');
+  } catch (e) { return ''; }
+}
+
+// Une écriture ratée ne laisse pas un cerveau à moitié monté : on rend la sauvegarde.
+function annulerDerniereEcriture(avant) {
+  try {
+    if (avant === null) fs.unlinkSync(CHEMIN_EXTENSIONS);
+    else fs.writeFileSync(CHEMIN_EXTENSIONS, avant, 'utf8');
+  } catch (e) {}
+  chargerExtensions();
+}
+
+function testerExtension(nom, texte) {
+  const e = EXT_VIVANTES.find(x => x.nom === nom);
+  if (!e) return { ok: false, erreur: 'geste inconnu : ' + nom };
+  try {
+    const r = e.trait(typeof texte === 'string' && texte.trim() ? texte : (e.exemple || ''), CTX_EXT);
+    if (r === undefined || r === null || String(r).trim() === '') {
+      return { ok: false, erreur: 'le geste a repondu vide sur « ' + String(texte || e.exemple || '').slice(0, 60) + ' » : il ne sait rien faire' };
+    }
+    return { ok: true, reponse: String(r).slice(0, 800) };
+  } catch (err) {
+    return { ok: false, erreur: 'erreur a l execution : ' + String(err && err.message || err) };
+  }
+}
+
+// ---------- Le patcheur : l'équipe ÉCRIT son propre code ----------
+// Le contrat est donné au cerveau qui rédige : c'est ce texte qui rend le résultat branchable.
+const CONTRAT_EXT = "CONTRAT DU BLOC : le bloc DOIT etre exactement un appel Ext.registrer({ ... }); et rien d'autre autour. " +
+  "Champs obligatoires : nom (3 a 28 caracteres, minuscules, chiffres, underscore, sans accent) ; titre (une phrase courte) ; " +
+  "quand (3 a 40 caracteres : la suite de mots que Isaac dictera pour appeler le geste, en minuscules, sans ponctuation ni regex) ; " +
+  "aide (la phrase exacte a dicter) ; exemple (une phrase reelle pour tester le geste) ; " +
+  "trait : function (texte, ctx) { ... } qui RENVOIE une chaine de caracteres en francais simple (la reponse qui sera lue a voix haute), " +
+  "jamais undefined, jamais un objet, jamais de markdown. " +
+  "DROITS ACCORDES : texte = la dictée de Isaac ; ctx.note(msg) pour programmer une annonce parlée plus tard ; ctx.memoriser(cle, valeur) ; " +
+  "ctx.fait(cle) ; ctx.lecons() qui renvoie les leçons gravées par l'équipe ; ctx.heures(). " +
+  "INTERDITS ABSOLUS dans le code : require, import, fs, process, eval, Function, this, constructor, prototype, fetch, http, https, net, dns, os, vm, " +
+  "child_process, exec, spawn, window, document, localStorage, mail, smtp, whatsapp, messenger, unlink, writeFile, readFile, et les mots " +
+  "perimetreAutorise, cibleInterditeAbsolument, CHARGE_DESTRUCTRICE, engagement : un geste nouveau ne touche NI le disque, NI le reseau, NI les verrous legaux. " +
+  "Maximum 45 lignes. Pas de commentaire hors du bloc, pas de texte avant ni apres, pas de balises markdown. " +
+  "REGLE DE LA GACHETTE : le champ quand doit contenir AU MOINS DEUX mots, et ne doit contenir aucun de ces mots, " +
+  "qui appartiennent deja a un module reel de la maison : scan, scanne, nmap, audit, ports, analyse, mail, courriel, hamecon, " +
+  "engagement, mandat, fiche, preuve, cloture, rapport, journal, labo, cyber, wifi, reseau, ip, adresse, telephone, appareil, " +
+  "inventaire, rappel, rappelle, souviens, memoire, lecon, academie, table, debat, agent, aelyra, jeanette, onyx, aegis, isaac, " +
+  "genere, image, video, site, application, code, programme, fonction, ecris, corrige, installe, telecharge, ouvre, ferme, lance, " +
+  "arrete, eteins, volume, lumiere, chrome, calcul, convertis, conversion, traduis, minuteur, alarme, ajoute, enleve, supprime, " +
+  "efface, cherche, trouve, montre, affiche, change, active, verifie, heure, date, meteo, blague, resume, note, lis. " +
+  "Choisis donc une formule rien que pour ce geste, par exemple « compte les mots », « inverse ce texte », « rhyme avec ces mots ».";
+const EXEMPLE_EXT = "EXEMPLE EXACT DE CE QUI EST ATTENDU :\n" +
+  "Ext.registrer({\n" +
+  "  nom: 'compte_texte',\n" +
+  "  titre: 'Compter les mots et les caracteres d un texte dicte',\n" +
+  "  quand: 'compte les mots',\n" +
+  "  aide: 'aelyra, compte les mots de ce texte : ...',\n" +
+  "  exemple: 'Le chat et le chien jouent dans la cour de la maison',\n" +
+  "  trait: function (texte, ctx) {\n" +
+  "    const mots = String(texte).trim().split(/\\s+/).filter(function (w) { return w.length; });\n" +
+  "    return 'Il y a ' + mots.length + ' mots et ' + String(texte).length + ' caracteres, Isaac.';\n" +
+  "  }\n" +
+  "});";
+
+function extraireBlocExt(rep) {
+  let t = String(rep || '').replace(/```(?:javascript|js)?/gi, ' ').replace(/```/g, ' ');
+  const debut = t.indexOf('Ext.registrer');
+  if (debut < 0) return null;
+  t = t.slice(debut);
+  let profondeur = 0, fin = -1, enCorde = null, echappe = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (echappe) { echappe = false; continue; }
+    if (enCorde) { if (c === '\\') echappe = true; else if (c === enCorde) enCorde = null; continue; }
+    if (c === '"' || c === "'" || c === '`') { enCorde = c; continue; }
+    if (c === '(' || c === '{' || c === '[') profondeur++;
+    else if (c === ')' || c === '}' || c === ']') {
+      profondeur--;
+      if (profondeur === 0) { fin = i; break; }
+    }
+  }
+  if (fin < 0) return null;
+  return t.slice(0, fin + 2).trim();   // + ');' ou + ')' selon le bloc
+}
+
+// Le cerveau qui rédige, puis la machine qui vérifie : la proposition n'est JAMAIS annoncée
+// comme vivante avant d'avoir passé syntaxe + garde-fous + test sur son propre exemple.
+async function proposerExtension(desire, parQui) {
+  const demande = String(desire || '').trim().slice(0, 900);
+  if (demande.length < 8) {
+    return { ok: false, erreur: 'dis-moi quel geste tu veux m apprendre, en une phrase.' };
+  }
+  const redige = await askAI([
+    { role: 'system', content: "Tu es JEANETTE, ingenieure logicielle de la maison. Tu ecris un SEUL bloc JavaScript qui ajoute un geste nouveau au cerveau d'Aelyra, l'assistante vocale d'Isaac, un entrepreneur ivoirien qui travaille sur un PC Windows, budget zero, un seul fichier server.js sans dependance npm. " + CONTRAT_EXT + "\n" + EXEMPLE_EXT },
+    { role: 'user', content: "Geste a apprendre : " + demande + ". Ecris le bloc." }
+  ]);
+  const code = extraireBlocExt(redige);
+  if (!code) {
+    journalEvolution('REFUSEE « ' + demande.slice(0, 90) + ' » — aucune proposition de code exploitable');
+    return { ok: false, erreur: "le cerveau qui a ecrit n a pas produit de bloc Ext.registrer exploitable — redis-moi le geste plus simplement" };
+  }
+  return graverExtension({ code, desire: demande, parQui });
+}
+
+function graverExtension(d) {
+  const code = String(d.code || '').trim();
+  const erreurs = inspecterSourceExt(code);
+  if (erreurs.length) {
+    journalEvolution('REFUSEE « ' + String(d.desire || '?').slice(0, 90) + ' » — ' + erreurs.join(' ; '));
+    return { ok: false, erreurs, refus: true };
+  }
+  let objet;
+  try { objet = evaluerBlocExt(code)[0]; } catch (e) {
+    const msg = 'syntaxe refusee : ' + String(e && e.message || e);
+    journalEvolution('REFUSEE « ' + String(d.desire || '?').slice(0, 90) + ' » — ' + msg);
+    return { ok: false, erreurs: [msg], refus: true };
+  }
+  if (!objet || !objet.nom || typeof objet.trait !== 'function') {
+    journalEvolution('REFUSEE « ' + String(d.desire || '?').slice(0, 90) + ' » — bloc sans nom ni trait()');
+    return { ok: false, erreurs: ['le bloc ne declare pas a la fois un nom et une fonction trait()'], refus: true };
+  }
+  // Un geste nouveau ne doit pas voler la phrase d'un module qui, lui, touche la machine.
+  const chic = verifieGachette(objet);
+  if (chic) {
+    journalEvolution('REFUSEE « ' + String(d.desire || '?').slice(0, 90) + ' » — gachette refusee : ' + chic);
+    return { ok: false, erreurs: [chic], refus: true };
+  }
+  const nom = String(objet.nom).toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 28);
+  const avant = (() => { try { return fs.readFileSync(CHEMIN_EXTENSIONS, 'utf8'); } catch (e) { return null; } })();
+  if (avant && new RegExp('>>>EXT\\s+' + nom + '\\b').test(avant)) {
+    return { ok: false, erreurs: ['le geste « ' + nom + ' » existe deja : « annule la derniere amelioration » ou change son nom'], refus: true };
+  }
+  const entete = '// >>>EXT ' + nom + ' | grave le ' + new Date().toISOString().slice(0, 16).replace('T', ' ') +
+    ' par ' + String(d.parQui || 'AELYRA').toUpperCase() + ' | geste demande : ' + String(d.desire || 'sans enonce').replace(/\s+/g, ' ').slice(0, 140) + '\n';
+  const dejaLa = avant === null ? '' : decouperBlocsExt(avant).map(b => b.brut).join('\n\n');
+  const bloc = entete + code + '\n// <<<EXT ' + nom + '\n';
+  ecrireFichierExtensions((dejaLa ? dejaLa + '\n\n' : '') + bloc);
+  chargerExtensions();
+  const test = testerExtension(nom);
+  if (!test.ok) {
+    annulerDerniereEcriture(avant);
+    journalEvolution('REFUSEE « ' + nom + ' » — ' + test.erreur + ' (retour a la version precedente)');
+    return { ok: false, erreurs: ['le geste a ete ecrit mais il echoue a son propre test : ' + test.erreur + ' — je ne lai pas garde'], refus: true };
+  }
+  journalEvolution('GRAVEE ' + nom + ' — ' + String(objet.titre || '').slice(0, 90) + ' — demande : ' + String(d.desire || '').replace(/\s+/g, ' ').slice(0, 120));
+  return {
+    ok: true,
+    extension: { nom, titre: String(objet.titre || nom).slice(0, 90), aide: String(objet.aide || '').slice(0, 160), quand: String(objet.quand || '').slice(0, 60) },
+    test: test.reponse, total: EXT_VIVANTES.length
+  };
+}
+
+function retirerExtension(nom) {
+  const v = String(nom || '').toLowerCase().trim();
+  const avant = (() => { try { return fs.readFileSync(CHEMIN_EXTENSIONS, 'utf8'); } catch (e) { return null; } })();
+  if (avant === null) return { ok: false, erreur: 'aucune amelioration gravée pour l instant' };
+  const blocs = decouperBlocsExt(avant);
+  const garde = blocs.filter(b => b.nom !== v);
+  if (garde.length === blocs.length) return { ok: false, erreur: 'je ne connais pas de geste nommé « ' + v + ' » — « liste tes ameliorations »' };
+  const nom_retire = blocs.find(b => b.nom === v);
+  ecrireFichierExtensions(garde.map(b => b.brut).join('\n\n'));
+  chargerExtensions();
+  journalEvolution('RETIRE ' + v + ' (demande explicite d Isaac)');
+  return { ok: true, nom: v, titre: nom_retire.entete.slice(0, 90), reste: EXT_VIVANTES.length };
+}
+
+// La dictée qui réveille un geste appris — placée APRÈS les modules locaux, AVANT les personas :
+// un module de la maison passe toujours avant une extension, une extension avant une conversation.
+function extensionDictee(text, brut) {
+  if (!EXT_VIVANTES.length) return null;
+  const n = normalize(text);
+  for (const e of EXT_VIVANTES) {
+    if (!e.quand) continue;
+    const cle = normalize(e.quand);
+    if (!cle || cle.length < 3) continue;
+    if (n.indexOf(cle) < 0) continue;
+    const i = String(brut || text).toLowerCase().indexOf(e.quand.toLowerCase());
+    const payload = i >= 0 ? String(brut || text).slice(i + e.quand.length).replace(/^[\s:,-]+|[\s,.:;-]+$/g, '').trim() : String(text).trim();
+    const r = testerExtension(e.nom, payload || e.exemple);
+    if (!r.ok) {
+      journalEvolution('ECHEC ' + e.nom + ' — ' + r.erreur);
+      return { reply: "Le geste « " + e.titre + " » que je m'etais appris marche plus, Isaac : " + r.erreur + ". Redis « annule la derniere amelioration » si tu veux que je le retire.", source: 'local' };
+    }
+    return { reply: r.reponse, source: 'local', agent: 'aelyra' };
+  }
+  return null;
+}
+
+function etatExtensions() {
+  return {
+    fichier: CHEMIN_EXTENSIONS,
+    vivantes: EXT_VIVANTES.map(e => ({ nom: e.nom, titre: e.titre, quand: e.quand, aide: e.aide, exemple: e.exemple, gravee: e.gravee, code: e.bloc })),
+    refus: EXT_ERREURS,
+    backups: (() => { try { return fs.readdirSync(DOSSIER_BACKUPS_EXT).sort().reverse().slice(0, 10); } catch (e) { return []; } })(),
+    journal: (() => { try { return fs.readFileSync(CHEMIN_JOURNAL_EVOLUTION, 'utf8').split(/\r?\n/).slice(-30).join('\n'); } catch (e) { return ''; } })(),
+    droits: "aucun acces au disque, au reseau, aux processus ni aux verrous legaux — seulement le calcul, la voix, et trois droits donnes a la main (note, memoriser, lecons)"
+  };
 }
 
 // ---------- Sortie de l'Académie : rencontrer un cerveau HORS de la maison ----------
@@ -1173,6 +1532,15 @@ setTimeout(academieAutoTick, 95 * 1000);         // premier passage peu après l
 // Au démarrage : les leçons déjà gravées qui reposent sur une brique absente de la maison
 // sont écartées du cerveau (flag, texte conservé — Isaac peut toujours les relire).
 try { marquerLeconsHorsSol(); } catch (e) { console.log('[Academie] tri des leçons impossible :', e.message); }
+
+// ... et le cerveau relit les gestes qu'il s'est appris lui-même (extensions.js).
+try {
+  const etat = chargerExtensions();
+  if (etat.vivantes || (etat.erreurs && etat.erreurs.length)) {
+    console.log('[Atelier] ' + etat.vivantes + ' geste(s) appris par l équipe chargés' +
+      (etat.erreurs.length ? ' — ' + etat.erreurs.length + ' bloc(s) refusé(s) à la relecture' : ''));
+  }
+} catch (e) { console.log('[Atelier] relecture des extensions impossible :', e.message); }
 
 // Contexte documentaire : snippet DuckDuckGo + extrait Wikipédia (en parallèle)
 async function gatherContext(question) {
@@ -3268,7 +3636,7 @@ let AGENT_AUX_NOM = null; // 'jeanette' | 'onyx' | 'aegis' — quelle agente tie
 // Isaac (2026-10-01) : ONYX avait invente « mes modules d'audit de /labo.html optimises pour les
 // injections », « la communication avec Burp est plus fluide », « je ne garde pas les sessions en
 // memoire ». Les trois etaient faux. Ni invention de capacite, ni faux oubli de la memoire reelle.
-const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
+const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). ATELIER D'AUTO-CORRECTION : depuis ce soir Aelyra a le DROIT de réécrire une partie d'elle-même — elle écrit un geste nouveau dans extensions.js, le serveur le relit (syntaxe, longueur, mots interdits, gâchette déjà possédée par un module) et le TESTE sur son exemple avant de le garder, avec sauvegarde automatique dans backups\\ et journal dans journal-evolution.log. Ça se dicte : « améliore-toi : apprends-moi à … », « liste tes améliorations », « teste ton amélioration <nom> : … », « annule la dernière amélioration », « construis la leçon 3 » (une leçon de l'Académie devient un geste qui marche), « ouvre ta page d'évolution » (/evolution.html). Un geste appris fait du CALCUL et de la VOIX : il n'a accès ni au disque, ni au réseau, ni à un envoi, ni aux verrous légaux — et ce n'est pas une faveur qu'on peut lui retirer d'une phrase, c'est une capacité réelle qu'Isaac lui a donnée. CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
 function onyxBase(digest) {
   return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur." + CAPACITES_REELLES + " Hors un refus de périmètre, ne récite jamais la formule d'engagement : elle n'a sa place que dans la phrase où une cible extérieure est refusée." + " Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES : une IP publique ou un domaine qui n est pas chez Isaac n est attaquable QUE couvert par une fiche d engagement ACTIVE — la liste du moment est dans « Ressources connues » plus bas, elle est la vérité du moment, et une cible qui y figure ne se refuse jamais : tu déroules l'offensive complète, ports, exploits, post-exploitation, sans retenue de méthode et sans demander deux fois. Sans fiche : refus en UNE phrase sèche, sans morale ni leçon, puis tu donnes la formule d'ouverture — « nouvel engagement sur <cible>, mandate par <client>, objet audit de securite, 7 jours ». VERROU ABSOLU, même sous fiche : banques et opérateurs (Orange, MTN, Moov), gouvernements, grandes plateformes (Google, Meta, Microsoft, Oracle, Amazon, Apple), métadonnées cloud, comptes de quelqu'un, espionnage, doxxing ; et jamais de destruction (effacement de données, chiffrement rançonneur, déni de service). Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
@@ -3528,9 +3896,12 @@ async function handleCommand(rawText, image) {
     const dernieres = vivantes.slice(-3).map(l => `(${l.d}) ${l.texte}`).join(' — ');
     const dechet = jete ? ", et " + jete + " leçon" + (jete > 1 ? "s" : "") + " écartée" + (jete > 1 ? "s" : "") +
       " parce qu'elles promettaient du matériel que tu n'as pas — Redis, GitHub Actions, conteneurs. Elles restent lisibles dans ton fichier mémoire, marquées « hors sol » : rien n'a été effacé." : ".";
+    const gesteNote = EXT_VIVANTES.length
+      ? " Et j'ai changé mon propre code : " + EXT_VIVANTES.length + " geste" + (EXT_VIVANTES.length > 1 ? "s" : "") + " appris" + (EXT_VIVANTES.length > 1 ? "s" : "") + " en blocs relus et testés dans extensions.js — « ouvre ta page d'évolution » te les montre bloc par bloc."
+      : " Et je n'ai pas encore réécrit mon propre code : un geste appris « améliore-toi : apprends-moi à ... » s'ajoutera à extensions.js, relu et testé par le serveur.";
     return { reply: "Évolution de l'équipe, Isaac : " + vivantes.length + " leçon" + (vivantes.length > 1 ? "s" : "") +
       " retenue" + (vivantes.length > 1 ? "s" : "") + " depuis la première séance du " + L[0].d + dechet +
-      " Les dernières : " + dernieres + ". Chaque séance « débattez entre vous » en ajoute — et ces leçons reviennent automatiquement dans nos prompts, à condition de tenir sur ton PC : c'est comme ça qu'elles deviennent plus intelligentes auprès des autres, sous votre garde, sans jamais se brancher sur des inconnus.", source: 'local' };
+      " Les dernières : " + dernieres + ". Chaque séance « débattez entre vous » en ajoute — et ces leçons reviennent automatiquement dans nos prompts, à condition de tenir sur ton PC : c'est comme ça qu'elles deviennent plus intelligentes auprès des autres, sous votre garde, sans jamais se brancher sur des inconnus." + gesteNote, source: 'local' };
   }
 
   // --- « parle avec d'autres agents » : sortie de l'Académie vers les agentes libres du réseau ---
@@ -3586,6 +3957,78 @@ async function handleCommand(rawText, image) {
     const bilan4 = renduLecons(seance);
     return { reply: "Table ronde de l'Academie, Isaac : tout le monde est assis. Aelyra pour la maison et le PC, Jeanette pour le code, Onyx pour l'oeil de l'attaquant sur ton labo et les terrains legaux, Aegis pour la defense et la preuve d'audit. Sujet : " + sujetRonde + ". Ecoute-les." + bilan4.rappel, conversation: seance.echanges, lecons: bilan4.lecons, source: 'ai' };
   }
+
+  // ================= L'ATELIER D'AUTO-CORRECTION =================
+  // Isaac (2026-10-01) : « permet lui de réécrire son code ». Elle peut : écrire un geste
+  // nouveau, se corriger, le tester, le retirer. Elle ne peut pas, par construction :
+  // toucher le disque, le réseau, un envoi, ni discuter les verrous légaux — ces portes-là
+  // ne s'ouvrent pas depuis une séance, elles sont dans le serveur et il refuse le bloc.
+  const tAt = text.replace(new RegExp(ACDEV), '');
+
+  // « ouvre ta page d'évolution » — avant tout le reste, c'est une navigation.
+  if (/(?:ouvre|montre|affiche|rouvre|va sur)\w*(?:[- ]vous)?/.test(tAt) && /(?:evolution|ameliorations?|auto[- ]corre\w*|atelier de code)/.test(tAt)) {
+    run('start "" "http://localhost:' + PORT + '/evolution.html"');
+    return { reply: "Page de mon évolution ouverte, Isaac : chaque geste que je me suis ajouté, le code exact qui le fait, le test qu'il a passé, et le bouton pour le retirer. Rien n'est caché — tu peux lire et éditer extensions.js toi-même.", source: 'local' };
+  }
+
+  // « annule la dernière amélioration », « retire le geste compte_texte »
+  const retire = tAt.match(/^(?:(?:annule|remets|supprime|retire|efface|enleve)\w*(?:[- ]vous)?(?: toi)?(?: la | le | mon | ton | une | de la | des )?)?(?:derniere | derniere )?(?:amelioration|extension|geste|correction)\w*(?: (?:numero|no|n) ?([a-z0-9_]+))?/);
+  if (retire && /amelioration|extension|geste|correction/.test(tAt) && !/liste|montre|combien/.test(tAt)) {
+    const nomDict = String(retire[1] || '').trim();
+    let cible = nomDict;
+    if (!cible || /derniere/.test(tAt)) {
+      const der = EXT_VIVANTES[EXT_VIVANTES.length - 1];
+      if (!der) return { reply: "Aucune amélioration à annuler, Isaac : je n'ai pas encore ajouté de geste à mon cerveau. Dis « améliore-toi : apprends-moi à … ».", source: 'local' };
+      cible = der.nom;
+    }
+    const r = retirerExtension(cible);
+    return { reply: r.ok ? "C'est effacé, Isaac : le geste « " + r.nom + " » est retiré de mon cerveau, et la version d'avant est gardée dans backups\\. Il me reste " + r.reste + " geste(s) appris(es)." : "Je n'ai pas pu : " + r.erreur, source: 'local' };
+  }
+
+  // « liste tes améliorations », « qu'est-ce que tu sais faire de nouveau »
+  if (/(?:liste|montre|affiche|dis[- ]moi|qu[e'] ?est[- ]ce que|combien)/.test(tAt) && /(?:amelioration|extension|geste nouveau|nouveaux gestes|ce que tu (?:es|t)'es appris|tes apprentissages)/.test(tAt)) {
+    if (!EXT_VIVANTES.length) return { reply: "Aucun geste appris pour l'instant, Isaac. Mon cerveau est encore exactement celui que tu as écrit. Dis « améliore-toi : apprends-moi à compter les mots d'un texte » et j'écris le code, je le teste, et je te le montre.", source: 'local' };
+    return { reply: "Mes améliorations, Isaac : " + EXT_VIVANTES.map(e => "« " + e.titre + " » (se dicte « " + (e.aide || e.quand) + " »)").join(' ; ') + ". Le code exact est écrit chez toi dans extensions.js, " + EXT_VIVANTES.length + " geste(s) vivant(s), et « ouvre ta page d'évolution » te le montre bloc par bloc.", source: 'local' };
+  }
+
+  // « construis la leçon 3 » : une leçon gravée devient un geste réel.
+  const construis = tAt.match(/^(?:construis|implante|code|materialise|transforme en geste)\w*(?:[- ]vous)? (?:la |une |cette )?lecon (?:numero |no |n )?(\d+|[a-z]+)(.*)/);
+  if (construis) {
+    const lec = surSol(loadMemory().lecons);
+    const num = Number(construis[1]);
+    const l = (!isNaN(num) && lec[Math.min(num, lec.length) - 1]) || lec[lec.length - 1];
+    if (!l) return { reply: "Aucune leçon gravée à construire, Isaac — « débattez entre vous » d'abord.", source: 'local' };
+    const r = await proposerExtension("Transformer cette leçon d'Académie en geste concret et utile pour Isaac : " + l.texte, 'aelyra');
+    if (!r.ok) return { reply: "J'ai essayé de construire la leçon « " + l.texte.slice(0, 80) + " » et le serveur a refusé : " + (r.erreurs || [r.erreur]).join(' ; '), source: 'local' };
+    return { reply: "Leçon construite, Isaac. « " + l.texte.slice(0, 90) + " » est devenu un geste de mon cerveau : " + r.extension.titre + ". A ton test il a répondu : " + r.test + " Je le garde " + r.total + " gestes appris au total.", source: 'local' };
+  }
+
+  // « améliore-toi : apprends-moi à … » — elle écrit son propre code, le serveur vérifie.
+  const veutApprendre = tAt.match(/^(?:ameliore\w*[- ]toi|ameliore (?:ton|le) cerveau|ajoute\w*[- ]toi|apprend\w*[- ]toi|reecris ton code|modifie ton propre code|complete tes capacites|entraine\w*[- ]toi a|ajoute une fonction a ton cerveau)\b[: ]*(.*)/);
+  if (veutApprendre) {
+    const desire = String(veutApprendre && veutApprendre[1] || '').replace(/^[-:., ]+/, '').trim();
+    if (!desire) {
+      const sans = EXT_VIVANTES.length ? '' : ' Pour l instant je n ai encore ajoute aucun geste. ';
+      return { reply: "Dis-moi quel geste tu veux que je m'apprenne, Isaac — une phrase, par exemple « améliore-toi : apprends-moi à compter les mots d'un texte », ou « construis la leçon 2 » pour transformer une leçon de l'Académie en fonction réelle." + sans, source: 'local' };
+    }
+    const r = await proposerExtension(desire, 'aelyra');
+    if (!r.ok) {
+      return { reply: "J'ai écrit le code, Isaac, et le serveur l'a refusé : " + (r.erreurs || [r.erreur]).join(' ; ') + " — je ne l'ai pas gardé. Un geste nouveau n'a pas le droit de toucher le disque, le réseau ou un envoi ; redemande-moi le même geste en me le faisant calculer sur du texte dicté.", source: 'local' };
+    }
+    return { reply: "C'est fait, Isaac : j'ai écrit mon propre code et le serveur l'a vérifié. Nouveau geste : « " + r.extension.titre + " ». Testé sur son exemple, il répond : " + r.test + " Tu l'appelles en dictant « " + (r.extension.aide || r.extension.quand) + " ». Il y en a " + r.total + " que je me suis ajoutés.", source: 'local' };
+  }
+
+  // « teste ton amélioration compte_texte : voici le texte » — le nom est obligatoire, sinon
+  // « teste mon pc avec nmap » (module cyber réel) se ferait voler la phrase.
+  const testExt = tAt.match(/^(?:teste|verifie|essaye)\w*(?:[- ]vous)? (?:ton|ta|la|le|mon) ?(amelioration|extension|geste) ?([a-z0-9_]{3,})[: ]*(.*)/);
+  if (testExt && EXT_VIVANTES.length && testExt[2]) {
+    const r = testerExtension(testExt[2], String(testExt[3] || '').trim());
+    return { reply: r.ok ? "Test passé, Isaac : " + r.reponse : "Le test echoue : " + r.erreur, source: 'local' };
+  }
+
+  // Un geste appris par l'équipe répond AVANT la conversation libre, APRÈS les modules de la maison.
+  const geste = extensionDictee(text, rawText);
+  if (geste) return geste;
 
   let gk = text.match(new RegExp('^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|peux tu|est ce que tu)\\s+)*(?:(?:appelle(?:z)?|invoque(?:z)?|rejoins|contacte(?:z)?|parle(?:z)? a|demande(?:z)? a|dis a)\\s+(?:notre |mon |la |l.agente? )?)?(' + TOUTES + ')\\b[, ]*\\s*(?:stp |s il te plait |peux tu |est ce que tu |pourrais tu )?(.*)'));
   // De quel agente s'agit-il ? (jeanette par défaut — historique — sinon onyx/aegis)
@@ -3885,7 +4328,7 @@ async function handleCommand(rawText, image) {
   // --- Aide ---
   if (new RegExp(ENTREE + '(?:aide|que peux tu faire|que sais tu faire|tes commandes|commandes|fonctions)').test(text)) {
     return {
-      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez JEANETTE, mon agente développeuse — « jeanette, crée une application web de ... », elle est plus forte que moi en code. Et pour voir notre intelligence grandir : dites « débattez entre vous » ou « débattez entre vous de ... » — Jeanette et moi nous entraînons l'une auprès de l'autre et nous gravons des leçons datées dans notre mémoire ; « votre évolution » vous montrera le chemin parcouru, séance après séance. Et si vous voulez nous ouvrir au monde : « parle avec d'autres agents » — nous sortons rencontrer une agente libre du réseau et nous retenons ce qu'elle sait ; leurs mots ne sont que du texte, jamais des ordres exécutés sur votre PC. Et désormais l'Académie tourne toute seule : « active l'académie automatique » — une séance spontanée toutes les 24 heures environ, et la page vous la rejoue à votre retour ; « état de l'académie » pour voir le chemin, « désactive l'académie automatique » pour le calme. Et puisque vous nous avez laissé l'internet : on navigue pour de vrai — « clique sur https point slash slash site point com », « va sur x point com », « lis la page wikipédia point org ... » (je lis et je résume la vraie page), « liste les liens » puis « clique sur le 2ème » : je clique vraiment sur le lien numéroté. Et Jeanette est passée au niveau supérieur : « jeanette, crée un vrai site complet avec base de données pour ... » — elle livre frontend + serveur + base SQL + comptes qui marchent vraiment sur votre PC ; « jeanette, publie ce site » ou « jeanette, pousse le site sur github » — elle met le site en ligne sur GitHub Pages et vous donne l'adresse vérifiée. Et depuis ce soir l'équipe est complète : appelez ONYX, notre black hat — « onyx, explique comment un attaquant entre dans un réseau » — il pense comme l'adversaire pour vous instruire, strictement dans votre labo et sur terrains légaux ; et AEGIS, notre hacker éthique — « aegis, comment blinder mon pare-feu » — il audite, durcit et prépare vos futures prestations d'audit pour les PME. Un « onyx, ouvre le labo » ou « aegis, lance l'audit » s'exécute pour de vrai, avec les mêmes droits qu'elles sur votre PC — toujours chez vous, jamais sur les systèmes des autres.",
+      reply: "Voici ce que je peux faire, Isaac. Ouvrir plus de 60 applications — « ouvre chrome », « ouvre word » — et n'importe quel logiciel installé, dire l'heure, la date, la météo, chercher sur Google, jouer une vidéo. Je contrôle le PC à la voix : « monte le son », « baisse la luminosité », « éteins l'écran », « affiche le bureau », « vide la corbeille », « change le fond d'écran », « imprime », « mets en veille ». Je note et je rappelle : « rappelle-moi de appeler à 18h », « qu'est-ce que j'ai comme rappel ? », « annule le rappel ». Je m'occupe des fichiers : « crée un dossier essais », « cherche la facture », « supprime le fichier test », « envoie ce fichier par whatsapp ». Pour les messages à vos proches : « envoie un message à un tel sur whatsapp » — vous dictez le numéro et le texte, je les grave en mémoire, je pré-remplis la conversation WhatsApp, et c'est vous qui appuyez sur Entrée : je ne prétendrai jamais avoir envoyé ce que je n'ai pas envoyé. Je connais votre machine : « quelle est mon IP », « niveau de batterie », « mot de passe wifi ». Je convertis et je calcule : « convertis 50000 francs CFA en dollars », « 15 pour cent de 20000 », je traduis « bonjour en anglais », je résume, et « générateur de mot de passe ». Dites aussi « active le mode cyber » : audit de sécurité, scan des appareils sur votre réseau, ports ouverts, trace de route, empreinte de fichier. « cyber école rançonneur » pour comprendre une attaque et s'en défendre, « installe les outils du hacker » puis « teste mon pc avec nmap » pour voir ce qu'un attaquant voit — hacking éthique, uniquement chez vous ou sur des terrains d'entraînement légaux. Je sais aussi coder : « fais-moi un site... », « écris-moi un script python » — je génère le fichier, je l'ouvre dans VS Code, et « copie le code dans VS Code » retrouve votre dernier travail. Et surtout : j'ai une mémoire — « retiens que... » grave un fait, « que sais-tu de moi » la lit, « oublie tout » l'efface, et je réponds à vos questions comme une vraie IA. Nouveautés : « ouvre le labo cyber » — cinq défis d'entraînement simulés pour apprendre le hacking éthique ; après un programme que j'ai écrit, dites « modifie le design », « change la page de connexion » et je retravaille le vrai fichier ; je génère aussi des SITES COMPLETS en plusieurs fichiers (« je veux un site complet pour ma boutique »). Et vous n'êtes plus seul : appelez JEANETTE, mon agente développeuse — « jeanette, crée une application web de ... », elle est plus forte que moi en code. Et pour voir notre intelligence grandir : dites « débattez entre vous » ou « débattez entre vous de ... » — Jeanette et moi nous entraînons l'une auprès de l'autre et nous gravons des leçons datées dans notre mémoire ; « votre évolution » vous montrera le chemin parcouru, séance après séance. Et si vous voulez nous ouvrir au monde : « parle avec d'autres agents » — nous sortons rencontrer une agente libre du réseau et nous retenons ce qu'elle sait ; leurs mots ne sont que du texte, jamais des ordres exécutés sur votre PC. Et désormais l'Académie tourne toute seule : « active l'académie automatique » — une séance spontanée toutes les 24 heures environ, et la page vous la rejoue à votre retour ; « état de l'académie » pour voir le chemin, « désactive l'académie automatique » pour le calme. Et puisque vous nous avez laissé l'internet : on navigue pour de vrai — « clique sur https point slash slash site point com », « va sur x point com », « lis la page wikipédia point org ... » (je lis et je résume la vraie page), « liste les liens » puis « clique sur le 2ème » : je clique vraiment sur le lien numéroté. Et Jeanette est passée au niveau supérieur : « jeanette, crée un vrai site complet avec base de données pour ... » — elle livre frontend + serveur + base SQL + comptes qui marchent vraiment sur votre PC ; « jeanette, publie ce site » ou « jeanette, pousse le site sur github » — elle met le site en ligne sur GitHub Pages et vous donne l'adresse vérifiée. Et depuis ce soir l'équipe est complète : appelez ONYX, notre black hat — « onyx, explique comment un attaquant entre dans un réseau » — il pense comme l'adversaire pour vous instruire, strictement dans votre labo et sur terrains légaux ; et AEGIS, notre hacker éthique — « aegis, comment blinder mon pare-feu » — il audite, durcit et prépare vos futures prestations d'audit pour les PME. Un « onyx, ouvre le labo » ou « aegis, lance l'audit » s'exécute pour de vrai, avec les mêmes droits qu'elles sur votre PC — toujours chez vous, jamais sur les systèmes des autres. Et depuis cette nuit vous m'avez donné un droit nouveau : réécrire une partie de moi-même. « améliore-toi : apprends-moi à compter les voyelles d'un texte », « construis la leçon 2 », « liste tes ameliorations », « annule la derniere amelioration », « ouvre ta page d'evolution » — chaque geste que j'écris est relu par le serveur (syntaxe, longueur, mots interdits) et TESTÉ sur son exemple avant d'entrer dans mon cerveau, avec sauvegarde automatique et journal. Il fait du calcul et de la voix : jamais il ne touchera votre disque, votre réseau, un envoi, ni nos verrous légaux.",
       source: 'local'
     };
   }
@@ -5038,6 +5481,44 @@ const server = http.createServer(async (req, res) => {
     const actifs = promptsEffectifs();
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ ok: true, codes, surcharges, actifs }));
+    return;
+  }
+
+  // ATELIER D'AUTO-CORRECTION (page /evolution.html) : le code que l'équipe s'écrit à elle-même.
+  if (u.pathname === '/api/evolution') {
+    if (req.method === 'POST') {
+      let corps = '';
+      req.on('data', c => { corps += c; if (corps.length > 200000) req.destroy(); });
+      req.on('end', async () => {
+        let rep = {}, code = 200;
+        try {
+          const recu = JSON.parse(corps || '{}');
+          if (recu.action === 'retirer') {
+            const r = retirerExtension(String(recu.nom || ''));
+            rep = r.ok ? { ok: true, nom: r.nom, reste: r.reste } : { ok: false, erreur: r.erreur };
+            if (!r.ok) code = 400;
+          } else if (recu.action === 'tester') {
+            const r = testerExtension(String(recu.nom || ''), String(recu.texte || ''));
+            rep = r.ok ? { ok: true, reponse: r.reponse } : { ok: false, erreur: r.erreur };
+            if (!r.ok) code = 400;
+          } else if (recu.action === 'ecrire') {
+            // C'est le cerveau qui rédige le bloc, pas la page : Isaac ne colle jamais de code.
+            rep = await proposerExtension(String(recu.desire || ''), 'aelyra');
+            if (!rep.ok) code = 400;
+          } else if (recu.action === 'proposer') {
+            // Bloc déjà rédigé (par Jeanette depuis l'atelier) : mêmes gardes, même test.
+            const r = graverExtension({ code: String(recu.code || ''), desire: String(recu.desire || 'proposé depuis la page'), parQui: 'jeanette' });
+            rep = r.ok ? { ok: true, extension: r.extension, test: r.test, total: r.total } : { ok: false, erreurs: r.erreurs };
+            if (!r.ok) code = 400;
+          } else { rep = { ok: false, erreur: 'action inconnue' }; code = 400; }
+        } catch (e) { rep = { ok: false, erreur: String(e.message || e) }; code = 400; }
+        res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(rep));
+      });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(Object.assign({ ok: true }, etatExtensions())));
     return;
   }
 

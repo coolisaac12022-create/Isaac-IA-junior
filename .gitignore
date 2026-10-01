@@ -42,3 +42,11 @@ isaac-memory.essai.json
 isaac-rappels.essai.json
 # Analyses de courriels suspects — le contenu des messages recus par Isaac ne sort pas du PC
 analyses-mail.json
+
+# Le code que l'eququipe s'ecrit a elle-meme : geste appris = dictee personnelle d'Isaac.
+# Jamais publie sans son ordre (il peut le demander : c'est du code, pas des donnees).
+extensions.js
+extensions.essai.js
+backups/
+# Sauvegardes de l instance d essai — artifacts de lecture, jamais publiés
+backups-essai/
