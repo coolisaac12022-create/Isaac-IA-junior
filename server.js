@@ -1799,36 +1799,86 @@ async function reponseScanIP(ip, agent) {
 // --- CRAN SUPÉRIEUR (Isaac, 2026-10-01) : « scan complet » sur les 65 535 ports ---
 // Le scan long tourne EN ARRIÈRE-PLAN ; la page le reçoit comme un rappel (file /api/rappel)
 // et le lit à voix haute dès qu'il tombe — rien ne bloque l'assistant pendant ce temps.
-function scanCompletNmap(ip) {
+// MÉTHODE (mesurée sur le téléphone d'Isaac le 2026-10-01) : un « nmap -p- » pur ne FINIT
+// JAMAIS sur un mobile — le téléphone FILTRE les SYN non sollicités, donc nmap attend ses
+// timeouts port après port (plus de 25 minutes, et il pouvait encore promettre un faux vide).
+// Donc : 1) nmap sur les 1 000 ports de service (54 s, c'est lui qui trouve le 53),
+//        2) balayage TCP parallèle sur les 64 535 autres (400 ms de fenêtre),
+// et le rapport dit exactement ce qui a été fait — jamais un « rien d'ouvert » mensonger.
+function sweepTcp(ip, debut, fin, timeoutMs, concurrence) {
+  const net = require('net');
+  const liste = []; for (let p = debut; p <= fin; p++) liste.push(p);
   return new Promise(resolve => {
-    exec('nmap -Pn -sT -p- -T4 --open ' + ip,
-      // 65 535 ports en connect complet = plusieur minutes ; 10 min avant de couper.
-      { timeout: 600000, windowsHide: true, maxBuffer: 4000000 }, (err, out) => {
+    const ouverts = []; let i = 0, finis = 0;
+    const un = () => new Promise(res => {
+      const p = liste[i++]; const s = new net.Socket();
+      const finir = o => { if (!s.destroyed) s.destroy(); if (o) ouverts.push(p); if (++finis === liste.length) res(); else res(); };
+      s.setTimeout(timeoutMs);
+      s.on('connect', () => finir(true));
+      s.on('timeout', () => finir(false));
+      s.on('error', () => finir(false));
+      s.connect(p, ip);
+    });
+    const workers = [];
+    for (let w = 0; w < concurrence; w++) workers.push((async () => { while (i < liste.length) await un(); })());
+    Promise.all(workers).then(() => resolve(ouverts));
+  });
+}
+function scanRapideNmap(ip) {
+  return new Promise(resolve => {
+    exec('nmap -Pn -sT --top-ports 1000 --max-retries 1 --open ' + ip,
+      { timeout: 150000, windowsHide: true, maxBuffer: 4000000 }, (err, out) => {
         const ports = [];
         String(out || '').split(/\r?\n/).forEach(l => {
           const m = l.match(/^(\d+)\/tcp\s+open\s+(\S*)/);
           if (m) ports.push({ port: parseInt(m[1], 10), service: m[2] || SERVICES_PORT[m[1]] || '' });
         });
-        // Errreur = faux « rien d'ouvert » si nmap a ete coupe avant la fin : on le dit.
-        resolve({ ports: ports.sort((a, b) => a.port - b.port), trunque: !!err });
+        // nmap muet = installé mais coupé en route : null → le secours TCP prendra le relais.
+        if (!ports.length && err) return resolve(null);
+        resolve(ports);
       });
   });
 }
+async function scanComplet(ip) {
+  let nmap = await scanRapideNmap(ip);
+  if (nmap === null) nmap = await scanTcpPur(ip);
+  const vu = new Set(nmap.map(p => p.port));
+  const reste = await sweepTcp(ip, 1001, 65535, 400, 1500);
+  const ports = nmap.concat(reste.filter(p => !vu.has(p)).map(p => ({ port: p, service: SERVICES_PORT[p] || '' })));
+  ports.sort((a, b) => a.port - b.port);
+  return ports;
+}
+function lignesPorts(ports) {
+  return ports.map(p => 'port ' + p.port + ' ouvert' + ((p.service || SERVICES_PORT[p.port]) ? ' (' + (SERVICES_PORT[p.port] || p.service) + ')' : '')).join(' ; ');
+}
 function lancerScanComplet(ip, agent) {
   const t0 = Date.now();
-  scanCompletNmap(ip).then(r => {
-    const ports = r.ports;
+  scanComplet(ip).then(ports => {
     const sec = Math.round((Date.now() - t0) / 1000);
     let note;
-    if (!ports.length) note = "SCAN COMPLET termine sur " + ip + " (" + sec + " s, 65 535 ports) : RIEN d'ouvert" + (r.trunque ? " — ATTENTION, le scan a ete coupe avant la fin, le resultat est partiel. Redis « " + (agent || 'onyx') + ", scan complet " + ip + " » quand le reseau est calme." : ". Appareil parfaitement discret sur le reseau, Isaac — rien a durcir.");
+    if (!ports.length) note = "SCAN COMPLET termine sur " + ip + " (" + sec + " s, les 65 535 ports passes) : RIEN d'ouvert. Appareil parfaitement discret sur le reseau, Isaac — rien a durcir.";
     else {
-      const lignes = ports.map(p => 'port ' + p.port + ' ouvert' + ((p.service || SERVICES_PORT[p.port]) ? ' (' + (SERVICES_PORT[p.port] || p.service) + ')' : '')).join(' ; ');
-      note = "SCAN COMPLET termine sur " + ip + " (" + sec + " s) : " + ports.length + " port(s) ouvert(s) — " + lignes + ". " + (ports.some(p => p.port === 5555) ? "URGENT : 5555 ADB ouvert = prise de main possible depuis le WiFi, a fermer maintenant." : "Compare avec tes usages : chaque porte ouverte doit avoir une raison.");
+      note = "SCAN COMPLET termine sur " + ip + " (" + sec + " s) : " + ports.length + " port(s) ouvert(s) sur 65 535 — " + lignesPorts(ports) + ". " + (ports.some(p => p.port === 5555) ? "URGENT : 5555 ADB ouvert = prise de main possible depuis le WiFi, a fermer maintenant." : "Compare avec tes usages : chaque porte ouverte doit avoir une raison.");
+      note += " Méthode : les 1 000 ports de service au scanner nmap, les 64 535 autres en balayage TCP rapide (400 ms de fenetre) — un mobile filtre les paquets, c'est la seule methode qui finit.";
     }
     rappelsDuJour.push({ note });
   }).catch(() => {
     rappelsDuJour.push({ note: "Le scan complet de " + ip + " a echoue, Isaac — redis « " + (agent || 'onyx') + ", scan complet " + ip + " »." });
   });
+}
+// « scan rapide » = les 1 000 ports de service seulement : la réponse en une minute.
+function lancerScanRapide(ip, agent) {
+  const t0 = Date.now();
+  scanRapideNmap(ip).then(nmap => {
+    const sec = Math.round((Date.now() - t0) / 1000);
+    const ports = nmap === null ? null : nmap;
+    const note = ports === null
+      ? "Le scan rapide de " + ip + " n'a pas abouti, Isaac — redis « scan complet " + ip + " », je bascule sur la methode complete."
+      : (ports.length
+        ? "SCAN RAPIDE termine sur " + ip + " (" + sec + " s, les 1 000 ports de service les plus attaqués) : " + lignesPorts(ports) + ". Pour tout voir : « scan complet " + ip + " »."
+        : "SCAN RAPIDE termine sur " + ip + " (" + sec + " s, 1 000 ports de service) : rien d'ouvert sur l'essentiel. Pour verifier chaque port un a un : « scan complet " + ip + " ».");
+    rappelsDuJour.push({ note });
+  }).catch(() => {});
 }
 // Inventaire : tous les appareils joints sur le WiFi d'Isaac (ARP), scannés d'un coup (31 ports chacun).
 function ipReseauLocal() {
@@ -1886,9 +1936,14 @@ function memoriserIpAppareil(mot, ip) {
 // Renvoie null si la phrase ne demande pas un scan → le routage normal reprend.
 async function moduleScan(phrase, raw, agent) {
   const veutComplet = /complet|complete|entier|total|tous les ports|65 ?535/.test(phrase);
-  const veutInventaire = /(?:mes|tous mes|les|tous les) (?:appareils?|machines?|equipements?|telephones?|pcs?|ordinateurs?)/.test(phrase);
+  const veutRapide = /rapide|vite|press[eé]|express/.test(phrase);
+  const motDicte0 = (phrase.match(/(?:mon|ma|le|la) (telephone|portable|tel|tablette|pc|ordinateur|routeur|imprimante|tv|montre)\b/) || [])[1];
+  // Inventaire = au pluriel (« mes appareils », « toutes les machines »). Le singulier
+  // reste un scan ciblé sur l'appareil nommé, sinon « scan complet mon telephone »
+  // partirait scanner tout le WiFi.
+  const veutInventaire = /(?:mes|tous mes|toutes les|les) (?:appareils?|machines?|equipements?s?|pcs?|ordinateurs?s?)\b/.test(phrase);
   const ipTrouvee = extraireIP(raw) || extraireIP(phrase);
-  if (!ipTrouvee && !veutComplet && !veutInventaire) return null;
+  if (!ipTrouvee && !veutComplet && !veutRapide && !motDicte0 && !veutInventaire) return null;
   if (veutInventaire && !ipTrouvee) return await scanTousAppareils(agent);
   let ipCible = ipTrouvee;
   if (!ipCible) {
@@ -1903,7 +1958,12 @@ async function moduleScan(phrase, raw, agent) {
   if (motDicte) memoriserIpAppareil(motDicte, ipCible);
   if (veutComplet) {
     lancerScanComplet(ipCible, agent);
-    return { reply: "SCAN COMPLET lance sur " + ipCible + " — les 65 535 ports, un par un, c'est mon taf, Isaac. Ca prend de deux a dix minutes selon le reseau. Je continue de travailler avec toi pendant ce temps : le rapport tombera dans ma voix des qu'il est pret.", source: 'local', agent: agent || 'aelyra' };
+    return { reply: "SCAN COMPLET lance sur " + ipCible + " — les 65 535 ports, un par un, c'est mon taf, Isaac. Compte deux a six minutes : les 1 000 ports de service au scanner nmap, puis les 64 535 autres au balayage parallele. Je continue de travailler avec toi pendant ce temps : le rapport tombera dans ma voix des qu'il est pret.", source: 'local', agent: agent || 'aelyra' };
+  }
+  // « scan rapide mon telephone » → les 1 000 ports de service, la reponse dans une minute.
+  if (veutRapide) {
+    lancerScanRapide(ipCible, agent);
+    return { reply: "SCAN RAPIDE lance sur " + ipCible + " : les 1 000 ports de service les plus attaqués, une minute a peu pres, Isaac. Le resultat tombera dans ma voix. Si tu veux chaque port un a un, tu dis « scan complet " + ipCible + " ».", source: 'local', agent: agent || 'aelyra' };
   }
   return await reponseScanIP(ipCible, agent);
 }
