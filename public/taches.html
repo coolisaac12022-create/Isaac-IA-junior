@@ -44,9 +44,19 @@
 <body>
 <header>
   <h1>Console des tâches · le registre de la maison</h1>
-  <div class="sous">Depuis le 2 octobre 2026, chaque <b>job long</b> est écrit chez toi avant de partir : scan complet des 65 535 ports, scan rapide, inventaire du WiFi, séance d'Académie, relance d'un prospect — et chaque <b>refus</b> de frapper une cible sans fiche d'engagement. Il y a une référence, un état, une <b>progression mesurée</b> (pas devinée), un résultat, une heure. Registre dans <span class="dict">taches.json</span>, les 200 dernières tâches — jamais publié, jamais effacé d'un bouton. Si le cerveau redémarre pendant un scan, la tâche est marquée <b>interrompue</b> : on ne te feint pas une reprise.</div>
+  <div class="sous">Depuis le 2 octobre 2026, chaque <b>job long</b> est écrit chez toi avant de partir : scan complet des 65 535 ports, scan rapide, inventaire du WiFi, séance d'Académie, relance d'un prospect — et chaque <b>refus</b> de frapper une cible sans fiche d'engagement. Il y a une référence, un état, une <b>progression mesurée</b> (pas devinée), un résultat, une heure. Registre dans <span class="dict">taches.json</span>, les 200 dernières tâches — jamais publié, jamais effacé d'un bouton. Si le cerveau redémarre pendant un scan, la tâche est marquée <b>interrompue</b> : on ne te feint pas une reprise. Depuis le 2 octobre aussi, <b>la voie</b> : un seul job lourd à la fois, les autres en file derrière, avec échéance de sécurité — et un journal des décisions, <span class="dict">journal-orchestrateur.log</span>.</div>
 </header>
 <main>
+  <section class="carte" id="voie-carte">
+    <h2>La voie · un seul job lourd à la fois</h2>
+    <div id="voie">Lecture de l'orchestrateur…</div>
+    <div class="barre">
+      <button class="bout mini" id="pause">Stopper la voie</button>
+      <button class="bout sec mini" id="pol">Voir la politique de la voie</button>
+      <span id="voie-info"></span>
+    </div>
+    <div id="politique" style="display:none"></div>
+  </section>
   <section class="carte">
     <h2>État du registre</h2>
     <div id="resume">Lecture…</div>
@@ -115,11 +125,86 @@ document.getElementById('liste').addEventListener('click', async e => {
   } catch (err) { info('Le cerveau a refusé la requête : ' + err.message); }
   lire();
 });
-document.getElementById('rafraichir').onclick = lire;
+let Voie = null;
+function renduVoie() {
+  const el = document.getElementById('voie');
+  // Le type machine (scan_complet) ne se montre pas : le titre humain vient du registre des taches.
+  const nom = ref => { const t = (MONDE || []).find(x => x.ref === ref); return t && t.titre ? t.titre : null; };
+  if (!Voie) { el.innerHTML = '<div class="vide">La voie n a pas repondu — le cerveau est peut-etre en train de recharger.</div>'; return; }
+  const v = Voie.voie;
+  const tete = v
+    ? '<div class="tache en_cours"><div class="entete"><div><span class="ref">' + esc(v.ref) + '</span>' +
+      '<div class="titre">' + esc(nom(v.ref) || v.type) + (v.cible ? ' — <b>' + esc(v.cible) + '</b>' : '') + '</div></div>' +
+      '<span class="etat">' + (v.progression || 0) + '% · echeance dans ' + v.reste_s + ' s</span></div>' +
+      '<div class="meta">par <b>' + esc(v.agent) + '</b> · tient la voie depuis <b>' + v.depuis_s + ' s</b> (limite ' + v.limite_min + ' min) · ' + esc(v.etape || '') + '</div>' +
+      '<div class="jauge"><span style="width:' + (v.progression || 0) + '%"></span></div></div>'
+    : '<div class="vide">' + (Voie.pause ? 'Voie en pause sur ton ordre — rien ne part, la file attend.' : 'Voie libre : aucun job lourd en cours.') + '</div>';
+  const file = (Voie.file || []).length
+    ? '<div class="meta" style="margin-top:10px"><b>La file, dans l ordre de depart :</b></div>' + Voie.file.map(f =>
+      '<div class="tache en_attente"><div class="entete"><div><span class="ref">' + esc(f.ref) + '</span>' +
+      '<div class="titre">' + esc(nom(f.ref) || f.type) + (f.cible ? ' — ' + esc(f.cible) : '') + '</div></div>' +
+      '<span class="etat">position ' + f.position + ' · attend ' + f.attend_s + ' s' + (f.annulee ? ' · annulee' : '') + '</span></div>' +
+      (f.annulee ? '' : '<div class="barre"><button class="bout sec mini" data-priorite="' + esc(f.ref) + '">Passer en premier</button><button class="bout sec mini" data-reculer="' + esc(f.ref) + '">Reculer en fin de file</button></div>') +
+      '</div>').join('')
+    : '<div class="meta" style="color:#6b6b6b">Personne en file.</div>';
+  const c = Voie.compteurs || {};
+  const compteurs = '<div class="meta" style="margin-top:10px">lances <b>' + (c.jobs_lances || 0) + '</b> · mis en file <b>' + (c.jobs_en_file || 0) +
+    '</b> · coupes par echeance <b>' + (c.jobs_coupes || 0) + '</b> · refus de la voie <b>' + (c.refus_de_la_voie || 0) + '</b></div>';
+  const mouv = (Voie.mouvements || []).length
+    ? '<div class="resultat" style="margin-top:12px">' + esc(Voie.mouvements.join('\n')) + '</div>' : '';
+  el.innerHTML = tete + file + compteurs + mouv;
+  document.getElementById('pause').textContent = Voie.pause ? 'Relancer la voie' : 'Stopper la voie';
+}
+async function lireVoie() {
+  try {
+    const r = await fetch('/api/orchestrateur', { headers: { 'Accept': 'application/json' } });
+    Voie = await r.json();
+    renduVoie();
+    document.getElementById('voie-info').textContent = 'relu a ' + new Date().toLocaleTimeString('fr-FR');
+    if (Voie.politique) {
+      document.getElementById('politique').innerHTML =
+        '<div class="resultat">' + esc((Voie.politique.regles || []).join('\n')) + '\n\n' +
+        esc((Voie.politique.jobs || []).map(j => j.type + ' : ' + j.titre + ' — limite ' + j.limite_min + ' min — agentes ' + j.agents.join('/')).join('\n')) + '</div>';
+    }
+  } catch (e) { document.getElementById('voie-info').textContent = 'orchestrateur muet : ' + e.message; }
+}
+document.getElementById('voie-carte').addEventListener('click', async e => {
+  const attr = e.target && e.target.getAttribute && e.target.getAttribute.bind(e.target);
+  if (!attr) return;
+  const p = attr('data-priorite'), q = attr('data-reculer');
+  if (!p && !q) return;
+  try {
+    const r = await fetch('/api/orchestrateur', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: p ? 'priorite' : 'reculer', ref: p || q })
+    });
+    const j = await r.json();
+    document.getElementById('voie-info').textContent = j.reply || 'Refuse.';
+  } catch (err) { document.getElementById('voie-info').textContent = 'Refuse : ' + err.message; }
+  lireVoie(); lire();
+});
+document.getElementById('pause').onclick = async () => {
+  const action = Voie && Voie.pause ? 'reprendre' : 'pause';
+  if (action === 'pause' && !confirm("Stopper la voie arrete les DEPARTS. Le job en cours garde la main — ses paquets sont deja partis, on ne les rappelle pas. Continuer ?")) return;
+  try {
+    const r = await fetch('/api/orchestrateur', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+    const j = await r.json();
+    document.getElementById('voie-info').textContent = j.reply || '';
+  } catch (e) { document.getElementById('voie-info').textContent = 'Refuse : ' + e.message; }
+  lireVoie();
+};
+document.getElementById('pol').onclick = () => {
+  const el = document.getElementById('politique');
+  const voir = el.style.display === 'none';
+  el.style.display = voir ? 'block' : 'none';
+  document.getElementById('pol').textContent = voir ? 'Cacher la politique de la voie' : 'Voir la politique de la voie';
+  if (voir) lireVoie();
+};
+document.getElementById('rafraichir').onclick = () => { lire(); lireVoie(); };
 document.getElementById('tout').onclick = () => { FILTRE = 'tout'; afficher(); };
 document.getElementById('vivantes').onclick = () => { FILTRE = 'vivantes'; afficher(); };
-lire();
-setInterval(lire, 5000);
+lire(); lireVoie();
+setInterval(() => { lire(); lireVoie(); }, 5000);
 </script>
 </body>
 </html>

@@ -58,10 +58,12 @@ switch ($Geste) {
   }
   'tuer'         {
     if (-not $Cible) { 'NOMMANQUANT'; break }
-    $procs = Get-Process | Where-Object { $_.ProcessName -match $Cible -or $_.MainWindowTitle -match $Cible }
+    # Par nom de processus seulement : une fenetre qui contient le mot (un onglet, un document)
+    # ne doit jamais etre prise pour le logiciel que Isaac veut fermer.
+    $procs = Get-Process | Where-Object { $_.ProcessName -match $Cible }
     if (-not $procs) { 'INTROUVABLE'; break }
     $procs | ForEach-Object { $_ | Stop-Process -Force }
-    'OK|' + (($procs | Select-Object -First 1).ProcessName)
+    'OK|' + (($procs | Select-Object -First 1).ProcessName) + '|' + @($procs).Count
     break
   }
   'luminosite-plus' {

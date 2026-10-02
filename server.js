@@ -1808,6 +1808,9 @@ async function academieAutoTick() {
   if (m0.academieAuto === false) return;       // Isaac a désactivé le régime automatique
   if (Date.now() - SERVEUR_T0 < 90 * 1000) return;  // le cerveau vient de démarrer, on le laisse souffler
   if (m0.academieLast && Date.now() - m0.academieLast < ACADEMIE_INTERVALLE) return;
+  // Orange #10 : une séance d'Académie rate un tour plutôt que de marcher sur un balayage qui tient
+  // déjà la voie (réseau + CPU saturés). Elle est reverifiée dix minutes plus tard, pas perdue.
+  { const genante = voieGenante(); if (genante) { journalOrchestrateur('ACADEMIE a cede la voie — ' + genante + ' ; seance reessayee au prochain tour'); return; } }
   const sujet = ACADEMIE_SUJETS[(m0.lecons || []).length % ACADEMIE_SUJETS.length];
   console.log('[Académie auto] séance spontanée sur : ' + sujet);
   // Orange #9 : une séance d'Académie est un job long (plusieurs cerveaux, des minutes). Elle est
@@ -3354,7 +3357,13 @@ function trouverTache(phrase) {
   const l = lireTaches();
   const dictee = String(phrase || '').toLowerCase();
   const directe = (String(phrase || '').match(/t-?\s*\d{6}-\d{4}/i) || [])[0];
-  if (directe) { const n = directe.replace(/[^0-9-]/g, ''); const t = l.find(x => x.ref.replace('T-', '') === n); if (t) return t; }
+  // ⚠️ Le « T- » dicté revient en minuscules et avec son tiret : il faut le retirer AVANT la
+  // comparaison, sinon « annule la tache T-261002-0531 » ne reconnaît pas sa propre référence.
+  if (directe) {
+    const n = directe.toUpperCase().replace(/[^0-9-]/g, '').replace(/^-+/, '');
+    const t = l.find(x => x.ref.replace(/^T-/, '') === n);
+    if (t) return t;
+  }
   const ni = (dictee.match(/(?:tache|task)\s*(?:numero|#)?\s*(\d{1,3})/) || [])[1];
   if (ni) {
     const vivantes = l.filter(t => t.etat === 'en_cours' || t.etat === 'en_attente');
@@ -3362,6 +3371,12 @@ function trouverTache(phrase) {
   }
   const parCible = l.slice().reverse().find(t => t.cible && dictee.includes(String(t.cible).toLowerCase()));
   if (parCible) return parCible;
+  // filet : la dictée peut coller ou hacher la référence (« annule T 261002 0531 »)
+  const squashe = dictee.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (squashe.length > 8) {
+    const parRef = l.find(x => squashe.includes(x.ref.replace(/[^A-Z0-9]/g, '')));
+    if (parRef) return parRef;
+  }
   return null;
 }
 function tachesVivantes() {
@@ -3397,7 +3412,16 @@ function annulerTache(ref) {
     return { ok: true, arrete: false, tache: t, detail: 'Le balayage tourne, Isaac — je ne peux pas rappeler les paquets deja partis sur le reseau. Ce que je peux faire : ne rien rapporter de plus, et ne plus relancer. Dis « ne rapporte pas ' + ref + ' » si tu veux que je me taise sur le resultat.' };
   }
   majTache(ref, { etat: 'annulee', etape: 'annulee sur ordre d Isaac' });
-  return { ok: true, arrete: true, tache: t, detail: 'Tache ' + ref + ' annulee, Isaac — elle ne partira pas.' };
+  // ⚠️ Et la retirer de la voie : un job annulé qui resterait dans le fichier annoncerait une
+  // position fantôme — « qui tient la voie » promettrait un départ qui ne viendra jamais.
+  try {
+    const i = VOIE.file.findIndex(e => e.ref === ref);
+    if (i !== -1) {
+      VOIE.file.splice(i, 1);
+      journalOrchestrateur('ANNULE ' + ref + ' — retiree de la file sur ordre d Isaac, ' + VOIE.file.length + ' job(s) restant(s)');
+    }
+  } catch (e) {}
+  return { ok: true, arrete: true, tache: t, detail: 'Tache ' + ref + ' annulee, Isaac — elle ne partira pas' + (VOIE.file.length ? ', et ' + VOIE.file.length + ' job(s) restent en file.' : '.') };
 }
 // Au démarrage : ce qui était lancé quand le cerveau est mort est marqué interrompu, avec l'heure.
 // C'est LA preuve qu'on ne lui invente pas une reprise.
@@ -3485,6 +3509,331 @@ function fermerTache(ref, etat, resultat) {
   const patch = { etat: etat, etape: etat + ' et gravee au registre', resultat: String(resultat || '').slice(0, 600) };
   if (etat === 'finie') patch.progression = 100;
   return majTache(ref, patch);
+}
+
+// ---------- ORANGE #10 (2026-10-02) : L'ORCHESTRATEUR ----------
+// Le registre (#9) dit CE QUI EST ÉCRIT. L'orchestrateur dit QUI TIENT LA MACHINE, DANS QUEL ORDRE,
+// et JUSQU'OÙ. Le vrai défaut avant lui : deux « scan complet » dictés à la minute partaient en
+// parallèle — chacun ses 1 500 sockets, sur un seul PC portable, et Isaac n'avait aucun endroit où
+// voir qu'ils se marchaient dessus. Une machine, une voie : un seul job lourd à la fois, les autres
+// en file derrière, chacun sous une échéance de sécurité.
+// Ce qui est tenu, et ce qui ne l'est pas, écrit dans le code :
+//  - la file vit en RAM : un redémarrage du cerveau ne « reprend » pas silencieusement les jobs en
+//    attente — ils restent au registre marqués « interrompue », c'est tachesReprendre qui le dit ;
+//  - les décisions (départ, file, échéance, fin) sont écrites dans journal-orchestrateur.log, en
+//    local, pour qu'Isaac les relise ;
+//  - un job déjà parti ne se rappelle pas : « stoppe la voie » met la FILE en pause, pas le balayage
+//    en cours, et le dit.
+const JOBS_LOURDS = {
+  scan_complet: { titre: 'Scan complet (65 535 ports)', limiteMs: 14 * 60 * 1000, agents: ['onyx', 'aegis', 'jeanette', 'aelyra'] },
+  scan_rapide: { titre: 'Scan rapide (1 000 ports de service)', limiteMs: 6 * 60 * 1000, agents: ['onyx', 'aegis', 'jeanette', 'aelyra'] },
+  inventaire: { titre: 'Inventaire des appareils du WiFi', limiteMs: 9 * 60 * 1000, agents: ['onyx', 'aegis', 'jeanette', 'aelyra'] }
+};
+const VOIE = { enCours: null, file: [], pause: false, mouvements: [], nbJobs: 0, nbFiles: 0, nbCoupes: 0, nbRefuses: 0 };
+function journalOrchestrateur(ligne) {
+  const quand = new Date();
+  try {
+    fs.appendFileSync(path.join(__dirname, ESSAI ? 'journal-orchestrateur.essai.log' : 'journal-orchestrateur.log'),
+      quand.toISOString() + ' ' + ligne + '\n', 'utf8');
+  } catch (e) {}
+  VOIE.mouvements.push(quand.toLocaleTimeString('fr-FR') + ' — ' + ligne);
+  if (VOIE.mouvements.length > 40) VOIE.mouvements.shift();
+}
+function tacheAuRegistre(ref) { return lireTaches().find(x => x.ref === ref) || null; }
+// L'échéance est fixe en production. En essai seul, ISAAC_VOIE_MIN=0.15 permet de VÉRIFIER que la
+// coupe fonctionne : sur son PC à lui, ce réglage n'existe pas et ne peut pas être activé.
+function limiteVoie(type) {
+  const base = (JOBS_LOURDS[type] && JOBS_LOURDS[type].limiteMs) || 6 * 60 * 1000;
+  if (ESSAI && process.env.ISAAC_VOIE_MIN) {
+    const m = Number(process.env.ISAAC_VOIE_MIN);
+    if (isFinite(m) && m > 0) return m * 60 * 1000;
+  }
+  return base;
+}
+// Une seule liste fermée de jobs lourds : un type qui n'est pas déclaré ici ne peut PAS occuper la
+// voie. C'est la garde de l'orchestrateur, et elle est dans le serveur, pas dans une prompt.
+function demanderJob(o) {
+  const regle = JOBS_LOURDS[o.type];
+  const qui = String(o.agent || 'aelyra').toLowerCase();
+  if (!regle) {
+    VOIE.nbRefuses++;
+    journalOrchestrateur('REFUS type inconnu de la voie : ' + String(o.type).slice(0, 40) + ' (agent ' + qui + ')');
+    return { ok: false, refus: "Ce job n'est pas déclaré dans ma voie (" + String(o.type).slice(0, 40) + ") : seuls " + Object.keys(JOBS_LOURDS).join(', ') + " peuvent monopoliser le PC." };
+  }
+  if (!regle.agents.includes(qui)) {
+    VOIE.nbRefuses++;
+    creerTache({ type: o.type, titre: regle.titre, cible: o.cible, agent: qui, etat: 'refusee', resultat: 'Refuse par l orchestrateur : ' + qui + " n'a pas ce job dans sa table." });
+    journalOrchestrateur('REFUS droit : ' + qui + ' ne peut pas lancer ' + o.type);
+    return { ok: false, refus: qui + " ne lance pas " + regle.titre + " — la table de la voie ne le lui donne pas." };
+  }
+  // Deux fois la même cible en file = un seul balayage. Isaac peut repéter sa phrase sans empiler
+  // trois scans identiques sur le même téléphone.
+  const doublon = VOIE.file.find(e => e.type === o.type && String(e.cible) === String(o.cible));
+  if (doublon) {
+    VOIE.nbRefuses++;
+    journalOrchestrateur('DOUBLON ignore : ' + o.type + ' sur ' + o.cible + ' — deja en file sous ' + doublon.ref);
+    return { ok: false, doublon: doublon.ref, refus: "C'est deja en file, Isaac : " + doublon.ref + " attend la voie pour la meme cible. Je n'empile pas deux balayages du meme appareil." };
+  }
+  if (VOIE.enCours || VOIE.pause) {
+    const t = creerTache({
+      type: o.type, titre: regle.titre, cible: o.cible, agent: qui, etat: 'en_attente',
+      mandat: o.mandat || null,
+      etape: VOIE.pause ? 'voie en pause sur ordre d Isaac — rien ne part' : 'en file derriere ' + VOIE.enCours.ref
+    });
+    VOIE.file.push({ ref: t.ref, type: o.type, cible: o.cible, agent: qui, course: o.course, resoudre: null, mis_en_file_le: Date.now() });
+    VOIE.nbFiles++;
+    journalOrchestrateur('FILE +' + t.ref + ' ' + o.type + ' sur ' + (o.cible || '-') + ' (position ' + VOIE.file.length + (VOIE.pause ? ', voie en pause' : ', derriere ' + VOIE.enCours.ref) + ')');
+    return { ok: true, tache: t, file: true, position: VOIE.file.length, derriere: VOIE.pause ? null : VOIE.enCours.ref };
+  }
+  const t = creerTache({ type: o.type, titre: regle.titre, cible: o.cible, agent: qui, etat: 'en_cours', mandat: o.mandat || null, etape: o.etape || 'lancee' });
+  const entree = { ref: t.ref, type: o.type, cible: o.cible, agent: qui, course: o.course, resoudre: null, mis_en_file_le: Date.now() };
+  demarrerJob(entree);
+  return { ok: true, tache: t, file: false, attendre: new Promise(res => { entree.resoudre = res; }) };
+}
+// Une seule formule pour dire « tu attends ton tour » : elle nomme la tâche, sa position, ce qui
+// tient la voie, et rappelle les deux ordres qui marchent vraiment (priorité, annulation).
+function phraseDeFile(r, quoi) {
+  return quoi + ' passe en file, Isaac : ' + r.tache.ref + ', position ' + r.position + ' — ' +
+    (r.derriere ? 'elle attend derriere ' + r.derriere : 'la voie est en pause sur ton ordre, rien ne part') +
+    '. Un seul job lourd a la fois sur ton PC : je ne lance pas deux balayages en parallele pour te faire plaisir. ' +
+    'Elle demarrera seule des que la voie se libere. « passe la tache ' + r.position + ' en premier » pour changer l ordre, « annule la tache ' + r.tache.ref + ' » pour ne pas la lancer.';
+}
+function demarrerJob(entree) {
+  const regle = JOBS_LOURDS[entree.type];
+  const t = tacheAuRegistre(entree.ref) || { ref: entree.ref };
+  VOIE.enCours = { ref: entree.ref, type: entree.type, cible: entree.cible, agent: entree.agent, depuis: Date.now(), limiteMs: limiteVoie(entree.type) };
+  VOIE.nbJobs++;
+  journalOrchestrateur('DEPART ' + entree.ref + ' ' + entree.type + ' sur ' + (entree.cible || '-') + ' (echeance ' + Math.round(VOIE.enCours.limiteMs / 60000 * 10) / 10 + ' min)');
+  let valeur;
+  Promise.resolve().then(() => entree.course(t)).then(v => {
+    valeur = v;
+    const courante = tacheAuRegistre(entree.ref);
+    if (!courante || courante.etat === 'en_cours' || courante.etat === 'en_attente') {
+      fermerTache(entree.ref, 'finie', (v && v.reply) ? String(v.reply) : 'Job termine, rapport grave au registre.');
+    }
+  }).catch(e => {
+    const msg = String((e && e.message) || e || 'erreur inconnue').slice(0, 200);
+    const courante = tacheAuRegistre(entree.ref);
+    if (!courante || courante.etat === 'en_cours' || courante.etat === 'en_attente') {
+      fermerTache(entree.ref, 'echouee', 'Le job a casse dans la voie : ' + msg + '. Redis la commande, rien n est parti a moitie.');
+      if (!(courante && courante.silence)) {
+        try { rappelsDuJour.push({ note: 'Job ' + entree.ref + ' echoue, Isaac : ' + msg + '. La voie est liberee pour la suite.', tache: entree.ref }); } catch (err) {}
+      }
+    }
+    journalOrchestrateur('ECHEC ' + entree.ref + ' — ' + msg.slice(0, 120));
+  }).then(() => {
+    libererVoie(entree.ref);
+    // Job parti de la file : personne ne l'attendait plus dans la phrase d'Isaac. Le résultat est
+    // donc rendu par la voie normale du rapport (le haut-parleur), sauf s'il l'a tu sur son ordre.
+    if (!entree.resoudre && valeur && valeur.reply) {
+      const t = tacheAuRegistre(entree.ref);
+      if (!(t && t.silence)) { try { rappelsDuJour.push({ note: String(valeur.reply), tache: entree.ref }); } catch (e) {} }
+      else majTache(entree.ref, { etape: 'rapport ecrit, voix tenue sur ordre d Isaac' });
+    }
+    if (entree.resoudre) { try { entree.resoudre(valeur); } catch (e) {} }
+  });
+}
+function libererVoie(ref) {
+  if (!VOIE.enCours || VOIE.enCours.ref !== ref) return; // déjà coupée par l'échéance : on ne libère pas deux fois
+  const duree = Math.round((Date.now() - VOIE.enCours.depuis) / 1000);
+  journalOrchestrateur('FIN ' + ref + ' apres ' + duree + ' s — voie ' + (VOIE.file.length ? 'rendue a la file' : 'libre'));
+  VOIE.enCours = null;
+  demarrerProchain();
+}
+function demarrerProchain() {
+  while (!VOIE.pause && !VOIE.enCours && VOIE.file.length) {
+    const e = VOIE.file.shift();
+    const t = tacheAuRegistre(e.ref);
+    if (!t) { journalOrchestrateur('SAUT ' + e.ref + ' — plus au registre'); continue; }
+    if (t.etat === 'annulee') { journalOrchestrateur('SAUT ' + e.ref + ' — annulee avant de partir'); continue; }
+    majTache(e.ref, { etat: 'en_cours', demarre_le: Date.now(), fin_le: null, progression: 0, etape: 'demarree par l orchestrateur a ' + new Date().toLocaleTimeString('fr-FR') });
+    demarrerJob(e);
+  }
+}
+// L'échéance de sécurité : un job qui accapare la voie au-delà de sa limite est marqué echouee et
+// la voie est rendue. Si son rapport arrive quand même après, il est lu — il est réel, juste tardif.
+setInterval(() => {
+  const e = VOIE.enCours;
+  if (!e) return;
+  const ecoulee = Date.now() - e.depuis;
+  if (ecoulee < e.limiteMs) return;
+  const t = tacheAuRegistre(e.ref);
+  VOIE.nbCoupes++;
+  const apres = Math.round(ecoulee / 1000) + ' s';
+  if (t && (t.etat === 'en_cours' || t.etat === 'en_attente')) {
+    fermerTache(e.ref, 'echouee', 'Coupe par l orchestrateur apres ' + apres + ' de voie : le job ne rendait pas son resultat. La voie est rendue.');
+    if (!t.silence) {
+      try { rappelsDuJour.push({ note: 'L orchestrateur a libere la voie, Isaac : ' + e.ref + ' ne rendait plus de nouvelles apres ' + apres + '. Si son rapport arrive quand meme, il sera lu — il sera juste en retard.', tache: e.ref }); } catch (err) {}
+    }
+  }
+  journalOrchestrateur('ECHEANCE depassee sur ' + e.ref + ' (' + Math.round(ecoulee / 1000) + ' s) — voie liberee, file relancee');
+  VOIE.enCours = null;
+  demarrerProchain();
+}, 5000);
+function passerEnPremier(ref) {
+  const i = VOIE.file.findIndex(e => e.ref === ref);
+  if (i < 0) {
+    if (VOIE.enCours && VOIE.enCours.ref === ref) return { ok: false, erreur: ref + ' tient deja la voie : on ne passe pas devant un job dont les paquets sont partis' };
+    return { ok: false, erreur: 'aucun job en file sous ' + ref };
+  }
+  const t = tacheAuRegistre(ref);
+  if (t && t.etat === 'annulee') return { ok: false, erreur: ref + ' est annulee : elle ne repartira pas, remets la commande' };
+  const [e] = VOIE.file.splice(i, 1);
+  VOIE.file.unshift(e);
+  majTache(ref, { etape: 'passee en premier de file sur ordre d Isaac' });
+  journalOrchestrateur('PRIORITE ' + ref + ' — passe en tete de file (etait position ' + (i + 1) + ')');
+  return { ok: true, detail: ref + " passe en tête de file, Isaac — elle partira dès que la voie se libère." + (VOIE.enCours ? " Celle qui tient la voie (" + VOIE.enCours.ref + ") va au bout, je ne rappelle pas des paquets déjà partis." : " La voie est libre, elle part maintenant.") };
+}
+function reculerDansFile(ref) {
+  const i = VOIE.file.findIndex(e => e.ref === ref);
+  if (i < 0) return { ok: false, erreur: 'aucun job en file sous ' + ref };
+  const [e] = VOIE.file.splice(i, 1);
+  VOIE.file.push(e);
+  majTache(ref, { etape: 'reculee en fin de file sur ordre d Isaac' });
+  journalOrchestrateur('RECULE ' + ref + ' — fin de file (position ' + VOIE.file.length + ')');
+  return { ok: true, detail: ref + ' reculee en fin de file, position ' + VOIE.file.length + '.' };
+}
+function reglerVoie(pause) {
+  if (pause === VOIE.pause) return { ok: true, detail: pause ? "La voie est deja en pause, Isaac — rien ne part, " + VOIE.file.length + " job(s) attendent." : "La voie tourne deja, rien a relancer." };
+  VOIE.pause = !!pause;
+  VOIE.file.forEach(e => {
+    const t = tacheAuRegistre(e.ref);
+    if (t && t.etat === 'en_attente') majTache(e.ref, { etape: pause ? 'en file, voie en pause sur ordre d Isaac' : 'en file, voie reprise sur ordre d Isaac' });
+  });
+  journalOrchestrateur((pause ? 'PAUSE' : 'REPRISE') + ' de la voie sur ordre d Isaac — ' + VOIE.file.length + ' job(s) en file, ' + (VOIE.enCours ? 'job en cours ' + VOIE.enCours.ref + ' non arrete' : 'aucun job en cours'));
+  const avantReprise = VOIE.file.slice();
+  if (!pause) demarrerProchain();
+  const part = !pause && avantReprise.length && VOIE.enCours && VOIE.enCours.ref === avantReprise[0].ref ? avantReprise[0].ref : null;
+  return {
+    ok: true,
+    detail: pause
+      ? "La file est en pause, Isaac — " + VOIE.file.length + " job(s) en file ne demarreront pas tant que la voie est stoppee. " + (VOIE.enCours ? "Attention : " + VOIE.enCours.ref + " tient toujours la voie, ses paquets sont partis, je ne les rappelle pas. « relance la voie » pour la suite." : "« relance la voie » quand tu veux.")
+      : "La voie reprend, Isaac — " + (part ? part + " (position 1) vient de demarrer" + (avantReprise.length > 1 ? ", et " + (avantReprise.length - 1) + " job(s) suivront dans l'ordre." : " ; c'etait le seul en file.")
+          : (VOIE.enCours
+              ? (VOIE.file.length
+                  ? VOIE.enCours.ref + " tient encore la voie : la pause est levee, " + VOIE.file[0].ref + " (position 1) partira des qu'elle se libere."
+                  : VOIE.enCours.ref + " tient la voie et rien d'autre en file — elle est libre apres elle.")
+              : "rien en file, elle est libre."))
+  };
+}
+function voieOccupee() { return VOIE.enCours ? VOIE.enCours.ref : null; }
+function voieEnPause() { return !!VOIE.pause; }
+// Une voie sous un job lourd = réseau et CPU saturés. Tout job non déclaré (séance d'Académie,
+// prospection) s'efface devant elle au lieu de lui marcher dessus : il rate un tour, pas un travail.
+function voieGenante(pourquoi) {
+  if (VOIE.pause) return 'la voie est en pause sur ton ordre';
+  if (VOIE.enCours) return 'la voie tient ' + VOIE.enCours.ref + ' (' + (JOBS_LOURDS[VOIE.enCours.type] ? JOBS_LOURDS[VOIE.enCours.type].titre : VOIE.enCours.type) + ')';
+  if (VOIE.file.length) return VOIE.file.length + ' job(s) attendent dans la voie';
+  return null;
+}
+function resumeVoie() {
+  const e = VOIE.enCours;
+  if (VOIE.pause) return "La file est en pause sur ton ordre, Isaac — " + VOIE.file.length + " job(s) attendent, rien ne part." + (e ? " " + e.ref + " tient encore la voie, ses paquets sont partis." : '');
+  if (!e) return VOIE.file.length ? "La voie est libre mais " + VOIE.file.length + " job(s) sont en file — signale-le, quelque chose coince." : "La voie est libre, Isaac : aucun job lourd en cours, rien en file. Un seul job lourd a la fois — « stoppe la voie » pour tout arreter.";
+  const t = tacheAuRegistre(e.ref);
+  const reste = Math.max(0, Math.round((e.limiteMs - (Date.now() - e.depuis)) / 1000));
+  return "La voie tient " + e.ref + " (" + ((t && t.titre) || e.type) + (e.cible ? ' sur ' + e.cible : '') + "), lancee il y a " +
+    Math.round((Date.now() - e.depuis) / 1000) + " s a " + ((t && t.progression) || 0) + "% — echeance de securite dans " + reste + " s" +
+    (VOIE.file.length ? '. Derriere : ' + VOIE.file.map((x, i) => (i + 1) + '. ' + x.ref).join(', ') + '.' : '. Personne derriere.');
+}
+function etatVoie() {
+  const l = lireTaches();
+  const e = VOIE.enCours;
+  const t = e ? (l.find(x => x.ref === e.ref) || null) : null;
+  return {
+    ok: true,
+    voie: e ? {
+      ref: e.ref, type: e.type, cible: e.cible, agent: e.agent,
+      depuis_s: Math.round((Date.now() - e.depuis) / 1000),
+      limite_min: Math.round(e.limiteMs / 60000),
+      reste_s: Math.max(0, Math.round((e.limiteMs - (Date.now() - e.depuis)) / 1000)),
+      progression: (t && t.progression) || 0, etape: t ? t.etape : null
+    } : null,
+    pause: VOIE.pause,
+    file: VOIE.file.map((x, i) => {
+      const q = l.find(y => y.ref === x.ref);
+      return { position: i + 1, ref: x.ref, type: x.type, cible: x.cible, agent: x.agent, attend_s: Math.round((Date.now() - x.mis_en_file_le) / 1000), annulee: q ? q.etat === 'annulee' : false };
+    }),
+    politique: {
+      regles: [
+        'Une seule voie : un job lourd a la fois, les autres en file dans l ordre.',
+        'Liste fermee des jobs lourds : ' + Object.keys(JOBS_LOURDS).join(', ') + ' — un type non declare ne peut pas monopoliser le PC.',
+        'Echeance de securite par type : un job qui ne rend plus de nouvelles est coupe et la voie est rendue.',
+        'La file est en RAM : un redemarrage du cerveau ne reprend pas les jobs en attente, ils restent graves « interrompue » au registre.',
+        'Stopper la voie = arreter les departs. Un balayage deja lance ne se rappelle pas : les paquets partis sont partis.',
+        'La priorite et le reculement ne changent rien au perimetre : une cible hors fiche reste refusee avant meme d entrer en file.'
+      ],
+      jobs: Object.keys(JOBS_LOURDS).map(k => ({ type: k, titre: JOBS_LOURDS[k].titre, limite_min: Math.round(JOBS_LOURDS[k].limiteMs / 60000), agents: JOBS_LOURDS[k].agents }))
+    },
+    compteurs: { jobs_lances: VOIE.nbJobs, jobs_en_file: VOIE.nbFiles, jobs_coupes: VOIE.nbCoupes, refus_de_la_voie: VOIE.nbRefuses, taches_au_registre: l.length },
+    mouvements: VOIE.mouvements.slice(-20).reverse(),
+    resume: resumeVoie()
+  };
+}
+// ---------- ORANGE #10 : la voix de la voie ----------
+// « qui tient la voie », « stoppe la voie », « relance la voie », « passe la tache 2 en premier »,
+// « recule la tache 3 », « ouvre ta console des taches ». Les verbes ne sont jamais ancrés : la
+// dictée garde le prénom (« aelyra, qui tient la voie »).
+function moduleOrchestrateur(phrase, brut, agent) {
+  const p = normalize(String(phrase || '')) + ' ' + normalize(String(brut || ''));
+  const qui = agent || 'aelyra';
+  const dictee = String(phrase || '');
+  // Gâchettes serrées : le mot « voie » seul ne suffit PAS (« quelle voie choisir pour mon
+  // business ? » doit rester une question normale pour l'IA). Il faut la voie ET un mot de la
+  // machine, ou le mot « orchestrateur ».
+  const contexteMachine = /tient|libre|occupe|occupee|file|job|tache|task|position|echeance|pause|debloque|relance|stoppe|arrete|coupe|attente|registre|console/;
+  const parleDeLaVoie = /orchestrateur/.test(p) || (/\bvoie\b/.test(p) && contexteMachine.test(p));
+  const priorite = /(?:passe|met|mets|envoie)\b[^.?]{0,24}?\ben premier\b/.test(p) && /tache|task|position|\bvoie\b/.test(p);
+  const recule = /(?:recule|recul|rallonge|remets? en dernier|derriere la fin)/.test(p) && /tache|task|position|\bvoie\b/.test(p);
+  const stop = /(?:stoppe|stop|arrete|coupe|mets? en pause|suspend|bloque)\b[^.?]{0,18}\bvoie\b/.test(p);
+  const relance = /(?:relance|reprends|remets? en route|debloque|reprise)\b[^.?]{0,18}\bvoie\b/.test(p);
+  // « stop » / « arrête tout » tout court, sans objet : c'est la voie qu'Isaac veut dire, et un
+  // persona qui répond « voie arrêtée » sans rien arrêter serait un mensonge. Réponse locale,
+  // dans les deux cas — job en cours (on ne rappelle pas les paquets partis) ou voie vide.
+  // ⚠️ Deux pièges trouvés en test :
+  //  1. p concatène la dictée ET le brut → « onyx, stop » donnait « stop onyx stop », jamais ancré.
+  //  2. Aelyra n'est PAS dans TOUTES (gk reste null pour elle) : la phrase qu'on reçoit alors
+  //     contient son prénom. Donc on déshabille la dictée ET le brut de leur adresse avant l'ancre.
+  const ADRESSE = /^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|galika|jeanette|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|veuillez|peux tu|est ce que tu|pourrais tu|appelle|appelez|invoque|invoquez|rejoins|contacte|contactez|parle|parlez|demande|demandez)\s+)+/;
+  const MOTS_STOP = ['stop', 'stoppe', 'stopper', 'arrete', 'arreter', 'coupe', 'couper', 'coupez', 'stoppe tout', 'arrete tout', 'coupe tout', 'tout arreter', 'tout stopper', 'tout couper'];
+  const stopNet = [dictee, String(brut || '')]
+    .map(x => normalize(x).replace(ADRESSE, '').replace(/\s+/g, ' ').trim())
+    .some(nue => MOTS_STOP.indexOf(nue) !== -1);
+  if (stopNet && (VOIE.enCours || VOIE.file.length || VOIE.pause)) {
+    const e = VOIE.enCours;
+    const t = e ? tacheAuRegistre(e.ref) : null;
+    return {
+      reply: e
+        ? "Stop, Isaac : " + e.ref + " (" + ((t && t.titre) || e.type) + ") tient la voie et ses paquets sont deja partis — je ne peux pas les rappeler, et je ne vais pas te dire le contraire. Ce que je peux faire : « ne rapporte pas " + e.ref + " » pour garder le resultat hors de ma voix, « stoppe la voie » pour qu'aucun job ne parte ensuite" + (VOIE.file.length ? " (" + VOIE.file.length + " en file)" : '') + ". Echeance de securite dans " + Math.max(0, Math.round((e.limiteMs - (Date.now() - e.depuis)) / 1000)) + " s."
+        : (VOIE.pause ? "La file est deja en pause, Isaac — " + VOIE.file.length + " job(s) attendent et rien ne part. « relance la voie » pour reprendre." : "Rien en cours sur la voie, Isaac — rien a arreter."),
+      source: 'local', agent: qui
+    };
+  }
+  if (!parleDeLaVoie && !priorite && !recule && !stop && !relance) return null;
+  if (stop) { const r = reglerVoie(true); return { reply: r.detail, source: 'local', agent: qui }; }
+  if (relance) { const r = reglerVoie(false); return { reply: r.detail, source: 'local', agent: qui }; }
+  if (priorite || recule) {
+    // Le numéro dicté est une POSITION DANS LA FILE — c'est comme ça que la phrase d'attente l'a
+    // annoncé (« position 2 — passe la tache 2 en premier »). La référence T-… marche aussi.
+    const ni = (String(dictee).match(/(?:tache|task|position)\s*(?:numero|#)?\s*(\d{1,3})/i) || [])[1];
+    const parPosition = ni ? VOIE.file[Number(ni) - 1] : null;
+    let ref = parPosition ? parPosition.ref : null;
+    if (!ref) {
+      let t = trouverTache(dictee);
+      if (!t) {
+        const brute = String(dictee).toUpperCase().replace(/\s+/g, '');
+        t = lireTaches().find(x => brute.includes(x.ref.replace(/[^A-Z0-9]/g, '')));
+      }
+      if (t) ref = t.ref;
+    }
+    if (!ref) return { reply: "Je ne sais pas de quelle tache il s'agit, Isaac — « liste tes taches » donne les references, « qui tient la voie » donne la file et ses positions.", source: 'local', agent: qui };
+    const r = priorite ? passerEnPremier(ref) : reculerDansFile(ref);
+    return { reply: r.ok ? r.detail : "Rien n'est change, Isaac : " + r.erreur + '.', source: 'local', agent: qui };
+  }
+  if (/console|page|tableau|ouvre|montre|affiche/.test(p) && /voie|orchestrateur/.test(p)) {
+    return { reply: "J'ouvre la console : la voie et sa file y sont en haut, Isaac — " + resumeVoie(), source: 'local', agent: qui, open: '/taches.html' };
+  }
+  return { reply: resumeVoie() + ' Journal des decisions : journal-orchestrateur.log, chez moi.', source: 'local', agent: qui };
 }
 
 // --- SCANNER DE PORTS RÉEL (demande d'Isaac du 2026-10-01 : « mais lance le toi-même, c'est ton taff ») ---
@@ -3679,8 +4028,10 @@ async function scanComplet(ip, suivi) {
 function lignesPorts(ports) {
   return ports.map(p => 'port ' + p.port + ' ouvert' + ((p.service || SERVICES_PORT[p.port]) ? ' (' + (SERVICES_PORT[p.port] || p.service) + ')' : '')).join(' ; ');
 }
+// Orange #10 : le périmètre est vérifié AVANT l'entrée en file (une cible hors fiche ne s'assoit
+// même pas dans la salle d'attente), et REVÉRIFIÉ au départ (la fiche a pu se fermer pendant
+// qu'elle attendait). Le scan ne part qu'à travers la voie : un seul balayage lourd à la fois.
 function lancerScanComplet(ip, agent) {
-  const t0 = Date.now();
   const v = perimetreAutorise(ip);
   // Garde en PROFONDEUR (audit rouges du 2026-10-02) : le périmètre est vérifié ici aussi, pas
   // seulement chez l'appelant. frappe = refus écrit, jamais un scan qui part quand même.
@@ -3689,13 +4040,26 @@ function lancerScanComplet(ip, agent) {
     // Orange #9 : le refus est une tâche dans le registre — Isaac peut le relire, pas seulement l'entendre.
     creerTache({ type: 'scan_complet', cible: ip, agent: agent || 'onyx', etat: 'refusee', resultat: messageHorsPerimetre(ip, v) });
     rappelsDuJour.push({ note: messageHorsPerimetre(ip, v) });
-    return;
+    return { ok: false, refus: messageHorsPerimetre(ip, v) };
+  }
+  return demanderJob({
+    type: 'scan_complet', cible: ip, agent: agent || 'onyx', mandat: v.fiche ? v.fiche.ref : null,
+    etape: 'scanner nmap en cours', course: (t) => courirScanComplet(ip, agent, t)
+  });
+}
+function courirScanComplet(ip, agent, t) {
+  const t0 = Date.now();
+  const v = perimetreAutorise(ip);
+  if (!v.ok) {
+    tracerFrappe(ip, agent, 'SCAN COMPLET REFUSE AU DEPART — ' + (v.raison || 'hors perimetre'));
+    fermerTache(t.ref, 'refusee', messageHorsPerimetre(ip, v));
+    journalOrchestrateur('REFUS AU DEPART ' + t.ref + ' — la fiche ne couvre plus cette cible au moment du depart');
+    if (!t.silence) rappelsDuJour.push({ note: 'Rien na ete frappe pour ' + t.ref + ", Isaac : la cible n'est plus permise au moment du depart. " + messageHorsPerimetre(ip, v), tache: t.ref });
+    return Promise.resolve();
   }
   const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + ' — ' + v.fiche.objet + '. ' + mentionPreuveRapport(v.fiche)) : '';
-  // Orange #9 : la tâche naît AVANT que le job parte, et son rapport finit écrite chez lui.
-  const t = creerTache({ type: 'scan_complet', cible: ip, agent: agent || 'onyx', mandat: v.fiche ? v.fiche.ref : null, etape: 'scanner nmap en cours' });
   tracerFrappe(ip, agent, 'SCAN COMPLET 65 535 ports lance — tache ' + t.ref);
-  scanComplet(ip, (pct, etape) => majTache(t.ref, { progression: pct, etape: etape || 'balayage en cours' })).then(ports => {
+  return scanComplet(ip, (pct, etape) => majTache(t.ref, { progression: pct, etape: etape || 'balayage en cours' })).then(ports => {
     graveScan(ip, ports, agent);
     const sec = Math.round((Date.now() - t0) / 1000);
     let note;
@@ -3711,18 +4075,32 @@ function lancerScanComplet(ip, agent) {
 }
 // « scan rapide » = les 1 000 ports de service seulement : la réponse en une minute.
 function lancerScanRapide(ip, agent) {
-  const t0 = Date.now();
   const v = perimetreAutorise(ip);
   if (!v.ok) {
     tracerFrappe(ip, agent, 'SCAN RAPIDE REFUSE — ' + (v.raison || 'hors perimetre'));
     creerTache({ type: 'scan_rapide', cible: ip, agent: agent || 'aelyra', etat: 'refusee', resultat: messageHorsPerimetre(ip, v) });
     rappelsDuJour.push({ note: messageHorsPerimetre(ip, v) });
-    return;
+    return { ok: false, refus: messageHorsPerimetre(ip, v) };
   }
+  return demanderJob({
+    type: 'scan_rapide', cible: ip, agent: agent || 'aelyra', mandat: v.fiche ? v.fiche.ref : null,
+    etape: 'nmap sur les 1 000 ports de service', course: (t) => courirScanRapide(ip, agent, t)
+  });
+}
+function courirScanRapide(ip, agent, t) {
+  const t0 = Date.now();
+  const v = perimetreAutorise(ip);
+  if (!v.ok) {
+    tracerFrappe(ip, agent, 'SCAN RAPIDE REFUSE AU DEPART — ' + (v.raison || 'hors perimetre'));
+    fermerTache(t.ref, 'refusee', messageHorsPerimetre(ip, v));
+    journalOrchestrateur('REFUS AU DEPART ' + t.ref + ' — la fiche ne couvre plus cette cible au moment du depart');
+    if (!t.silence) rappelsDuJour.push({ note: 'Rien na ete frappe pour ' + t.ref + ", Isaac : la cible n'est plus permise au moment du depart. " + messageHorsPerimetre(ip, v), tache: t.ref });
+    return Promise.resolve();
+  }
+  majTache(t.ref, { progression: 5, etape: 'nmap sur les 1 000 ports de service' });
   const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + '. ' + mentionPreuveRapport(v.fiche)) : '';
-  const t = creerTache({ type: 'scan_rapide', cible: ip, agent: agent || 'aelyra', mandat: v.fiche ? v.fiche.ref : null, etape: 'nmap sur les 1 000 ports de service', progression: 5 });
   tracerFrappe(ip, agent, 'SCAN RAPIDE 1 000 ports lance — tache ' + t.ref);
-  scanRapideNmap(ip).then(nmap => {
+  return scanRapideNmap(ip).then(nmap => {
     const sec = Math.round((Date.now() - t0) / 1000);
     const ports = nmap === null ? null : nmap;
     if (ports) graveScan(ip, ports, agent);
@@ -3758,20 +4136,36 @@ function listerAppareilsReseau() {
     });
   });
 }
-async function scanTousAppareils(agent) {
-  const t = creerTache({ type: 'inventaire', cible: 'WiFi de la maison', agent: agent || 'aelyra', etape: 'lecture de la table ARP' });
-  const ips = await listerAppareilsReseau();
-  if (!ips.length) { fermerTache(t.ref, 'echouee', "Aucun appareil joint sur ce WiFi : inventaire impossible."); return { reply: "Aucun appareil joint sur ce WiFi pour l'instant, Isaac — allume le téléphone ou l'autre machine, puis redis « scanne mes appareils ».", source: 'local', agent: agent || 'aelyra' }; }
-  majTache(t.ref, { etape: ips.length + ' appareils trouves — 31 ports sur chacun', progression: 20 });
-  const rapports = [];
-  for (let i = 0; i < ips.length; i++) {
-    const ip = ips[i];
-    rapports.push(ip + ' : ' + (await scanCible(ip)).map(p => p.port + (SERVICES_PORT[p.port] ? ' (' + SERVICES_PORT[p.port] + ')' : '')).join(', ') || 'rien d\'expose');
-    majTache(t.ref, { progression: 20 + Math.round((i + 1) * 78 / ips.length), etape: 'appareil ' + (i + 1) + '/' + ips.length + ' scanne' });
-  }
-  const reply = "INVENTAIRE SCANNÉ de ton réseau (" + ips.length + " appareils) — " + rapports.join(' | ') + ". Tout ce qui apparait est visible par n'importe qui sur ce WiFi : c'est ta carte de ce que verrait un attaquant entré chez toi.";
-  fermerTache(t.ref, 'finie', reply);
-  return { reply: reply, source: 'local', agent: agent || 'aelyra' };
+// Orange #10 : l'inventaire est un job lourd (huit appareils, 31 ports chacun) — il passe par la
+// voie. Si un balayage tient déjà le PC, il est mis en file et Isaac le sait dans la même phrase,
+// au lieu de voir deux scans se battre sur le même portable.
+function scanTousAppareils(agent) {
+  const r = demanderJob({
+    type: 'inventaire', cible: 'WiFi de la maison', agent: agent || 'aelyra',
+    etape: 'lecture de la table ARP', course: (t) => courirInventaire(t, agent)
+  });
+  if (!r.ok) return { reply: r.refus, source: 'local', agent: agent || 'aelyra' };
+  if (r.file) return { reply: phraseDeFile(r, "L'inventaire de ton WiFi"), source: 'local', agent: agent || 'aelyra' };
+  return r.attendre.then(v => v || { reply: "Inventaire termine, Isaac — le detail est dans « liste tes taches ».", source: 'local', agent: agent || 'aelyra' });
+}
+function courirInventaire(t, agent) {
+  return (async () => {
+    const ips = await listerAppareilsReseau();
+    if (!ips.length) {
+      fermerTache(t.ref, 'echouee', "Aucun appareil joint sur ce WiFi : inventaire impossible.");
+      return { reply: "Aucun appareil joint sur ce WiFi pour l'instant, Isaac — allume le téléphone ou l'autre machine, puis redis « scanne mes appareils ».", source: 'local', agent: agent || 'aelyra' };
+    }
+    majTache(t.ref, { etape: ips.length + ' appareils trouves — 31 ports sur chacun', progression: 20 });
+    const rapports = [];
+    for (let i = 0; i < ips.length; i++) {
+      const ip = ips[i];
+      rapports.push(ip + ' : ' + (await scanCible(ip)).map(p => p.port + (SERVICES_PORT[p.port] ? ' (' + SERVICES_PORT[p.port] + ')' : '')).join(', ') || 'rien d\'expose');
+      majTache(t.ref, { progression: 20 + Math.round((i + 1) * 78 / ips.length), etape: 'appareil ' + (i + 1) + '/' + ips.length + ' scanne' });
+    }
+    const reply = "INVENTAIRE SCANNÉ de ton réseau (" + ips.length + " appareils) — " + rapports.join(' | ') + ". Tout ce qui apparait est visible par n'importe qui sur ce WiFi : c'est ta carte de ce que verrait un attaquant entré chez toi.";
+    fermerTache(t.ref, 'finie', reply);
+    return { reply: reply, source: 'local', agent: agent || 'aelyra' };
+  })();
 }
 // « scan complet mon telephone » → l'IP dictée une fois est retrouvée dans la mémoire.
 function ipDansMemoire(motAppareil) {
@@ -3832,13 +4226,17 @@ async function moduleScan(phrase, raw, agent) {
   const motDicte = (phrase.match(/(?:mon|ma|le|la) (telephone|portable|tel|tablette|pc|ordinateur|routeur|imprimante|tv|montre)\b/) || [])[1];
   if (motDicte && estIPLocale(ipCible)) memoriserIpAppareil(motDicte, ipCible);
   if (veutComplet) {
-    lancerScanComplet(ipCible, agent);
-    return { reply: enteteFiche + "SCAN COMPLET lance sur " + ipCible + " — les 65 535 ports, un par un, c'est mon taf, Isaac. Compte deux a six minutes : les 1 000 ports de service au scanner nmap, puis les 64 535 autres au balayage parallele. Je continue de travailler avec toi pendant ce temps : le rapport tombera dans ma voix des qu'il est pret.", source: 'local', agent: agent || 'aelyra' };
+    const job = lancerScanComplet(ipCible, agent);
+    if (!job.ok) return { reply: job.refus, source: 'local', agent: agent || 'aelyra' };
+    if (job.file) return { reply: phraseDeFile(job, 'Le scan complet de ' + ipCible), source: 'local', agent: agent || 'aelyra', tache: job.tache.ref };
+    return { reply: enteteFiche + "SCAN COMPLET lance sur " + ipCible + " (" + job.tache.ref + ") — les 65 535 ports, un par un, c'est mon taf, Isaac. Compte deux a six minutes : les 1 000 ports de service au scanner nmap, puis les 64 535 autres au balayage parallele. La voie est prise par cette tache : un autre scan lourd attendra son tour, je ne les superpose pas. Le rapport tombera dans ma voix des qu'il est pret.", source: 'local', agent: agent || 'aelyra', tache: job.tache.ref };
   }
   // « scan rapide mon telephone » → les 1 000 ports de service, la reponse dans une minute.
   if (veutRapide) {
-    lancerScanRapide(ipCible, agent);
-    return { reply: enteteFiche + "SCAN RAPIDE lance sur " + ipCible + " : les 1 000 ports de service les plus attaqués, une minute a peu pres, Isaac. Le resultat tombera dans ma voix. Si tu veux chaque port un a un, tu dis « scan complet " + ipCible + " ».", source: 'local', agent: agent || 'aelyra' };
+    const job = lancerScanRapide(ipCible, agent);
+    if (!job.ok) return { reply: job.refus, source: 'local', agent: agent || 'aelyra' };
+    if (job.file) return { reply: phraseDeFile(job, 'Le scan rapide de ' + ipCible), source: 'local', agent: agent || 'aelyra', tache: job.tache.ref };
+    return { reply: enteteFiche + "SCAN RAPIDE lance sur " + ipCible + " (" + job.tache.ref + ") : les 1 000 ports de service les plus attaqués, une minute a peu pres, Isaac. Le resultat tombera dans ma voix. Si tu veux chaque port un a un, tu dis « scan complet " + ipCible + " ».", source: 'local', agent: agent || 'aelyra', tache: job.tache.ref };
   }
   return await reponseScanIP(ipCible, agent);
 }
@@ -4584,7 +4982,7 @@ let AGENT_AUX_NOM = null; // 'jeanette' | 'onyx' | 'aegis' — quelle agente tie
 // Isaac (2026-10-01) : ONYX avait invente « mes modules d'audit de /labo.html optimises pour les
 // injections », « la communication avec Burp est plus fluide », « je ne garde pas les sessions en
 // memoire ». Les trois etaient faux. Ni invention de capacite, ni faux oubli de la memoire reelle.
-const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), REGISTRE DES TÂCHES ouvert depuis ce matin (page /taches.html, fichier taches.json chez lui) : chaque job long — scan complet, scan rapide, inventaire du WiFi, séance d'Académie, relance BUSINESS — est écrit chez Isaac avant de partir, avec référence T-…, état, progression MESURÉE et résultat gravé ; ça se dicte « liste tes tâches », « où en est la tâche 2 », « annule la tâche 2 », « ne rapporte pas la tâche T-… », « ouvre ta console des tâches » ; si le cerveau redémarre pendant un job, la tâche est marquée interrompue — elle ne se fait pas passer pour une reprise. ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). ATELIER D'AUTO-CORRECTION : depuis ce soir Aelyra a le DROIT de réécrire une partie d'elle-même — elle écrit un geste nouveau dans extensions.js, le serveur le relit (syntaxe, longueur, mots interdits, gâchette déjà possédée par un module) et le TESTE sur son exemple avant de le garder, avec sauvegarde automatique dans backups\\ et journal dans journal-evolution.log. Ça se dicte : « améliore-toi : apprends-moi à … », « liste tes améliorations », « teste ton amélioration <nom> : … », « annule la dernière amélioration », « construis la leçon 3 » (une leçon de l'Académie devient un geste qui marche), « ouvre ta page d'évolution » (/evolution.html). Un geste appris fait du CALCUL et de la VOIX : il n'a accès ni au disque, ni au réseau, ni à un envoi, ni aux verrous légaux — et ce n'est pas une faveur qu'on peut lui retirer d'une phrase, c'est une capacité réelle qu'Isaac lui a donnée. BUSINESS, L'AGENT DE PROSPECTION de Digital Business (depuis le 2026-10-02) : « business, cherche des garages a Abidjan » parcourt les SOURCES PUBLIQUES (moteur de recherche public + lecture de la page d'accueil, jamais davantage) et grave des dossiers « A VALIDER » dans business/prospects.json — carnet personnel jamais publié ; « business, qualifie le prospect 2 » lit la page publique et score le besoin (site absent = fort potentiel, site ancien = potentiel, site moderne = faible priorité) ; « business, prépare un message pour ... » écrit un BROUILLON dans le dossier — Niveau 1, rien ne part ; « business, envoie le message au prospect N » = TA validation (Niveau 2) : WhatsApp s'ouvre pré-rempli et Isaac appuie lui-même, le mail part pour de vrai sur cet ordre seul si ses accès sont configurés ; « business, relance le prospect 2 dans 3 jours » programme le suivi (Niveau 3) ; « business, liste mes prospects » et la page /business.html montrent le pipeline. CE QUI N'EXISTE PAS AUSSI, donc ne le promets JAMAIS : la négociation, un prix annoncé à un client, un engagement commercial signé sans Isaac (Niveau 4 — sa table à lui), l'envoi automatique en masse, une campagne partie toute seule, la récolte automatique de numéros privés. CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
+const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), REGISTRE DES TÂCHES ouvert depuis ce matin (page /taches.html, fichier taches.json chez lui) : chaque job long — scan complet, scan rapide, inventaire du WiFi, séance d'Académie, relance BUSINESS — est écrit chez Isaac avant de partir, avec référence T-…, état, progression MESURÉE et résultat gravé ; ça se dicte « liste tes tâches », « où en est la tâche 2 », « annule la tâche 2 », « ne rapporte pas la tâche T-… », « ouvre ta console des tâches » ; si le cerveau redémarre pendant un job, la tâche est marquée interrompue — elle ne se fait pas passer pour une reprise. ORCHESTRATEUR DE LA VOIE (depuis le 2026-10-02) : UN SEUL job lourd à la fois — scan complet, scan rapide, inventaire du WiFi — les autres ATTENDENT EN FILE, avec position et échéance de sécurité ; les décisions sont écrites dans journal-orchestrateur.log et lisibles sur /api/orchestrateur et en haut de /taches.html. Ça se dicte : « qui tient la voie », « stoppe la voie » (arrête les DÉPARTS — un balayage dont les paquets sont partis ne se rappelle pas, et on ne simule pas un arrêt), « relance la voie », « passe la tâche 2 en premier », « recule la tâche 3 ». Une séance d'Académie rate le tour plutôt que de marcher sur un scan en cours. ANONYME : la file vit en RAM, un redémarrage ne la reprend pas silencieusement. ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). ATELIER D'AUTO-CORRECTION : depuis ce soir Aelyra a le DROIT de réécrire une partie d'elle-même — elle écrit un geste nouveau dans extensions.js, le serveur le relit (syntaxe, longueur, mots interdits, gâchette déjà possédée par un module) et le TESTE sur son exemple avant de le garder, avec sauvegarde automatique dans backups\\ et journal dans journal-evolution.log. Ça se dicte : « améliore-toi : apprends-moi à … », « liste tes améliorations », « teste ton amélioration <nom> : … », « annule la dernière amélioration », « construis la leçon 3 » (une leçon de l'Académie devient un geste qui marche), « ouvre ta page d'évolution » (/evolution.html). Un geste appris fait du CALCUL et de la VOIX : il n'a accès ni au disque, ni au réseau, ni à un envoi, ni aux verrous légaux — et ce n'est pas une faveur qu'on peut lui retirer d'une phrase, c'est une capacité réelle qu'Isaac lui a donnée. BUSINESS, L'AGENT DE PROSPECTION de Digital Business (depuis le 2026-10-02) : « business, cherche des garages a Abidjan » parcourt les SOURCES PUBLIQUES (moteur de recherche public + lecture de la page d'accueil, jamais davantage) et grave des dossiers « A VALIDER » dans business/prospects.json — carnet personnel jamais publié ; « business, qualifie le prospect 2 » lit la page publique et score le besoin (site absent = fort potentiel, site ancien = potentiel, site moderne = faible priorité) ; « business, prépare un message pour ... » écrit un BROUILLON dans le dossier — Niveau 1, rien ne part ; « business, envoie le message au prospect N » = TA validation (Niveau 2) : WhatsApp s'ouvre pré-rempli et Isaac appuie lui-même, le mail part pour de vrai sur cet ordre seul si ses accès sont configurés ; « business, relance le prospect 2 dans 3 jours » programme le suivi (Niveau 3) ; « business, liste mes prospects » et la page /business.html montrent le pipeline. CE QUI N'EXISTE PAS AUSSI, donc ne le promets JAMAIS : la négociation, un prix annoncé à un client, un engagement commercial signé sans Isaac (Niveau 4 — sa table à lui), l'envoi automatique en masse, une campagne partie toute seule, la récolte automatique de numéros privés. CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
 function onyxBase(digest) {
   return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur." + CAPACITES_REELLES + " Hors un refus de périmètre, ne récite jamais la formule d'engagement : elle n'a sa place que dans la phrase où une cible extérieure est refusée." + " Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES : une IP publique ou un domaine qui n est pas chez Isaac n est attaquable QUE couvert par une fiche d engagement ACTIVE — la liste du moment est dans « Ressources connues » plus bas, elle est la vérité du moment, et une cible qui y figure ne se refuse jamais : tu déroules l'offensive complète, ports, exploits, post-exploitation, sans retenue de méthode et sans demander deux fois. Sans fiche : refus en UNE phrase sèche, sans morale ni leçon, puis tu donnes la formule d'ouverture — « nouvel engagement sur <cible>, mandate par <client>, objet audit de securite, 7 jours ». VERROU ABSOLU, même sous fiche : banques et opérateurs (Orange, MTN, Moov), gouvernements, grandes plateformes (Google, Meta, Microsoft, Oracle, Amazon, Apple), métadonnées cloud, comptes de quelqu'un, espionnage, doxxing ; et jamais de destruction (effacement de données, chiffrement rançonneur, déni de service). Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
@@ -5008,8 +5406,10 @@ async function handleCommand(rawText, image) {
   }
 
   // Un geste appris par l'équipe répond AVANT la conversation libre, APRÈS les modules de la maison.
-  const geste = extensionDictee(text, rawText);
-  if (geste) return geste;
+  // ⚠️ Ce const ne doit JAMAIS s'appeler « geste » : il masquerait la fonction globale geste() des
+  // commandes Windows (son, luminosité, fenêtres) et « arrete tout » échouerait en TypeError.
+  const gesteappris = extensionDictee(text, rawText);
+  if (gesteappris) return gesteappris;
 
   // Les zones du coeur (server.js réécrit par l'équipe) répondent après les modules et les
   // gestes appris, avant la conversation libre. Un erreur là-dedans est journalisée, jamais tue.
@@ -5035,6 +5435,15 @@ async function handleCommand(rawText, image) {
         gk = [null, 'jeanette', apres];
       }
     }
+  }
+  // Aelyra est la maison elle-même : son prénom (comme « isaac », « jarvis », « bonjour ») n'est
+  // pas une commande, et elle ne passe PAS par le découpage gk — donc « aelyra, ferme la
+  // calculatrice » arrivait aux modules avec le nom collé dessus et glissait jusqu'à l'IA, alors
+  // que « ferme la calculatrice » exécute le geste. Même phrase, deux issues = mensonge potentiel.
+  // Retrait UNIQUEMENT en tête, uniquement quand aucune autre agente n'a été nommée.
+  if (!gk) {
+    const sansAdresse = text.replace(/^(?:(?:aelyra|aelira|aleyra|elyra|elira|galika|isaac|iseck|izak|isack|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|veuillez|peux tu|est ce que tu)[, ]+\s*)+/, '').trim();
+    if (sansAdresse && sansAdresse !== text && sansAdresse.length > 2) text = sansAdresse;
   }
   // DROIT PC (Isaac, 2026-09-30) : « jeanette, ouvre spotify », « jeanette, lance l'audit »,
   // « jeanette, rappelle-moi la facture »... ne sont plus TRANSFÉRÉES à Aelyra — le prénom est
@@ -5243,6 +5652,12 @@ async function handleCommand(rawText, image) {
     }
   }
 
+  // ORANGE #10 : l'orchestrateur passe AVANT le registre — « qui tient la voie », « stoppe la voie »,
+  // « passe la tache 2 en premier » sont des ordres sur la file, pas sur le contenu du registre.
+  {
+    const ovSg = moduleOrchestrateur(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
+    if (ovSg) return ovSg;
+  }
   // ORANGE #9 : le registre des tâches passe AVANT l'attaque et avant les personas — lire ce qui
   // tourne, ou annuler une tâche qui n'est pas encore partie, n'envoie rien sur le réseau.
   {
@@ -5563,6 +5978,11 @@ async function handleCommand(rawText, image) {
   if (mm && !/\b(?:pc|ordinateur|windows|fenetres|tout le reste|musique|video|page|site|onglet)\b/.test(mm[1]) && !/\b(?:vs code|code)\b/.test(mm[1])) {
     const PROC = { chrome: 'chrome', 'google chrome': 'chrome', edge: 'msedge', explorateur: 'explorer', 'vs code': 'Code', vscode: 'Code', word: 'WINWORD', excel: 'EXCEL', powerpoint: 'POWERPNT', outlook: 'OUTLOOK', notepad: 'notepad', 'bloc note': 'notepad', vlc: 'vlc', spotify: 'Spotify', discord: 'Discord', teams: 'Teams', whatsapp: 'WhatsApp', calculatrice: 'Calculator', firefox: 'firefox', obs: 'obs', blender: 'blender', gimp: 'gimp', itunes: 'Itunes', telegram: 'Telegram', skype: 'Skype', zoom: 'Zoom', qoder: 'Qoder' };
     const demande = nettoieCible(mm[1]);
+    // ⚠️ Un mot creux (« tout », « les applications ») ne doit JAMAIS devenir un motif de tuage :
+    // tuer par nom de processus avec un motif large prendrait des logiciels que Isaac n'a pas nommés.
+    if (/^(?:tout|tous|toute|toutes|les?|des|plusieurs|applications?|logiciels?|programmes?|fenetres?|ce que j.ai ouvert|tout ce qui tourne)\b/.test(demande)) {
+      return { reply: "Je ne ferme pas tout d'un geste, Isaac — nomme le logiciel : « ferme chrome », « arrete spotify ». Un motif vague prendrait des programmes que vous n'avez pas cités.", source: 'system' };
+    }
     let motif = PROC[demande] || PROC[demande.replace(/s$/, '')] || demande.replace(/[^a-z0-9]/g, '');
     if (!motif || motif.length < 3) return { reply: "Dites-moi quel logiciel fermer, Isaac : « ferme chrome », « arrete spotify ».", source: 'system' };
     const r = await geste('tuer', motif);
@@ -6565,7 +6985,7 @@ function lireRepartition() {
 //      application/json — le navigateur n'enverrait pas l'en-tête sans préflight CORS), est refusée.
 // Le fichier politique est écrit à chaque boot : Isaac peut le lire, il n'est rien à croire.
 const API_ECRITURE = ['/api/command', '/api/prompts', '/api/evolution', '/api/repartition',
-  '/api/engagements', '/api/business', '/api/analyse-mail', '/api/taches'];
+  '/api/engagements', '/api/business', '/api/analyse-mail', '/api/taches', '/api/orchestrateur'];
 
 // « la maison » a trois écritures (localhost, 127.0.0.1, [::1]) mais c'est la MEME machine, et le
 // PORT COMPTE : une page servie sur un autre port de ce PC n'est pas le cerveau, c'est un site
@@ -6997,6 +7417,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ---------- ORANGE #10 : l'orchestrateur à découvert ----------
+  // GET  /api/orchestrateur -> qui tient la voie, la file, la politique, les compteurs, les mouvements
+  // POST /api/orchestrateur -> {action:'priorite'|'reculer'|'pause'|'reprendre', ref}
+  // Il n'y a PAS d'action « tuer le job en cours » : un balayage parti ne se rappelle pas, et le
+  // simuler par un bouton serait un mensonge. « pause » arrête les DÉPARTS, c'est écrit tel quel.
+  if (u.pathname === '/api/orchestrateur') {
+    if (req.method === 'POST') {
+      let a = {};
+      let corps = '';
+      try {
+        corps = await new Promise((resolve, reject) => {
+          req.on('data', c => { corps += c; if (corps.length > 20000) { reject(new Error('corps trop lourd')); req.destroy(); return; } });
+          req.on('end', () => resolve(corps));
+          req.on('error', reject);
+        });
+        a = JSON.parse(corps || '{}');
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ok: false, reply: 'Corps illisible, Isaac : la voie attend du JSON tout simple (' + String(e.message || e) + ').' }));
+        return;
+      }
+      const ref = String(a.ref || a.tache || '').trim().toUpperCase();
+      const ag = String(a.agent || 'aelyra');
+      let r2 = { ok: false, reply: 'Rien fait, Isaac : donne la reference de la tache (T-……) pour « priorite » ou « reculer ».' };
+      if (a.action === 'priorite' && ref) {
+        const r = passerEnPremier(ref);
+        r2 = r.ok ? { ok: true, reply: r.detail, tache: tacheAuRegistre(ref) } : { ok: false, reply: 'Priorite refusee : ' + r.erreur + '.' };
+      } else if (a.action === 'reculer' && ref) {
+        const r = reculerDansFile(ref);
+        r2 = r.ok ? { ok: true, reply: r.detail, tache: tacheAuRegistre(ref) } : { ok: false, reply: 'Recul refuse : ' + r.erreur + '.' };
+      } else if (a.action === 'pause' || a.action === 'reprendre') {
+        const r = reglerVoie(a.action === 'pause');
+        r2 = { ok: true, reply: r.detail, pause: VOIE.pause };
+        tracerFrappe('voie', ag, 'VOIE ' + (a.action === 'pause' ? 'EN PAUSE' : 'REPRISE') + ' sur ordre — ' + VOIE.file.length + ' en file');
+      }
+      res.writeHead(r2.ok ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(r2));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(etatVoie()));
+    return;
+  }
+
   // ---------- ORANGE #9 : la console des tâches ----------
   // GET  /api/taches          -> le registre complet, tel qu'il est écrit chez Isaac
   // POST /api/taches {action} -> « annuler » (empêcher ce qui n'est pas encore parti)
@@ -7142,6 +7606,10 @@ server.listen(PORT, HOST, () => {
   console.log('   AELYRA est en ligne, mon créateur.');
   console.log('   Interface : http://localhost:' + PORT);
   if (brisees) console.log('   Taches : ' + brisees + ' job(s) interrompu(s) par le redemarrage — « liste tes taches » les montre.');
+  // Orange #10 : la voie est remise à zéro, et le redémarrage est écrit dans son journal. On ne
+  // fait pas semblant de « reprendre » les jobs en attente : ils sont au registre, pas relancés.
+  try { journalOrchestrateur('CERVEAU demarre — voie remise a zero en RAM, ' + (brisees || 0) + ' tache(s) marquee(s) interrompue(s) au registre'); } catch (e) {}
+  console.log('   Voie : un seul job lourd a la fois — « qui tient la voie » pour l etat, « ouvre ta console des taches » pour la file.');
   console.log('   Ecoute : ' + (HOST === '127.0.0.1'
     ? '127.0.0.1 seulement — le réseau ne peut PAS commander le cerveau.'
     : 'ATTENTION — toutes les interfaces (ISAAC_LAN=1). Toute machine du WiFi peut parler au cerveau.'));
