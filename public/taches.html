@@ -36,6 +36,12 @@
   .jauge span { display: block; height: 100%; background: #d8d8d8; width: 0; }
   .resultat { margin-top: 10px; color: #9d9d9d; font: 12px/1.6 Consolas, monospace; white-space: pre-wrap; word-break: break-word; background: #000; border: 1px solid #191919; padding: 9px; }
   .dict { color: #fff; font-family: Consolas, monospace; font-size: 12.5px; background: #0d0d0d; border: 1px solid #222; padding: 3px 7px; }
+  .tab { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .tab th, .tab td { border: 1px solid #232323; padding: 8px 10px; text-align: left; vertical-align: top; }
+  .tab th { color: var(--gr); font: 600 10.5px/1.3 "Segoe UI", sans-serif; letter-spacing: .12em; text-transform: uppercase; background: #0a0a0a; }
+  .tab td b { color: #fff; letter-spacing: .08em; }
+  .tab td.oui { color: #fff; background: #131313; font-weight: 600; }
+  .tab td.non { color: #6d6d6d; background: #050505; }
   .vide { color: #5c5c5c; font-size: 13px; padding: 12px 4px; }
   .pied { text-align: center; margin-top: 26px; }
   .pied a { color: #777; font-size: 11px; letter-spacing: 3px; text-transform: uppercase; text-decoration: none; }
@@ -56,6 +62,16 @@
       <span id="voie-info"></span>
     </div>
     <div id="politique" style="display:none"></div>
+  </section>
+  <section class="carte" id="droits-carte">
+    <h2>Qui a le droit de quoi · la table gravée dans le serveur</h2>
+    <div class="sous" style="margin-bottom:10px">Ce qui n'est pas écrit ici <b>n'existe pas</b>. La table ne remplace pas le périmètre : <b>chez toi</b> ou <b>sous fiche d'engagement</b> d'abord, droit ensuite. Elle se relit en direct sur <span class="dict">/api/droits</span>, chaque refus est gravé dans <span class="dict">journal-droits.log</span>, et le prompt de chaque agente est construit à partir de ces lignes — une agente ne peut plus annoncer un droit que le code lui refuse.</div>
+    <div id="droits">Lecture de la table des droits…</div>
+    <div class="barre">
+      <button class="bout sec mini" id="droits-plus">Voir les derniers refus</button>
+      <span id="droits-info"></span>
+    </div>
+    <div id="droits-refus" style="display:none"></div>
   </section>
   <section class="carte">
     <h2>État du registre</h2>
@@ -203,8 +219,45 @@ document.getElementById('pol').onclick = () => {
 document.getElementById('rafraichir').onclick = () => { lire(); lireVoie(); };
 document.getElementById('tout').onclick = () => { FILTRE = 'tout'; afficher(); };
 document.getElementById('vivantes').onclick = () => { FILTRE = 'vivantes'; afficher(); };
-lire(); lireVoie();
+
+// ---------- ORANGE #11 : la table des droits, relue du serveur ----------
+// La page n'invente AUCUNE ligne : elle affiche ce que /api/droits renvoie, donc ce que les
+// modules consultent. Si une ligne change dans le code, ce tableau change tout seul au next
+// rafraîchissement — c'est ça une borne vérifiable au lieu d'une promesse.
+let DROITS = null;
+function renduDroits() {
+  const el = document.getElementById('droits');
+  if (!DROITS || !DROITS.agents) { el.innerHTML = '<div class="vide">La table n a pas repondu — le cerveau est peut-etre en train de recharger.</div>'; return; }
+  const caps = Object.keys(DROITS.capacites || {});
+  const entete = '<tr><th>agente</th>' + caps.map(c => '<th>' + esc(DROITS.capacites[c]) + '</th>').join('') + '</tr>';
+  const lignes = DROITS.agents.map(a =>
+    '<tr><td><b>' + esc(a.agent) + '</b></td>' + caps.map(c =>
+      '<td class="' + (a.droits[c] ? 'oui' : 'non') + '">' + (a.droits[c] ? 'oui' : 'non') + '</td>').join('') + '</tr>').join('');
+  el.innerHTML = '<table class="tab">' + entete + lignes + '</table>' +
+    '<div class="meta" style="margin-top:9px">' + esc(DROITS.contrat) + '</div>';
+  const ref = DROITS.refus_recent || [];
+  document.getElementById('droits-refus').innerHTML = ref.length
+    ? '<div class="resultat">' + esc(ref.join('\n')) + '</div>'
+    : '<div class="meta" style="color:#6b6b6b">Aucun refus grave pour l instant — personne n a demande ce qu il n a pas le droit de demander.</div>';
+}
+async function lireDroits() {
+  try {
+    const r = await fetch('/api/droits', { headers: { 'Accept': 'application/json' } });
+    DROITS = await r.json();
+    renduDroits();
+    document.getElementById('droits-info').textContent = 'relu a ' + new Date().toLocaleTimeString('fr-FR');
+  } catch (e) { document.getElementById('droits-info').textContent = 'table muette : ' + e.message; }
+}
+document.getElementById('droits-plus').onclick = () => {
+  const el = document.getElementById('droits-refus');
+  const voir = el.style.display === 'none';
+  el.style.display = voir ? 'block' : 'none';
+  document.getElementById('droits-plus').textContent = voir ? 'Cacher les derniers refus' : 'Voir les derniers refus';
+  if (voir) lireDroits();
+};
+lire(); lireVoie(); lireDroits();
 setInterval(() => { lire(); lireVoie(); }, 5000);
+setInterval(lireDroits, 20000);
 </script>
 </body>
 </html>

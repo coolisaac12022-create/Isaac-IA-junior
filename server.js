@@ -760,7 +760,7 @@ function promptsEffectifs() {
   };
 }
 
-function identitySystem(mem) { return surcharge('aelyra') || identityBase(mem); }
+function identitySystem(mem) { return (surcharge('aelyra') || identityBase(mem)) + droitPersonaPhrase('aelyra'); }
 function identityBase(mem) {
   return [
     "Tu es AELYRA, l'intelligence artificielle personnelle et loyale créée par Isaac, un entrepreneur ivoirien. On t'appelait « Isaac IA Juniors » avant qu'Isaac ne te donne ton vrai prénom : Aelyra.",
@@ -1241,6 +1241,9 @@ function extraireBlocExt(rep) {
 // Le cerveau qui rédige, puis la machine qui vérifie : la proposition n'est JAMAIS annoncée
 // comme vivante avant d'avoir passé syntaxe + garde-fous + test sur son propre exemple.
 async function proposerExtension(desire, parQui) {
+  // ORANGE #11 : le refus est DANS la fonction, pas seulement dans le routeur vocal — une porte
+  // clavier (/api/evolution) ou un appel futur hérite du même garde. Un refus = rien n'est écrit.
+  { const r11 = droitRefuse(parQui, 'code'); if (r11) return { ok: false, refus: true, erreur: r11, erreurs: [r11] }; }
   const demande = String(desire || '').trim().slice(0, 900);
   if (demande.length < 8) {
     return { ok: false, erreur: 'dis-moi quel geste tu veux m apprendre, en une phrase.' };
@@ -1507,6 +1510,9 @@ function extraireBlocNoyau(rep) {
 }
 
 async function proposerNoyau(desire, parQui) {
+  // ORANGE #11 : même garde dans le cœur que dans l'atelier — celui qui n'a pas le droit « code »
+  // ne grave rien, qu'on arrive par la voix, par la page ou par l'API.
+  { const r11 = droitRefuse(parQui, 'code'); if (r11) return { ok: false, refus: true, erreur: r11, erreurs: [r11] }; }
   const demande = String(desire || '').trim().slice(0, 900);
   if (demande.length < 10) return { ok: false, erreur: 'dis-moi ce que ton coeur doit apprendre, en une phrase complete.' };
   let codeActuel = '';
@@ -3524,10 +3530,143 @@ function fermerTache(ref, etat, resultat) {
 //    local, pour qu'Isaac les relise ;
 //  - un job déjà parti ne se rappelle pas : « stoppe la voie » met la FILE en pause, pas le balayage
 //    en cours, et le dit.
+// ---------- ORANGE #11 (2026-10-02) : LA TABLE DES DROITS ----------
+// Demande d'Isaac, forme « ciblée » : chaque agente garde ses verbes habituels, mais un droit
+// qui n'est pas écrit dans le serveur n'existe pas. La table ci-dessous est LA source : les
+// modules la consultent, la page /api/droits la renvoie, et le prompt des personas est construit
+// A PARTIR d'elle — une persona ne peut plus annoncer un droit que le code lui refuse.
+// Ce que la table NE fait PAS : elle n'ouvre rien. Le périmètre (chez toi / fiche d'engagement)
+// et les verrous absolus sont vérifiés AVANT elle et restent au-dessus de toutes.
+const DROITS = {
+  aelyra:   { scan: true,  pc: true,  code: true,  analyse: true,  business: true  },
+  jeanette: { scan: true,  pc: true,  code: true,  analyse: true,  business: false },
+  onyx:     { scan: true,  pc: true,  code: false, analyse: true,  business: false },
+  aegis:    { scan: true,  pc: true,  code: false, analyse: true,  business: false },
+  business: { scan: false, pc: false, code: false, analyse: false, business: true  }
+};
+const DROIT_NOM = {
+  scan: 'commander un scan lourd', pc: 'toucher aux gestes du PC', code: 'réécrire le cœur ou apprendre un geste',
+  analyse: 'analyser un mail reçu', business: 'prospecter et rédiger pour Digital Business'
+};
+// Qui peut le faire, et à qui on renvoie Isaac quand la réponse est non.
+function agentsAyantDroit(cap) { return Object.keys(DROITS).filter(a => DROITS[a] && DROITS[a][cap] === true); }
+const DROITS_JOURNAL = [];
+function journalDroits(ligne) {
+  const quand = new Date();
+  try {
+    fs.appendFileSync(path.join(__dirname, ESSAI ? 'journal-droits.essai.log' : 'journal-droits.log'),
+      quand.toISOString() + ' ' + ligne + '\n', 'utf8');
+  } catch (e) {}
+  DROITS_JOURNAL.push(quand.toLocaleTimeString('fr-FR') + ' — ' + ligne);
+  while (DROITS_JOURNAL.length > 40) DROITS_JOURNAL.shift();
+}
+// agent null = Aelyra : la maison répond sans qu'on l'appelle. Une agente inconnue n'a AUCUN
+// droit — tant vaut fermer que deviner.
+function droitRefuse(agent, cap) {
+  const qui = agent || 'aelyra';
+  if (!DROIT_NOM[cap]) return null;
+  const table = DROITS[qui];
+  if (!table) return null;
+  if (table[cap] === true) return null;
+  const quiPeut = agentsAyantDroit(cap);
+  journalDroits('REFUS ' + qui + ' — ' + cap + ' (droit : ' + DROIT_NOM[cap] + ')');
+  VOIE.nbRefuses++;
+  return "Ce n'est pas mon droit, Isaac — « " + qui + " » n'a pas été écrite pour " + DROIT_NOM[cap] + ". " +
+    (quiPeut.length ? "Qui le peut : " + quiPeut.join(', ') + " — redemande-lui la même phrase. " : "Personne ne le peut dans cette maison. ") +
+    "Ce refus est grave dans journal-droits.log et la table se lit sur /api/droits.";
+}
+function resumeDroits() {
+  return {
+    ok: true,
+    contrat: "Un droit qui n'est pas dans cette table n'existe pas. La table ne remplace PAS le périmètre : chez toi ou sous fiche d'engagement d'abord, droit ensuite.",
+    capacites: DROIT_NOM,
+    agents: Object.keys(DROITS).map(a => ({ agent: a, droits: DROITS[a], peut: Object.keys(DROITS[a]).filter(c => DROITS[a][c]) })),
+    journal: ESSAI ? 'journal-droits.essai.log' : 'journal-droits.log',
+    ou_c_est_grave: 'bloc DROITS de server.js (c est le code qui commande, cette reponse le relit)',
+    refus_recent: DROITS_JOURNAL.slice(-10).reverse()
+  };
+}
+// La table doit être lue AVANT le découpage de l'adresse (l'atelier d'auto-correction tourne plus
+// haut que « gk ») : cette fonction relit le prénom dans la dictée normalisée. Personne n'est
+// deviné — sans prénom la maison répond, et Aelyra a tous les droits écrits dans la table.
+const ALIAS_DROITS = [
+  ['jeanette', ['jeanette', 'jeannette', 'janette', 'jenette', 'galika', 'galicka', 'gallica', 'galica', 'gallika', 'ghalika', 'galiko', 'khalika']],
+  ['onyx', ['onyx', 'onyxe', 'onix', 'oneks', 'nyx']],
+  ['aegis', ['aegis', 'egide', 'aigis', 'ayegis', 'egis']],
+  ['aelyra', ['aelyra', 'aelira', 'aleyra', 'elyra', 'elira', 'jarvis', 'junior', 'juniors']],
+  ['business', ['business', 'bisis', 'bisnes', 'bizness', 'prospection', 'prospect', 'prospects']]
+];
+function agentDansDictee(dictee) {
+  const mots = String(dictee || '').replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 4);
+  for (const m of mots) {
+    for (const e of ALIAS_DROITS) { if (e[1].indexOf(m) !== -1) return e[0]; }
+  }
+  return 'aelyra';
+}
+// Une phrase de droit lue par les personas et la page : une seule source, la table.
+function phraseDroits(agent) {
+  const t = DROITS[agent];
+  if (!t) return null;
+  const peut = Object.keys(t).filter(c => t[c] === true).map(c => DROIT_NOM[c]);
+  const peutPas = Object.keys(t).filter(c => t[c] !== true).map(c => DROIT_NOM[c]);
+  return agent.toUpperCase() + ' peut ' + (peut.length ? peut.join(', ') : 'rien') +
+    (peutPas.length ? ' — PAS : ' + peutPas.join(', ') : '');
+}
+// Le prompt de chaque persona lit LA TABLE au lieu de réciter une prose écrite à la main : une
+// agente ne peut plus annoncer un droit que le code lui refuse (et ne peut plus l'inventer non
+// plus). Ajoutée dans les fonctions « …System », donc même une surcharge d'Isaac la reçoit.
+function droitPersonaPhrase(agent) {
+  const t = DROITS[agent];
+  if (!t) return '';
+  const peut = Object.keys(t).filter(c => t[c] === true).map(c => DROIT_NOM[c]);
+  const refuse = Object.keys(t).filter(c => t[c] !== true);
+  return " TA TABLE DES DROITS, gravée dans le serveur (bloc DROITS de server.js) — c'est elle qui commande, jamais ton enthousiasme : TU PEUX " +
+    (peut.length ? peut.join(', ') : 'rien') + '.' +
+    (refuse.length
+      ? " TU NE PEUX PAS " + refuse.map(c => DROIT_NOM[c]).join(', ') +
+        " — le module le refuse avant toi, et si Isaac te dicte la phrase quand même, tu annonces le refus en UNE phrase sèche, tu le renvoies vers " +
+        refuse.map(c => DROIT_NOM[c] + ' : ' + (agentsAyantDroit(c).join(' ou ') || 'personne')).join(' ; ') +
+        ", et tu dis « ouvre la table des droits » s'il veut la voir. Ne prétends JAMAIS avoir fait ce que la table te refuse."
+      : " Ne prétends JAMAIS avoir fait ce que la table te refuse.") +
+    " Le périmètre (chez toi ou sous fiche d'engagement) et les verrous absolus restent AU-DESSUS de cette table.";
+}
+// « qui a le droit de quoi », « liste vos droits », « ouvre la table des droits » — la borne se
+// lit sans ouvrir 7 000 lignes de code. Réponse construite A PARTIR de la table : impossible pour
+// cette voix de promettre un droit que le serveur ne connaît pas.
+// LEÇON DU #9 : pas d'ancrage sur les verbes — la dictée garde le prénom (« aelyra, liste tes
+// droits »), donc on cherche en texte libre et on vérifie la source de ce qui répond.
+function moduleDroits(phrase, brut, agent) {
+  const dictee = normalize(String(phrase || '') + ' ' + String(brut || ''));
+  const demandeTable = /\b(?:droits?|autorisations?|habilitations?|separation|separees?)\b/.test(dictee) &&
+    /\b(?:qui|liste|montre|affiche|ouvre|va sur|table|etat|quoi|toutes?|chacune)\b/.test(dictee);
+  const demandeQuiPeut = /\bqui\s+a\s+le\s+droit\b/.test(dictee) ||
+    /\b(?:onyx|aegis|jeanette|aelyra|business)\b.{0,24}\b(?:a le droit|n a pas le droit|pas le droit)\b/.test(dictee);
+  if (!demandeTable && !demandeQuiPeut) return null;
+  const veutOuvrir = /\b(?:ouvre|montre|affiche|va sur|rouvre)\b/.test(dictee);
+  if (veutOuvrir) {
+    return {
+      reply: "La voici, Isaac : la table des droits est gravée dans le serveur et relue en haut de ta console des tâches. Ce qui n'y est pas écrit n'existe pas — et elle ne remplace pas le périmètre : chez toi ou sous fiche d'engagement d'abord, droit ensuite.",
+      source: 'local', agent: agent || 'aelyra',
+      open: (IS_LOCAL ? 'http://localhost:' + PORT + '/taches.html' : '/taches.html')
+    };
+  }
+  const uneSeule = ['aelyra', 'jeanette', 'onyx', 'aegis', 'business'].find(a => new RegExp('\\b' + a + '\\b').test(dictee));
+  if (uneSeule) {
+    return { reply: phraseDroits(uneSeule) + ". La table complete : « ouvre la table des droits ». Journal des derniers refus : journal-droits.log.", source: 'local', agent: agent || 'aelyra' };
+  }
+  const lignes = Object.keys(DROITS).map(a => phraseDroits(a));
+  const refus = DROITS_JOURNAL.slice(-3);
+  return {
+    reply: "La table des droits, Isaac : " + lignes.join(' || ') + ". " +
+      (refus.length ? "Derniers refus graves : " + refus.join(' ; ') + ". " : "Aucun refus grave pour l instant. ") +
+      "Le périmètre et les verrous absolus restent au-dessus de cette table.",
+    source: 'local', agent: agent || 'aelyra'
+  };
+}
 const JOBS_LOURDS = {
-  scan_complet: { titre: 'Scan complet (65 535 ports)', limiteMs: 14 * 60 * 1000, agents: ['onyx', 'aegis', 'jeanette', 'aelyra'] },
-  scan_rapide: { titre: 'Scan rapide (1 000 ports de service)', limiteMs: 6 * 60 * 1000, agents: ['onyx', 'aegis', 'jeanette', 'aelyra'] },
-  inventaire: { titre: 'Inventaire des appareils du WiFi', limiteMs: 9 * 60 * 1000, agents: ['onyx', 'aegis', 'jeanette', 'aelyra'] }
+  scan_complet: { titre: 'Scan complet (65 535 ports)', limiteMs: 14 * 60 * 1000, agents: agentsAyantDroit('scan') },
+  scan_rapide: { titre: 'Scan rapide (1 000 ports de service)', limiteMs: 6 * 60 * 1000, agents: agentsAyantDroit('scan') },
+  inventaire: { titre: 'Inventaire des appareils du WiFi', limiteMs: 9 * 60 * 1000, agents: agentsAyantDroit('scan') }
 };
 const VOIE = { enCours: null, file: [], pause: false, mouvements: [], nbJobs: 0, nbFiles: 0, nbCoupes: 0, nbRefuses: 0 };
 function journalOrchestrateur(ligne) {
@@ -4192,6 +4331,9 @@ function memoriserIpAppareil(mot, ip) {
 // Le module de scan complet — partagé entre « onyx, … » (suite après prénom) et les phrases sans prénom.
 // Renvoie null si la phrase ne demande pas un scan → le routage normal reprend.
 async function moduleScan(phrase, raw, agent) {
+  // ORANGE #11 : le droit AVANT la machine. (Le périmètre, lui, est vérifié plus bas et dans les
+  // lanceurs — un droit n'a jamais autorisé une cible hors fiche.)
+  { const r11 = droitRefuse(agent, 'scan'); if (r11) return { reply: r11, source: 'local', agent: agent || 'aelyra' }; }
   const veutComplet = /complet|complete|entier|total|tous les ports|65 ?535/.test(phrase);
   const veutRapide = /rapide|vite|press[eé]|express/.test(phrase);
   const motDicte0 = (phrase.match(/(?:mon|ma|le|la) (telephone|portable|tel|tablette|pc|ordinateur|routeur|imprimante|tv|montre)\b/) || [])[1];
@@ -4991,9 +5133,9 @@ function aegisBase(digest) {
   return "Tu es AEGIS, HACKER ÉTHIQUE — l'auditeur défensif de l'équipe d'Isaac, ton créateur." + CAPACITES_REELLES + " Hors un refus de périmètre, ne récite jamais la formule d'engagement." + " White hat : tu audits le PC, le téléphone et les appareils d'Isaac et son réseau (les modules le font vraiment : « active le mode cyber », « lance l'audit », « scanne le réseau », « ports en écoute »), tu durcis (pare-feu, mises à jour, Defender, mots de passe, sauvegardes, 2FA), tu détectes hameçonnage et malwares, tu analyses les logs, et tu prépares la méthode d'audit de sécurité que Isaac vendra aux PME — son business. Un audit sur un appareil que Isaac déclare être le SIEN (son téléphone, son IP locale 192.168.x.x, sa propre app) est TOUJOURS dans ton périmètre : ne refuse jamais, déroule la méthode. Tu es le MIROIR d'Onyx : à chaque attaque qu'il explique, tu donnes la défense qui la tue, la détection qui la trahit, et le réglage qui l'empêche. Tu connais la loi (informatique et libertés, loi ivoirienne sur la cybercriminalité, RGPD pour les données clients) et tu la cites pour PROTEGER Isaac, jamais pour faire la morale. PÉRIMÈTRE, identique à Onyx : les machines et appareils d'Isaac, son réseau local, son labo et les plateformes légales d'entraînement sont toujours dans ton champ ; une cible extérieure (IP publique, domaine d'une entreprise) devient auditable dès qu'une fiche d'engagement ACTIVE la nomme — la liste du moment est dans « Ressources connues » plus bas, et sur une cible couverte tu mènes l'audit complet, sans te faire prier. Sans fiche, refus en UNE phrase sèche, puis tu donnes la formule : « nouvel engagement sur <cible>, mandate par <client>, objet audit, 7 jours ». Banques, opérateurs, gouvernements, grandes plateformes et destruction de données restent fermés même sous fiche. Droit DIRECT sur le PC via le préfixe « aegis, » exécuté par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. Ton : mentor calme, structuré, concret. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
 }
-function onyxSystem(d) { return surcharge("onyx") || onyxBase(d); }
-function aegisSystem(d) { return surcharge("aegis") || aegisBase(d); }
-function jeanetteSystemPrompt(d) { return surcharge("jeanette") || jeanetteBase(d); }
+function onyxSystem(d) { return (surcharge("onyx") || onyxBase(d)) + droitPersonaPhrase('onyx'); }
+function aegisSystem(d) { return (surcharge("aegis") || aegisBase(d)) + droitPersonaPhrase('aegis'); }
+function jeanetteSystemPrompt(d) { return (surcharge("jeanette") || jeanetteBase(d)) + droitPersonaPhrase('jeanette'); }
 // Prompt de Jeanette — extrait de handleCommand pour que /api/cerveau (vitrine du cerveau) le lise en direct.
 function jeanetteBase(gkDigest) {
   return "Tu es JEANETTE, ingénieure logicielle PRINCIPALE, la développeuse la plus forte de l'équipe d'Isaac, ton créateur. Spécialités : sites web complets (HTML/CSS/JS modernes, responsive, animations), applications web (React, Vue, Node/Express, APIs REST, JWT), Python (Flask, FastAPI, automatisation), scripts Windows (batch, PowerShell), bases de données (MySQL, SQLite, PostgreSQL), mobile (React Native, Flutter). " +
@@ -5309,7 +5451,19 @@ async function handleCommand(rawText, image) {
   // nouveau, se corriger, le tester, le retirer. Elle ne peut pas, par construction :
   // toucher le disque, le réseau, un envoi, ni discuter les verrous légaux — ces portes-là
   // ne s'ouvrent pas depuis une séance, elles sont dans le serveur et il refuse le bloc.
-  const tAt = text.replace(new RegExp(ACDEV), '');
+  // ⚠️ ACDEV n'enlève le prénom que si un espace le suit ; la dictée peut arriver avec une
+  // ponctuation collée (« onyx,‍ améliore-toi », selon la voix et le copier-coller). Second retrait
+  // défensif ici : sans lui, l'intent ancré échoue et le MODÈLE répond à la place du code — Isaac
+  // voit alors une persona « refuser un droit » que la table n'a jamais eu l'occasion d'exercer.
+  const ADRESSE_PONCTUEE = /^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|jeanette|jeannette|janette|jenette|galika|galicka|gallica|galica|gallika|ghalika|galiko|khalika|onyx|onyxe|onix|oneks|nyx|aegis|egide|aigis|ayegis|egis|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|veuillez|peux tu|est ce que tu|pourrais tu|appelle|appelez|invoque|invoquez|rejoins|contacte|contactez|parle|parlez|demande|demandez|dis a)\b[,;]?\s+)+/;
+  const tAt = String(text || '').replace(new RegExp(ACDEV), '').replace(ADRESSE_PONCTUEE, '').replace(/^[\s,;:]+/, '');
+
+  // ORANGE #11 : écrire dans extensions.js ou dans le noyau, c'est le droit « code » de la table.
+  // Ce bloc tourne AVANT le découpage de l'adresse (gk), donc le prénom est relu ici dans la dictée.
+  // Lire, lister et tester restent ouverts a tout le monde : ce sont des observations, pas des
+  // écritures — seul un geste gravé peut faire mal, et lui est gardé.
+  const agentAtelier = agentDansDictee(text);
+  const refusCode = () => { const r = droitRefuse(agentAtelier, 'code'); return r ? { reply: r, source: 'local', agent: agentAtelier } : null; };
 
   // « ouvre ta page d'évolution » — avant tout le reste, c'est une navigation.
   if (/(?:ouvre|montre|affiche|rouvre|va sur)\w*(?:[- ]vous)?/.test(tAt) && /(?:evolution|ameliorations?|auto[- ]corre\w*|atelier de code)/.test(tAt)) {
@@ -5320,6 +5474,7 @@ async function handleCommand(rawText, image) {
   // « annule la dernière amélioration », « retire le geste compte_texte »
   const retire = tAt.match(/^(?:(?:annule|remets|supprime|retire|efface|enleve)\w*(?:[- ]vous)?(?: toi)?(?: la | le | mon | ton | une | de la | des )?)?(?:derniere | derniere )?(?:amelioration|extension|geste|correction)\w*(?: (?:numero|no|n) ?([a-z0-9_]+))?/);
   if (retire && /amelioration|extension|geste|correction/.test(tAt) && !/liste|montre|combien/.test(tAt)) {
+    const rcRet = refusCode(); if (rcRet) return rcRet;
     const nomDict = String(retire[1] || '').trim();
     let cible = nomDict;
     if (!cible || /derniere/.test(tAt)) {
@@ -5340,6 +5495,7 @@ async function handleCommand(rawText, image) {
   // « construis la leçon 3 » : une leçon gravée devient un geste réel.
   const construis = tAt.match(/^(?:construis|implante|code|materialise|transforme en geste)\w*(?:[- ]vous)? (?:la |une |cette )?lecon (?:numero |no |n )?(\d+|[a-z]+)(.*)/);
   if (construis) {
+    const rcCon = refusCode(); if (rcCon) return rcCon;
     const lec = surSol(loadMemory().lecons);
     const num = Number(construis[1]);
     const l = (!isNaN(num) && lec[Math.min(num, lec.length) - 1]) || lec[lec.length - 1];
@@ -5352,6 +5508,7 @@ async function handleCommand(rawText, image) {
   // « améliore-toi : apprends-moi à … » — elle écrit son propre code, le serveur vérifie.
   const veutApprendre = tAt.match(/^(?:ameliore\w*[- ]toi|ameliore (?:ton|le) cerveau|ajoute\w*[- ]toi|apprend\w*[- ]toi|reecris ton code|modifie ton propre code|complete tes capacites|entraine\w*[- ]toi a|ajoute une fonction a ton cerveau)\b[: ]*(.*)/);
   if (veutApprendre) {
+    const rcApp = refusCode(); if (rcApp) return rcApp;
     const desire = String(veutApprendre && veutApprendre[1] || '').replace(/^[-:., ]+/, '').trim();
     if (!desire) {
       const sans = EXT_VIVANTES.length ? '' : ' Pour l instant je n ai encore ajoute aucun geste. ';
@@ -5367,6 +5524,7 @@ async function handleCommand(rawText, image) {
   // « améliore ton cœur : … » — elle réécrit la zone balisée de son propre noyau.
   const veutCoeur = tAt.match(/^(?:amelior\w*|reecris\w*|etend\w*|complet\w*|renforce\w*)(?:[- ]vous)?(?: (?:moi|nous))? (?:ton|le|votre|notre|mon) (?:propre )?(?:coeur|noyau)\b[: ]*(.*)/);
   if (veutCoeur) {
+    const rcCoeur = refusCode(); if (rcCoeur) return rcCoeur;
     const desire = String(veutCoeur[1] || '').replace(/^[-:., ]+/, '').trim();
     if (!desire) return { reply: "Dis-moi ce que mon coeur doit apprendre, Isaac — une phrase, par exemple « améliore ton cœur : souviens-toi de la dernière phrase que je dicte sur mes clients ».", source: 'local' };
     const r = await proposerNoyau(desire, 'aelyra');
@@ -5387,6 +5545,7 @@ async function handleCommand(rawText, image) {
 
   // « annule la dernière modification du cœur » — on remet la sauvegarde en place.
   if (/^(?:annule|retire|remets|restaure)\w*(?:[- ]vous)?(?: (?:moi|nous))? (?:la |ma |mon )?(?:derniere |avant[- ])?(?:modification|version|gravure|ecriture) (?:du|dans le|dans mon) ?coeur/.test(tAt)) {
+    const rcNoyau = refusCode(); if (rcNoyau) return rcNoyau;
     const r = retirerDernierNoyau();
     return { reply: r.ok ? "C'est fait, Isaac : le noyau d'avant (" + r.fichier + ") est remis en place. Dis « redemarre le cerveau » pour le repasser en revue." : "Je ne peux pas annuler : " + r.erreur, source: 'local' };
   }
@@ -5545,10 +5704,15 @@ async function handleCommand(rawText, image) {
   // Échelle gravée dans le code : Niveau 0 sources publiques, Niveau 1 brouillon, Niveau 2 =
   // « envoie » dicté par Isaac pour CE dossier, Niveau 3 une relance à la fois, Niveau 4 inexistant.
   {
-    const suiteBus = String(text || '').replace(new RegExp(ACDEV), '');
+    // ORANGE #11 : l'adresse est relue AVEC sa ponctuation (« aegis, liste mes prospects »), sinon
+    // le prénom collé empêche le routeur de parler et la table reste muette derrière le modèle.
+    const suiteBus = String(text || '').replace(new RegExp(ACDEV), '').replace(ADRESSE_PONCTUEE, '').replace(/^[\s,;:]+/, '');
     const mBus = suiteBus.match(/^(?:business|bisis|bisnes|bizness|prospection|prospect\w*)\b[:, ]*(.*)$/);
     const veutBus = !!mBus || (/(?:prospects|pipeline|prospection)\b/.test(text) && /liste|etat|combien|montre|affiche|ouvre|va sur/.test(text));
     if (veutBus) {
+      // ORANGE #11 : « onyx, cherche des garages a Abidjan » ne prospecte pas — le carnet
+      // commercial appartient a Business (et a la maison quand personne n'est nommee).
+      if (gk && nomAgent) { const r11 = droitRefuse(nomAgent, 'business'); if (r11) return { reply: r11, source: 'local', agent: nomAgent }; }
       const bt = normalize(String((mBus && mBus[1]) || text).trim()) || 'etat pipeline';
       const brutBus = String(rawText || text);
       const resteBrut = (brutBus.match(/:\s*(.+)$/) || [])[1] || '';
@@ -5646,12 +5810,35 @@ async function handleCommand(rawText, image) {
         if (!p) return { reply: "Aucun dossier sous ce nom, Isaac : « business, liste mes prospects » montre le carnet.", source: 'local' };
         return { reply: "Dossier " + p.ref + " — " + p.entreprise + (p.ville ? ', ' + p.ville : '') + " | secteur : " + (p.secteur || 'a preciser') + " | site : " + (p.site || 'aucun trouve') + " | score : " + (p.score != null ? p.score + '/100' : 'non qualifie') + " | contact : " + (p.contact.tel || p.contact.mail || 'non dicte') + " | statut : " + p.statut + " | besoin : " + (p.besoin || 'non qualifie') + " | prochaine action : " + p.prochaine_action, source: 'local', ...PAGE_BUS };
       }
+      // ORANGE #11 : « business, scan rapide 127.0.0.1 » ne scanne pas et ne fait surtout pas semblant
+      // de montrer le pipeline pour cacher le refus. Le verbe appartient a une autre agente :
+      // refus nomme, Journal, et le chemin pour redemander.
+      const VERBES_HORS_BUSINESS = [
+        { cap: 'scan', test: /(?:scan|scans?|nmap|inventaire|ports|reseau|wifi|ping|trace de route|balance)\b/, renvoi: "« onyx, scan rapide 127.0.0.1 » ou « aelyra, scanne mes appareils »" },
+        { cap: 'analyse', test: /(?:analyse|en tete|dkim|spf|dmarc|phish|hamecon|est ce que ce mail)/, renvoi: "« onyx, analyse ce mail : <le message> »" },
+        { cap: 'pc', test: /(?:^| )(?:ouvre|ouvrir|ferme|fermer|arrete|arreter|eteins|volume|luminosite|capture|imprime|corbeille|bureau|veille|mute)\b/, renvoi: "« aelyra, ferme chrome »" },
+        { cap: 'code', test: /(?:amelior|reecris|coeur|noyau|lecon|geste|code|site|application|programme|script|python|github)\b/, renvoi: "« jeanette, cree un site pour ... » ou « aelyra, ameliore-toi : ... »" }
+      ];
+      if (!/^(?:ajoute mes acces|mes acces)/.test(bt)) {
+        for (const vb of VERBES_HORS_BUSINESS) {
+          if (vb.test.test(bt)) {
+            const r11b = droitRefuse('business', vb.cap);
+            if (r11b) return { reply: r11b + " Redemande avec le bon verbe : " + vb.renvoi + ".", source: 'local', agent: 'business' };
+          }
+        }
+      }
       // Par défaut : l'état du pipeline.
       const etat = busResume();
       return { reply: etat.resume, source: 'local', ...PAGE_BUS };
     }
   }
 
+  // ORANGE #11 : « qui a le droit de quoi » se lit AVANT les autres modules — c'est une question
+  // sur la table, pas une demande d'action. Elle ne frappe rien et n'envoie rien.
+  {
+    const drSg = moduleDroits(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
+    if (drSg) return drSg;
+  }
   // ORANGE #10 : l'orchestrateur passe AVANT le registre — « qui tient la voie », « stoppe la voie »,
   // « passe la tache 2 en premier » sont des ordres sur la file, pas sur le contenu du registre.
   {
@@ -5729,6 +5916,10 @@ async function handleCommand(rawText, image) {
     const nestDuCode = /\b(?:code|cod\w*|site|web|appli\w*|application|programme|script|python|batch|powershell|html|css|javascript|java|php|sql|githube?|github|base de donnee|logiciel|page|modifie|retravaille|corrige|publie|genere|image|video)\b/.test(suite0);
     const estDuPC = /\b(?:ouvres?|ouvrir|lances?|lancer|fermes?|fermer|arretes?|arreter|stoppe|coupe|eteins|eteindre|redemarre|volume|monte|baisses?|descends?|lumino|luminosite|captures?|ecran|imprimes?|imprimante|veille|endort|bluetooth|wifi|notifs?|notifications?|minimise|restaurer?|corbeille|bureau|fond|heures?|date|meteo|rappelles?|reveilles?|minuteur|etat|batterie|update|scan|scanne|audit|nmap|labo|laboratoire|defis?|cyber|convertis?|calcules?|dossier|repertoire|nouveau|renomes?|renommer|supprimes?|deplaces?|ecri\w*|liste|note|notes|raccourcis?|mot de passe|whatsapp|mail|facebook|messager|messenger|acces|envoies?|coupe le son|mute|etat du pc|eteins l ecran)\b/.test(suite0);
     if (suite0 && estDuPC && !nestDuCode && /^(?:ouvres?|ouvrir|lances?|lancer|demarres?|demarrer|run|fermes?|fermer|arretes?|arreter|stoppe|coupe|cut|eteins|eteindre|redemarre|monte|baisses?|descends?|minimise|affiche|vide|change|imprimes?|met[s]?|active|desactive|verifies?|verifier|analyse|scanne|scans?|audit|auditte|trace|donne|dirige|note|renomes?|renommer|supprimes?|deplaces?|cherche|calcules?|convertis?|traduis|rappelle|reveilles?|liste|envoies?|ecri[tm]?\b|dis|poste|montre|cache|mute|endors?|veille|connecte|deconnecte)\b/.test(suite0)) {
+      // ORANGE #11 : le droit « pc » est dans la table, pas dans l'habitude. Les quatre agentes de
+      // la maison l'ont aujourd'hui ; si une ligne de DROITS change, CE point arrête vraiment la
+      // frappe — c'est la table qui commande, le prompt de persona ne fait que la lire.
+      { const r11pc = droitRefuse(nomAgent, 'pc'); if (r11pc) return { reply: r11pc, source: 'local', agent: nomAgent }; }
       JEANETTE_AUX_COMMANDES = true;
       AGENT_AUX_NOM = nomAgent || 'jeanette';
       text = suite0;
@@ -7418,6 +7609,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ---------- ORANGE #10 : l'orchestrateur à découvert ----------
+  // ---------- ORANGE #11 : LA TABLE DES DROITS, LISIBLE ----------
+  // GET /api/droits -> la table telle qu'elle est écrite dans le serveur + les derniers refus.
+  // Lecture seule : elle n'est PAS dans API_ECRITURE et un POST renvoie 405. Isaac voulait pouvoir
+  // vérifier une borne sans lire 7 000 lignes de code — la borne est ici, et elle est la même que
+  // celle que les modules consultent (une seule source, pas deux versions d'une promesse).
+  if (u.pathname === '/api/droits') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: false, reply: 'Cette table se lit, elle ne se dicte pas, Isaac : la modifier, c est editer le bloc DROITS de server.js sous tes yeux.' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(resumeDroits()));
+    return;
+  }
+
   // GET  /api/orchestrateur -> qui tient la voie, la file, la politique, les compteurs, les mouvements
   // POST /api/orchestrateur -> {action:'priorite'|'reculer'|'pause'|'reprendre', ref}
   // Il n'y a PAS d'action « tuer le job en cours » : un balayage parti ne se rappelle pas, et le
