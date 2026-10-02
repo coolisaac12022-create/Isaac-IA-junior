@@ -6326,18 +6326,31 @@ const API_ECRITURE = ['/api/command', '/api/prompts', '/api/evolution', '/api/re
 // PORT COMPTE : une page servie sur un autre port de ce PC n'est pas le cerveau, c'est un site
 // visité — celui-là sera refusé. Isaac ouvre son cerveau tantôt en localhost, tantôt en 127.0.0.1 :
 // on ramène chaque hôte à sa forme 127.0.0.1 avant de comparer, pour ne pas le refuser LUI.
-function hoteNormalise(h) {
+function decouperHote(h) {
   const s = String(h || '');
   const i = s.lastIndexOf(':');
-  const port = (i > 0 && !s.includes(']', i)) ? s.slice(i) : '';
-  let nom = (port ? s.slice(0, i) : s).replace(/^\[(.*)\]$/, '$1');
-  if (nom === 'localhost' || nom === '::1') nom = '127.0.0.1';
-  return nom + port;
+  if (i > 0 && !s.includes(']', i)) return { nom: s.slice(0, i).replace(/^\[(.*)\]$/, '$1'), port: s.slice(i + 1) };
+  return { nom: s.replace(/^\[(.*)\]$/, '$1'), port: '' };
+}
+function estBoucle(h) {
+  const n = decouperHote(h).nom;
+  return (n === 'localhost' || n === '127.0.0.1' || n === '::1');
+}
+function hoteNormalise(h) {
+  const d = decouperHote(h);
+  const nom = (d.nom === 'localhost' || d.nom === '::1') ? '127.0.0.1' : d.nom;
+  return nom + (d.port ? ':' + d.port : '');
 }
 
 function politiqueAcces(req, u, hote) {
   if (req.method !== 'POST') return null;                       // GET = lecture, même logique maison
   if (API_ECRITURE.indexOf(u.pathname) < 0) return null;        // route hors de la liste fermée : ses propres gardes
+  // Le cerveau fermé sur 127.0.0.1 ne se commande QUE sous une adresse de boucle. Sans cette ligne,
+  // une page dont le domaine pointe sur 127.0.0.1 (DNS rebinding) enverrait Origin == Host et passerait.
+  // En mode ISAAC_LAN=1 (cerveau ouvert au réseau, choix d'Isaac), cette règle ne s'applique pas.
+  if (HOST === '127.0.0.1' && !estBoucle(hote)) {
+    return { code: 403, motif: "le cerveau ne reçoit pas d'ordres sous une adresse de domaine (« " + hote + " ») : il ne se commande que par localhost ou 127.0.0.1" };
+  }
   const ct = String(req.headers['content-type'] || '');
   if (!/application\/json/i.test(ct)) {
     return { code: 415, motif: 'Content-Type étranger (' + (ct || 'absent') + ') : on dirait un formulaire HTML envoyé par un site visité.' };
@@ -6346,6 +6359,8 @@ function politiqueAcces(req, u, hote) {
   if (!source) return null;                                     // outil local d'Isaac : pas d'en-tête navigateur
   let src = '';
   try { src = new URL(source).host; } catch (e) { return { code: 403, motif: 'Origine illisible : ' + source.slice(0, 80) }; }
+  // Origine navigateur : même machine, même port. Une page de l'autre bout du net comme une page
+  // HTTP logée sur un autre port de ce PC (localhost:8000) sont refusées ; la page du cerveau passe.
   if (hoteNormalise(src) !== hoteNormalise(hote)) {
     return { code: 403, motif: 'Origine « ' + src + ' » différente du cerveau (' + hote + ') : une page étrangère a voulu donner un ordre.' };
   }
@@ -6399,6 +6414,7 @@ const server = http.createServer(async (req, res) => {
         "Le cerveau écoute " + HOST + ":" + PORT + (HOST === '127.0.0.1' ? " — aucune machine du WiFi ne peut lui parler." : " — ATTENTION : ISAAC_LAN=1 rouvre le réseau."),
         "Les POST d'écriture (" + API_ECRITURE.join(", ") + ") viennent obligatoirement d'une page servie par ce cerveau, avec un Content-Type application/json.",
         "Un curl ou un script local, sans en-tête Origin, est accepté : c'est Isaac lui-même à sa machine.",
+        "Ferme sur 127.0.0.1, le cerveau refuse un ordre arrivé sous un nom de domaine : un site dont le DNS pointerait sur cette machine (rebinding) ne passe pas.",
         "Chaque refus est gravé dans journal-politique.log, avec l'origine incriminée.",
         "Le périmètre légal (maison, labo, fiches d'engagement, verrous absolus) est vérifié DANS handleCommand, avant tout module offensif : un ordre qui passe la porte réseau se heurte aux mêmes gardes.",
         "Les mots de passe SMTP et les clés d'API restent dans isaac-keys.json, jamais lus par une route HTTP, jamais publiés."
