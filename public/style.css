@@ -352,6 +352,8 @@ body.speaking .core-center { animation: speakWave .35s ease-in-out infinite; }
   font-size: 12px; letter-spacing: 1px;
   color: rgba(255, 255, 255, .75);
 }
+.img-preview[hidden] { display: none; }   /* display:flex gagnait sur l'attribut hidden : la bande
+                                             « image jointe » restait à l'écran, vide et cassée */
 .img-preview img {
   width: 56px; height: 56px; object-fit: cover;
   border: 1px solid var(--cyan-soft); border-radius: 8px;
@@ -431,3 +433,49 @@ body.speaking .core-center { animation: speakWave .35s ease-in-out infinite; }
   .hud-title { letter-spacing: 5px; }
   .log { height: 200px; }
 }
+
+/* ---------- Panneau des voix (noir & blanc, comme le reste) ---------- */
+.voix-panneau {
+  max-height: 42vh; overflow-y: auto;
+  margin: 0 0 8px; padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--cyan-dim);
+  background: rgba(255, 255, 255, .03);
+  font-size: 12px; line-height: 1.4;
+}
+.voix-panneau::-webkit-scrollbar { width: 6px; }
+.voix-tete { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.voix-titre { letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,.9); }
+.voix-x { background: transparent; border: 1px solid var(--cyan-dim); color: var(--cyan); border-radius: 6px; width: 26px; height: 22px; cursor: pointer; }
+.voix-etat { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.voix-chiffre { border: 1px solid var(--cyan-soft); padding: 2px 8px; border-radius: 10px; }
+.voix-tag { border: 1px solid var(--cyan-dim); padding: 2px 8px; border-radius: 10px; color: rgba(255,255,255,.72); }
+.voix-tag.ok { border-color: var(--cyan); color: #fff; }
+.voix-tag.warn { border-style: dashed; color: rgba(255,255,255,.55); }
+.voix-dictee { margin-bottom: 10px; color: rgba(255,255,255,.8); }
+.voix-dictee small { display: block; margin-top: 4px; color: rgba(255,255,255,.45); }
+.voix-ligne {
+  display: grid; grid-template-columns: 1fr; gap: 4px;
+  padding: 7px 0; border-top: 1px solid rgba(255,255,255,.06);
+}
+.voix-nom { letter-spacing: 1px; color: rgba(255,255,255,.85); }
+.voix-champs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.voix-panneau select {
+  background: #000; color: var(--cyan); border: 1px solid var(--cyan-dim);
+  border-radius: 6px; padding: 3px 6px; font-size: 11px; max-width: 300px;
+}
+.voix-panneau input[type=range] { width: 96px; accent-color: var(--cyan); }
+.v-reglage { display: flex; align-items: center; gap: 5px; color: rgba(255,255,255,.6); }
+.v-reglage b { min-width: 30px; color: #fff; font-weight: 400; }
+.v-ecouter {
+  background: transparent; border: 1px solid var(--cyan-soft); color: var(--cyan);
+  border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 11px;
+}
+.v-ecouter:hover { border-color: var(--cyan); box-shadow: 0 0 10px var(--cyan-soft); }
+.v-info { color: rgba(255,255,255,.45); font-size: 11px; }
+.voix-pied { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.voix-pied small { flex: 1 1 260px; color: rgba(255,255,255,.42); }
+.voix-sec {
+  background: transparent; border: 1px solid var(--cyan-dim); color: var(--cyan);
+  border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 11px;
+}
+.voix-sec:hover { border-color: var(--cyan); }

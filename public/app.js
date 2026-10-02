@@ -83,7 +83,7 @@ function setSon(on) {
     soundBtn.classList.toggle('muted', !sonOn);
     soundBtn.title = sonOn ? 'Couper la voix' : 'Rendre la voix';
   }
-  if (!sonOn) { try { speechSynthesis.cancel(); } catch (e) {} isSpeaking = false; }
+  if (!sonOn) couperVoix();
 }
 
 if (btnAelyra) btnAelyra.addEventListener('click', () => {
@@ -417,56 +417,411 @@ function speechClean(t) {
     .trim();
 }
 
-// ---------- Voix de Isaac IA Juniors ----------
-let voices = [];
-function loadVoices() { voices = speechSynthesis.getVoices(); }
-loadVoices();
-speechSynthesis.onvoiceschanged = loadVoices;
-
-function pickFrenchVoice(masculin) {
-  // Aelyra et Jeanette sont des dames : voix FÉMININE française (Julie, Denise, Amélie…)
-  // Onyx et Aegis sont des hommes : voix MASCULINE française (René, Paul, Henri…) quand elle existe.
-  const homme = /male|homme|paul|henri|thomas|antoine|rene|claude|bernard|marc|jean|nicolas|david/i;
-  const femme = /female|femme|feminin|julie|denise|denene|audrey|amelie|virginie|celine|marie|vivienne|charline|eloise|suzette|france|chantal|nadia/i;
-  const fr = v => /^fr/i.test(v.lang);
-  if (masculin) {
-    return voices.find(v => fr(v) && homme.test(v.name) && !/female|femme/i.test(v.name))
-        || voices.find(v => fr(v))
-        || null;
+// ---------- Voix : catalogue vivant, langues, respiration ----------
+// Isaac (2026-10-02) : « change la voix, et rends-la capable de bien gérer la langue et la
+// communication ». Ce bloc ne promet rien qu'on ne puisse vérifier : il énumère LES VOIX QUE CE
+// NAVIGATEUR EXPOSE RÉELLEMENT (speechSynthesis), en garde une par agente, lit chaque phrase dans
+// SA langue (un rapport en anglais ne sort plus dans la voix française), et découpe les longs
+// rapports en respirations — Chromium coupe une utterance trop longue, c'est pour ça qu'une note
+// de scan s'arrêtait net.
+const PARLENCES = ['aelyra', 'jeanette', 'onyx', 'aegis', 'business', 'autre'];
+const PARLENCE_LABEL = {
+  aelyra: 'Aelyra — la maison, le PC',
+  jeanette: 'Jeanette — le code',
+  onyx: 'Onyx — le poste d’attaque',
+  aegis: 'Aegis — la défense',
+  business: 'Business — la prospection',
+  autre: 'Cerveau invité — la table ronde'
+};
+const CONF_VOIX_PAR_DEFAUT = {
+  // Le débit fait le caractère ; le timbre (pitch) ne doit pas casser la voix quand le genre est
+  // déjà le bon. Les réglages sont dans le navigateur d'Isaac, pas dans le cerveau.
+  aelyra:   { voix: '', langue: 'auto', debit: 1.04, hauteur: 1.05 },
+  jeanette: { voix: '', langue: 'auto', debit: 0.99, hauteur: 0.95 },
+  onyx:     { voix: '', langue: 'auto', debit: 0.9,  hauteur: 0.85 },
+  aegis:    { voix: '', langue: 'auto', debit: 0.98, hauteur: 0.95 },
+  business: { voix: '', langue: 'auto', debit: 1.06, hauteur: 1 },
+  autre:    { voix: '', langue: 'auto', debit: 1.08, hauteur: 1.18 }
+};
+let CONF_VOIX = (function () {
+  try {
+    const lu = JSON.parse(localStorage.getItem('ij-voix') || '{}');
+    const out = {};
+    for (const p of PARLENCES) out[p] = Object.assign({}, CONF_VOIX_PAR_DEFAUT[p], lu[p] || {});
+    return out;
+  } catch (e) {
+    const out = {};
+    for (const p of PARLENCES) out[p] = Object.assign({}, CONF_VOIX_PAR_DEFAUT[p]);
+    return out;
   }
-  return voices.find(v => fr(v) && femme.test(v.name) && !homme.test(v.name))
-      || voices.find(v => fr(v) && !homme.test(v.name))
-      || voices.find(v => fr(v))
-      || null;
+})();
+function saveConfVoix() { try { localStorage.setItem('ij-voix', JSON.stringify(CONF_VOIX)); } catch (e) {} }
+
+let voices = [];
+function rafraichirVoix() {
+  try { voices = (window.speechSynthesis ? speechSynthesis.getVoices() : []) || []; } catch (e) { voices = []; }
+  return voices;
+}
+rafraichirVoix();
+if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = rafraichirVoix;
+
+// Le saut de qualité s'appelle « natural » : les voix neuronales de Windows/Edge portent ce mot
+// dans leur nom. Rien n'est inventé — si aucune n'est là, on prend la mieux notée des voix locales.
+// GENRE : Onyx et Aegis sont des hommes, Aelyra et Jeanette des femmes. Une voix ne porte son
+// genre que dans son nom ; si le navigateur n'a qu'une voix de femme, on le DIT au lieu de faire
+// semblant que le poste d'attaque a une voix d'homme.
+const GENRE_ATTENDU = { aelyra: 'f', jeanette: 'f', onyx: 'm', aegis: 'm', business: 'f', autre: '?' };
+const GENRE_MASCU = /(?:^|[^\p{L}])(paul|henri|thomas|antoine|rene|renee|claude|bernard|marc|jean|nicolas|david|mark|james|daniel|georges?|fred|conrad|erwan|matteo|diego|carlos|michel|pablo|remy|male|homme|man|guy)(?![\p{L}])/iu;
+const GENRE_FEMIN = /(?:^|[^\p{L}])(julie|denise|audrey|amelie|virginie|celine|marie|vivienne|charline|eloise|suzette|chantal|nadia|hortense|zira|colette|marta|ines|inés|leah|heidi|aria|jenny|susan|linda|sandy|kate|catherine|sonia|female|femme|woman|amethyst)(?![\p{L}])/iu;
+function genreDe(v) {
+  const n = String((v && v.name) || '');
+  const m = GENRE_MASCU.test(n), f = GENRE_FEMIN.test(n);
+  if (m && !f) return 'm';
+  if (f && !m) return 'f';
+  return '?';
+}
+function noteVoix(v, baseLangue, attendu) {
+  const n = String(v.name || '');
+  let s = 0;
+  if (/natural|neural|neuronal/i.test(n)) s += 25;   // une voix neuronale passe devant une classique
+                                                     // DU MÊME genre : un homme ne prend pas une voix de femme
+  if (/^(?:Microsoft\s+)?(?:julie|paul|denise|henri|eloise|audrey|michelle|thomas|nicole|vivienne|sylvie|remy|jacques|alfred|serge|colette|marta|leah|conrad|catarina|aria|guy)/i.test(n)) s += 16;
+  if (/hortense|zira|david|mark|hector|pablo|linda|carlos/i.test(n)) s -= 6;
+  if (v.localService) s += 5;
+  if (String(v.lang || '').toLowerCase().indexOf(baseLangue) === 0) s += 14;
+  if (/^fr/i.test(String(v.lang || ''))) s += 2;
+  if (v.default) s += 3;
+  if (attendu && attendu !== '?') {
+    const g = genreDe(v);
+    if (g === attendu) s += 22;
+    else if (g !== '?') s -= 18;
+  }
+  return s;
+}
+function voixPour(langue, parlence) {
+  rafraichirVoix();
+  const cfg = CONF_VOIX[parlence] || CONF_VOIX.aelyra;
+  const cle = String(cfg.voix || '');
+  if (cle) {
+    const exacte = voices.find(v => (v.voiceURI === cle) || (v.name === cle));
+    if (exacte) return exacte;   // la voix choisie a peut-être disparu : on retombe sur l'automatique
+  }
+  const base = String(langue || 'fr').toLowerCase().slice(0, 2);
+  const dansLaLangue = voices.filter(v => String(v.lang || '').toLowerCase().indexOf(base) === 0);
+  const repli = dansLaLangue.length ? dansLaLangue : voices.filter(v => String(v.lang || '').toLowerCase().indexOf('fr') === 0);
+  const pool = repli.length ? repli : voices;
+  if (!pool.length) return null;
+  const attendu = GENRE_ATTENDU[parlence] || '?';
+  return pool.slice().sort((a, b) => noteVoix(b, base, attendu) - noteVoix(a, base, attendu))[0];
+}
+
+// ---------- Gestion de la langue ----------
+const MOTS_LANGUE = {
+  'fr-FR': ['le', 'la', 'les', 'des', 'une', 'un', 'est', 'sont', 'vous', 'nous', 'pour', 'avec', 'sur', 'dans', 'votre', 'notre', 'cette', 'ce', 'je', 'que', 'qui', 'quoi', 'comment', 'voici', 'apres', 'avant', 'tres', 'bien', 'aussi', 'toujours', 'jamais', 'fait', 'porte', 'adresse', 'fiche', 'scan', 'rapport', 'd’Isaac', 'Isaac'],
+  'en-US': ['the', 'and', 'is', 'are', 'you', 'your', 'with', 'for', 'that', 'this', 'from', 'have', 'has', 'not', 'will', 'would', 'could', 'about', 'there', 'their', 'which', 'what', 'when', 'where', 'please', 'report', 'server', 'found', 'risk', 'open', 'host'],
+  'es-ES': ['el', 'los', 'las', 'una', 'que', 'por', 'con', 'para', 'esta', 'son', 'muy', 'como', 'tiene', 'nuestro', 'gracias'],
+  'de-DE': ['der', 'die', 'das', 'und', 'ist', 'nicht', 'mit', 'auch', 'werden', 'kann', 'dieses', 'sie'],
+  'it-IT': ['il', 'gli', 'che', 'per', 'con', 'questa', 'sono', 'molto', 'come', 'grazie'],
+  'pt-BR': ['uma', 'que', 'com', 'para', 'esta', 'sao', 'muito', 'como', 'nao', 'obrigado']
+};
+function detecterLangue(t) {
+  const mots = String(t || '').toLowerCase().split(/[^a-zà-ÿ’]+/).filter(Boolean);
+  if (!mots.length) return 'fr-FR';
+  const scores = {};
+  for (const code in MOTS_LANGUE) scores[code] = 0;
+  for (const w of mots) { for (const code in MOTS_LANGUE) { if (MOTS_LANGUE[code].indexOf(w) !== -1) scores[code]++; } }
+  let best = 'fr-FR', bestN = scores['fr-FR'] || 0;
+  for (const code in scores) {
+    if (code === 'fr-FR') continue;
+    if (scores[code] >= 3 && scores[code] > bestN) { best = code; bestN = scores[code]; }
+  }
+  return best;
+}
+function languesDisponibles() {
+  rafraichirVoix();
+  const set = {};
+  for (const v of voices) { const c = String(v.lang || '').slice(0, 5); if (c) set[c] = (set[c] || 0) + 1; }
+  return Object.keys(set).sort().map(c => ({ code: c, nb: set[c] }));
+}
+
+// ---------- Ce qui doit être PRONONCÉ, pas affiché ----------
+function textePrononçable(t) {
+  let s = speechClean(t);
+  s = s.replace(/\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b/gi, (m) => m ? 'une adresse reseau' : m);
+  s = s.replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, '$1, $2, $3, $4');
+  s = s.replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, '$1, $2, $3');
+  s = s.replace(/\b\d+[-.]\d+[-.]\d+\.\d+\b/g, 'une plage d adresses');
+  s = s.replace(/\b(\d+)\/(?:tcp|udp)\b/gi, '$1');
+  s = s.replace(/sha-?\s?256/gi, 'cha');
+  s = s.replace(/\b([0-9a-f]{12,})\b/gi, 'une empreinte');
+  s = s.replace(/\b(\d+),(\d+)\b/g, '$1 virgule $2');
+  s = s.replace(/[«»]/g, ' ');
+  s = s.replace(/\\/g, ' ');
+  s = s.replace(/\blocalhost\b/gi, 'lo kal host');
+  s = s.replace(/\s{2,}/g, ' ').trim();
+  return s;
+}
+// Découpe sur les vraies respirations, jamais au milieu d'un mot : c'est ce qui remplace la
+// lecture coupée nette au bout de quinze secondes. Une phrase n'est JAMAIS collée à une phrase
+// d'une autre langue : sinon un paragraphe anglais noie le français et la voix se trompe.
+function decouper(t, max) {
+  const phrases = String(t).match(/[^.!?…\n]+[.!?…]*/g) || [];
+  const out = [];
+  let courant = '';
+  let langueCourante = null;
+  const pousser = () => { if (courant) { out.push(courant); courant = ''; langueCourante = null; } };
+  for (let ph of phrases) {
+    ph = String(ph || '').trim();
+    if (!ph) continue;
+    const languePhrase = detecterLangue(ph);
+    if (courant && langueCourante && languePhrase !== langueCourante) pousser();
+    let garde = 0;
+    while (ph.length > max && garde++ < 40) {
+      let coupe = ph.lastIndexOf(',', max);
+      if (coupe < Math.floor(max * 0.45)) coupe = ph.lastIndexOf(' ', max);
+      if (coupe < Math.floor(max * 0.45)) coupe = max;
+      const tete = ph.slice(0, coupe + 1).trim();
+      pousser();
+      if (tete) out.push(tete);
+      ph = ph.slice(coupe + 1).trim();
+    }
+    if (!ph) continue;
+    if (courant && (courant + ' ' + ph).length > max) pousser();
+    courant = (courant ? courant + ' ' : '') + ph;
+    if (!langueCourante) langueCourante = languePhrase;
+  }
+  pousser();
+  return out.length ? out : [String(t)];
+}
+
+// ---------- La file de parole ----------
+let VOIX_SESSION = 0;
+let VOIX_GARDIEN = null;
+function couperVoix() {
+  VOIX_SESSION++;
+  if (VOIX_GARDIEN) { clearInterval(VOIX_GARDIEN); VOIX_GARDIEN = null; }
+  try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch (e) {}
+  isSpeaking = false;
+}
+function borner(v, min, max, defaut) {
+  const n = Number(v);
+  if (!isFinite(n)) return defaut;
+  return Math.min(max, Math.max(min, n));
+}
+function dire(texte, parlence, opts) {
+  const qui = (parlence && PARLENCE_LABEL[parlence]) ? parlence : (agentActif || 'aelyra');
+  return new Promise((resolve) => {
+    const finirSilencieusement = () => {
+      setState(null, wakeMode ? veilleMsg(qui) : 'En attente de vos ordres, Isaac');
+      resolve();
+    };
+    if (!sonOn || !('speechSynthesis' in window)) return finirSilencieusement();
+    const brut = String(texte || '').replace(/<[^>]*>/g, ' ').trim();
+    if (!brut) return finirSilencieusement();
+    const cfg = CONF_VOIX[qui] || CONF_VOIX.aelyra;
+    const morsaux = decouper(textePrononçable(brut), (opts && opts.max) || 210);
+    couperVoix();
+    const session = ++VOIX_SESSION;
+    let i = 0;
+    isSpeaking = true;
+    setState('speaking', qui === 'autre' ? 'LE CERVEAU INVITÉ PARLE…'
+      : ((AGENT_LABEL[qui] || (PARLENCE_LABEL[qui] || 'Aelyra').split(' —')[0]).toUpperCase() + ' PARLE…'));
+    // Chromium peut endormir une longue lecture sans raison : un resume périodique la tient éveillée.
+    VOIX_GARDIEN = setInterval(() => {
+      try { if (speechSynthesis.speaking && !speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {}
+    }, 8000);
+    function cloturer(coupee) {
+      if (VOIX_GARDIEN) { clearInterval(VOIX_GARDIEN); VOIX_GARDIEN = null; }
+      isSpeaking = false;
+      if (coupee) resolve();
+      else finirSilencieusement();
+    }
+    function suivant() {
+      if (session !== VOIX_SESSION || !sonOn) return cloturer(true);
+      if (i >= morsaux.length) return cloturer(false);
+      const morceau = morsaux[i++];
+      const u = new SpeechSynthesisUtterance(morceau);
+      const langue = (cfg.langue && cfg.langue !== 'auto') ? cfg.langue : detecterLangue(morceau);
+      u.lang = langue;
+      const v = voixPour(langue, qui);
+      if (v) u.voice = v;
+      u.rate = borner(cfg.debit, 0.6, 1.7, 1);
+      u.pitch = borner(cfg.hauteur, 0, 2, 1);
+      u.volume = 1;
+      let regle = false;
+      const uneFois = (fn, delai) => { if (regle) return; regle = true; setTimeout(fn, delai); };
+      u.onend = () => uneFois(suivant, 80);
+      u.onerror = (e) => {
+        const code = String((e && (e.error || e.code)) || '');
+        if (code === 'interrupted' || code === 'canceled') uneFois(() => cloturer(true), 0);
+        else uneFois(suivant, 140);
+      };
+      try { speechSynthesis.speak(u); } catch (e) { uneFois(suivant, 140); }
+    }
+    suivant();
+  });
+}
+function parlerExemple(parlence) {
+  const cfg = CONF_VOIX[parlence] || CONF_VOIX.aelyra;
+  const langue = (cfg.langue && cfg.langue !== 'auto') ? cfg.langue : 'fr-FR';
+  const textes = {
+    'fr-FR': 'Isaac, la voie est libre. J’ai lancé le balayage sur 192.168.1.10, port 22 ouvert, et le rapport est gravé dans le journal.',
+    'en-US': 'Isaac, the lane is free. I started the scan on 192.168.1.10, port 22 open, and the report is written to the journal.',
+    'es-ES': 'Isaac, el camino está libre. Inicié el análisis en 192.168.1.10, puerto 22 abierto, y el informe está en el registro.',
+    'de-DE': 'Isaac, die Bahn ist frei. Ich habe den Scan auf 192.168.1.10 gestartet, Port 22 offen, der Bericht liegt im Protokoll.',
+    'it-IT': 'Isaac, la corsia è libera. Ho avviato la scansione su 192.168.1.10, porta 22 aperta, il rapporto è nel registro.',
+    'pt-BR': 'Isaac, a via está livre. Iniciei a varredura em 192.168.1.10, porta 22 aberta, o relatório está no diário.'
+  };
+  return dire(textes[langue] || textes['fr-FR'], parlence);
 }
 
 function speak(text, agent) {
-  return new Promise((resolve) => {
-    // Son coupé : la réponse s'affiche à l'écran, aucune voix — mais l'UI reste cohérente
-    if (!sonOn || !('speechSynthesis' in window)) {
-      setState(null, wakeMode ? veilleMsg(agent) : 'En attente de vos ordres, Isaac');
-      return resolve();
-    }
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(speechClean(text));
-    u.lang = 'fr-FR';
-    const v = pickFrenchVoice(agent === 'onyx' || agent === 'aegis');
-    if (v) u.voice = v;
-    if (agent === 'jeanette') { u.rate = 0.97; u.pitch = 0.88; } // Jeanette : voix plus grave, posée — la développeuse
-    else if (agent === 'onyx') { u.rate = 0.92; u.pitch = 0.55; }  // Onyx : voix d'homme, lente et basse — le black hat
-    else if (agent === 'aegis') { u.rate = 0.98; u.pitch = 0.72; } // Aegis : voix d'homme, posée — le mentor défensif
-    else if (agent === 'autre') { u.rate = 1.07; u.pitch = 1.22; } // Agente libre du réseau : timbre décalé, clairement une étrangère
-    else { u.rate = 1.02; u.pitch = 1.05; }                    // Aelyra : timbre haut, voix de femme
-    isSpeaking = true;
-    setState('speaking', agent === 'autre' ? 'L\'AGENTE DU RÉSEAU répond...' : ((AGENT_LABEL[agent] || 'AELYRA') + ' répond...'));
-    u.onend = u.onerror = () => {
-      isSpeaking = false;
-      setState(null, wakeMode ? veilleMsg(agent) : 'En attente de vos ordres, Isaac');
-      resolve();
-    };
-    speechSynthesis.speak(u);
-  });
+  return dire(text, agent);
 }
+
+// ---------- Panneau des voix : l'état réel de CE PC, à l'écran ----------
+// Nothing invented here: the list comes from speechSynthesis.getVoices() of the browser that is
+// open, so what Isaac sees is what his machine can actually do — and what it cannot (voir la ligne
+// « voix neuronales »). Les réglages sont gardés dans localStorage, pas sur le serveur : c'est le
+// navigateur qui parle, pas le cerveau.
+const voixBtn = document.getElementById('voixBtn');
+const voixPanneau = document.getElementById('voixPanneau');
+const LANGUES_DICTEE = ['fr-FR', 'en-US', 'es-ES', 'de-DE', 'it-IT', 'pt-BR'];
+let LANGUE_DICTEE = 'fr-FR';
+try { LANGUE_DICTEE = localStorage.getItem('ij-dictee') || 'fr-FR'; } catch (e) {}
+function appliquerLangueDictee() {
+  try { if (recognition) recognition.lang = LANGUE_DICTEE; } catch (e) {}
+}
+function estNeuronale(v) { return /natural|neural|neuronal/i.test(String(v && v.name || '')); }
+function cleVoix(v) { return String((v && (v.voiceURI || v.name)) || ''); }
+function etiquetteVoix(v) {
+  const g = genreDe(v);
+  return String(v.name || 'sans nom') + ' [' + String(v.lang || '?')
+    + (g === 'm' ? ' · homme' : g === 'f' ? ' · femme' : '') + ']'
+    + (estNeuronale(v) ? ' · neuronal' : ' · voix classique')
+    + (v.localService ? '' : ' · via le réseau');
+}
+function infoVoixRetenue(parlence) {
+  const cfg = CONF_VOIX[parlence] || CONF_VOIX.aelyra;
+  const base = (cfg.langue && cfg.langue !== 'auto') ? cfg.langue : 'fr-FR';
+  const v = voixPour(base, parlence);
+  if (!v) return 'AUCUNE voix installée du tout sur ce navigateur : la réponse s’affiche à l’écran, rien n’est lu.';
+  const fixe = cfg.voix ? 'choisie par vous' : 'automatique (la meilleure)';
+  const attendu = GENRE_ATTENDU[parlence] || '?';
+  const base2 = base.slice(0, 2);
+  let alerte = '';
+  if (attendu !== '?') {
+    const dansLaLangue = voices.filter(x => String(x.lang || '').toLowerCase().indexOf(base2) === 0);
+    const ceQuIlFaut = dansLaLangue.filter(x => genreDe(x) === attendu);
+    if (!ceQuIlFaut.length && genreDe(v) !== attendu) {
+      alerte = ' · ALERTE : aucune voix d’' + (attendu === 'm' ? 'homme' : 'femme') + ' en ' + base + ' sur ce navigateur — la voix de remplacement n a pas le bon genre, choisissez-en une ou ajoutez une voix dans Windows.';
+    }
+  }
+  return 'retient : ' + v.name + ' [' + v.lang + ' · ' + (genreDe(v) === 'm' ? 'homme' : genreDe(v) === 'f' ? 'femme' : 'genre inconnu') + ']'
+    + (estNeuronale(v) ? ' · neuronal' : ' · voix classique') + ' — ' + fixe + alerte;
+}
+function rendrePanneauVoix() {
+  if (!voixPanneau) return;
+  rafraichirVoix();
+  const langues = languesDisponibles();
+  const neuronales = voices.filter(estNeuronale);
+  const meilleure = voixPour('fr-FR', 'aelyra');
+  let h = '';
+  h += '<div class="voix-tete"><span class="voix-titre">LA VOIX — ce que ce navigateur expose réellement</span>'
+    + '<button type="button" class="voix-x" id="voixFermer" title="Fermer">✕</button></div>';
+  h += '<div class="voix-etat">';
+  h += '<span class="voix-chiffre">' + voices.length + ' voix · ' + langues.length + ' langue' + (langues.length > 1 ? 's' : '') + '</span>';
+  h += '<span class="voix-tag ' + (neuronales.length ? 'ok' : 'warn') + '">voix neuronales : '
+    + (neuronales.length ? neuronales.length + ' disponibles (' + neuronales.slice(0, 3).map(v => v.name).join(', ') + ')' : 'AUCUNE sur cette machine') + '</span>';
+  h += '<span class="voix-tag">hommes disponibles : ' + (voices.filter(v => genreDe(v) === 'm').length) + ' · femmes : ' + (voices.filter(v => genreDe(v) === 'f').length) + '</span>';
+  h += '<span class="voix-tag">meilleure pour le français : ' + (meilleure ? meilleure.name + ' [' + meilleure.lang + ']' + (estNeuronale(meilleure) ? ' · neuronal' : ' · classique') : 'rien') + '</span>';
+  h += '</div>';
+  h += '<div class="voix-dictee"><label>Langue du micro (dictée) <select id="voixDictee">'
+    + LANGUES_DICTEE.map(c => '<option value="' + c + '"' + (c === LANGUE_DICTEE ? ' selected' : '') + '>' + c + '</option>').join('')
+    + '</select></label><small>Le micro peut écouter en anglais ou en espagnol ; en revanche le cerveau ne comprend vos ORDRES qu en français. La lecture des réponses, elle, suit la langue de chaque phrase (voir chaque ligne).</small></div>';
+  for (const p of PARLENCES) {
+    const cfg = CONF_VOIX[p];
+    const optsLangue = ['<option value="auto"' + (cfg.langue === 'auto' ? ' selected' : '') + '>auto (suivant la phrase)</option>']
+      .concat(langues.map(l => '<option value="' + l.code + '"' + (cfg.langue === l.code ? ' selected' : '') + '>' + l.code + ' (' + l.nb + ')</option>'))
+      .join('');
+    const base = (cfg.langue && cfg.langue !== 'auto') ? cfg.langue.slice(0, 2) : 'fr';
+    const attendu = GENRE_ATTENDU[p] || '?';
+    const dansLangue = voices.filter(v => String(v.lang || '').toLowerCase().indexOf(base) === 0);
+    const pool = (dansLangue.length ? dansLangue : voices).slice().sort((a, b) => noteVoix(b, base, attendu) - noteVoix(a, base, attendu));
+    const optsVoix = ['<option value=""' + (cfg.voix ? '' : ' selected') + '>automatique — la meilleure</option>']
+      .concat(pool.map(v => '<option value="' + cleVoix(v).replace(/"/g, '&quot;') + '"' + (cfg.voix === cleVoix(v) ? ' selected' : '') + '>' + etiquetteVoix(v) + '</option>'))
+      .join('');
+    h += '<div class="voix-ligne" data-p="' + p + '">'
+      + '<span class="voix-nom">' + PARLENCE_LABEL[p] + '</span>'
+      + '<span class="voix-champs">'
+      + '<select class="v-langue" data-p="' + p + '" title="Langue lue">' + optsLangue + '</select>'
+      + '<select class="v-voix" data-p="' + p + '" title="Voix">' + optsVoix + '</select>'
+      + '<label class="v-reglage">débit<input type="range" class="v-debit" data-p="' + p + '" min="0.6" max="1.7" step="0.01" value="' + cfg.debit + '"><b class="v-debit-n">' + Number(cfg.debit).toFixed(2) + '</b></label>'
+      + '<label class="v-reglage">timbre<input type="range" class="v-hauteur" data-p="' + p + '" min="0" max="2" step="0.01" value="' + cfg.hauteur + '"><b class="v-hauteur-n">' + Number(cfg.hauteur).toFixed(2) + '</b></label>'
+      + '<button type="button" class="v-ecouter" data-p="' + p + '">▶ écouter</button>'
+      + '</span>'
+      + '<span class="v-info" data-p="' + p + '">' + infoVoixRetenue(p) + '</span>'
+      + '</div>';
+  }
+  h += '<div class="voix-pied">'
+    + '<button type="button" id="voixDefaut" class="voix-sec">revenir aux réglages d’origine</button>'
+    + '<button type="button" id="voixStop" class="voix-sec">couper la voix maintenant</button>'
+    + '<small>Ajouter des voix : Paramètres Windows → Heure et langue → Voix → « Ajouter des voix » (téléchargement de plusieurs centaines de Mo — vérifiez votre espace disque avant). Ce panneau ne prétend jamais qu une voix existe si ce navigateur ne la liste pas.</small>'
+    + '</div>';
+  voixPanneau.innerHTML = h;
+
+  const f = (sel) => voixPanneau.querySelector(sel);
+  const tout = (sel) => Array.prototype.slice.call(voixPanneau.querySelectorAll(sel));
+  const fermer = f('#voixFermer'); if (fermer) fermer.onclick = () => { voixPanneau.hidden = true; };
+  const dictee = f('#voixDictee');
+  if (dictee) dictee.onchange = () => {
+    LANGUE_DICTEE = dictee.value;
+    try { localStorage.setItem('ij-dictee', LANGUE_DICTEE); } catch (e) {}
+    appliquerLangueDictee();
+    addMsg('Aelyra', 'Le micro écoute désormais en ' + LANGUE_DICTEE + ', Isaac. Vos ordres restent en français.');
+  };
+  tout('.v-langue').forEach(s => { s.onchange = () => {
+    const p = s.dataset.p; CONF_VOIX[p].langue = s.value; saveConfVoix(); rendrePanneauVoix();
+  }; });
+  tout('.v-voix').forEach(s => { s.onchange = () => {
+    const p = s.dataset.p; CONF_VOIX[p].voix = s.value; saveConfVoix(); rendrePanneauVoix();
+  }; });
+  tout('.v-debit').forEach(r => { r.oninput = () => {
+    const p = r.dataset.p; CONF_VOIX[p].debit = Number(r.value);
+    const lbl = voixPanneau.querySelector('.voix-ligne[data-p="' + p + '"] .v-debit-n');
+    if (lbl) lbl.textContent = Number(r.value).toFixed(2);
+  }; r.onchange = () => { saveConfVoix(); }; });
+  tout('.v-hauteur').forEach(r => { r.oninput = () => {
+    const p = r.dataset.p; CONF_VOIX[p].hauteur = Number(r.value);
+    const lbl = voixPanneau.querySelector('.voix-ligne[data-p="' + p + '"] .v-hauteur-n');
+    if (lbl) lbl.textContent = Number(r.value).toFixed(2);
+  }; r.onchange = () => { saveConfVoix(); }; });
+  tout('.v-ecouter').forEach(b => { b.onclick = () => {
+    const p = b.dataset.p;
+    if (!sonOn) { addMsg('Aelyra', 'Le son est coupé, Isaac. Rouvrez-le avec le haut-parleur en haut à droite, puis réessayez l’écoute.'); return; }
+    couperVoix();
+    parlerExemple(p);
+  }; });
+  const def = f('#voixDefaut');
+  if (def) def.onclick = () => {
+    for (const p of PARLENCES) CONF_VOIX[p] = Object.assign({}, CONF_VOIX_PAR_DEFAUT[p]);
+    saveConfVoix(); rendrePanneauVoix();
+    addMsg('Aelyra', 'Réglages de voix remis à l’origine, Isaac : automatique, langue suivie, débit et timbre par défaut.');
+  };
+  const stop = f('#voixStop');
+  if (stop) stop.onclick = () => { couperVoix(); setState(null, wakeMode ? veilleMsg(agentActif) : 'En attente de vos ordres, Isaac'); };
+}
+if (voixBtn) {
+  voixBtn.title = 'La voix de chaque agente : la liste réelle, le réglage, l’écoute';
+  voixBtn.onclick = () => {
+    voixPanneau.hidden = !voixPanneau.hidden;
+    if (!voixPanneau.hidden) { rafraichirVoix(); rendrePanneauVoix(); }
+  };
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && voixPanneau && !voixPanneau.hidden) voixPanneau.hidden = true;
+});
+appliquerLangueDictee();
 
 // ---------- Surveillance de la connexion au serveur ----------
 const serverDot = document.getElementById('serverDot');
@@ -666,7 +1021,9 @@ async function processCommand(text) {
       }
       if (data.code) codeGenere = { code: data.code, url: data.fileUrl, file: data.file };
     }
-    if (data.conversation && data.conversation.length) {
+    // ⚠️ « data » est null pour les réponses instantanées (bonjour, l heure, la date, merci) :
+    // sans ce garde, la page plantait sur « data.conversation » et accusait le serveur d être mort.
+    if (data && data.conversation && data.conversation.length) {
       // Séance d'Académie : la table au complet (Aelyra, Jeanette, Onyx, Aegis) et, quand la
       // porte extérieure répond, le cerveau invité — chaque réplique s'affiche aux couleurs de
       // son locuteur et se dit avec SA voix.
@@ -689,9 +1046,16 @@ async function processCommand(text) {
     if (data && data.scenes && data.scenes.length) monterFilm(agent, data.titre || 'film', data.scenes);
     if (!data || !data.conversation) await speak(reply, agent);
   } catch (e) {
+    // Le message ne doit JAMAIS accuser le serveur pour une erreur de la page elle-même : c est
+    // exactement ce que faisait le bug de l'Académie (data null -> « serveur injoignable » alors
+    // que le cerveau répondait très bien). La cause réelle est dite, entre parenthèses.
+    const detail = String((e && (e.message || e)) || 'erreur inconnue').slice(0, 140);
+    const reseau = /fetch|networkerror|failed to fetch|load(ing)? failed/i.test(detail);
     const msg = location.protocol === 'file:'
       ? 'Isaac, vous avez ouvert le fichier index.html directement. Fermez cet onglet, double-cliquez sur ISAAC-IJ.bat, et laissez-vous guider — la bonne adresse est http://localhost:3777'
-      : 'Impossible de contacter mon serveur, Isaac. Vérifiez que la fenêtre noire ISAAC-IJ.bat est toujours ouverte, puis rechargez cette page (F5).';
+      : (reseau
+          ? 'Impossible de contacter mon serveur, Isaac. Vérifiez que la fenêtre noire ISAAC-IJ.bat est toujours ouverte, puis rechargez cette page (F5).'
+          : 'Une erreur dans cette page m empêche de finir, Isaac — le cerveau répond, lui (' + detail + '). Rechargez la page avec F5 et redites l ordre.');
     addMsg('Isaac IA Juniors', msg);
     await speak(location.protocol === 'file:'
       ? 'Isaac, ouvrez-moi avec le fichier ISAAC-IJ point bat, pas en double-cliquant sur la page.'
@@ -704,7 +1068,7 @@ async function processCommand(text) {
 let netErrors = 0, wakePauseUntil = 0;
 if (SpeechRecognition) {
   recognition = new SpeechRecognition();
-  recognition.lang = 'fr-FR';
+  recognition.lang = LANGUE_DICTEE;
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
   recognition.continuous = false;
@@ -769,6 +1133,9 @@ if (SpeechRecognition) {
 
 function startListening(silent) {
   if (!recognition || isListening) return;
+  // Isaac qui reprend la parole pendant qu une agente parle : la voix se tait tout de suite,
+  // sans attendre la fin du rapport. C'est la gestion de communication, pas un artifice.
+  if (isSpeaking && !processing) couperVoix();
   try {
     recognition.start();
     isListening = true;
