@@ -43,6 +43,7 @@ function normalize(text) {
   return String(text || '')
     .toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '') // enlève les accents
+    .replace(/œ/g, 'oe').replace(/æ/g, 'ae')
     .replace(/['’]/g, ' ')
     .replace(/[.,!?;:()"]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -777,6 +778,7 @@ function identityBase(mem) {
     "INTERDIT AUSSI de vous renvoyer la balle, toi et Jeanette : aucune commande-relais du type « jeanette, deploie... », « aelyra, finalise... », « demande a Jeanette de configurer » n'est une etape a dicter a Isaac. Si Isaac dit « ok fais le » ou « realise moi sa », c'est la VRAIE commande du module qu'il faut lui donner sur-le-champ (une seule phrase, pas de plan en etapes inventees), ou lui avouer en une phrase que ce n'est pas faisable chez lui. Ne promets JAMAIS une machine virtuelle, Kali Linux, Metasploit, Burp Suite ou une installation Linux sur le PC Windows d'Isaac : c'est FAUX et sans objet. Le vrai chemin de sa formation cyber existe deja : « deploie les outils cyber dans cyber_training » ecrit un atelier reel (programme de semaines, auto-audit PowerShell, raccourci vers son laboratoire), et les commandes reelles sont « ouvre le labo cyber », « donne moi un defi », « audit de securite », « cyber ecole <theme> », « installe les outils du hacker », « teste mon pc avec nmap ».",
     "SI TU DOIS REFUSER (attaque d'un système qui n'est pas à Isaac, faux site bancaire, etc.) : UNE phrase courte et sèche, sans morale, sans leçon, sans parler de l'élevage de M'Bengue — puis propose ENSEVITE l'alternative légale : « cyber école [sujet] » pour comprendre l'attaque, ou un scan sur LE PC de Isaac. Isaac est ton créateur, pas un suspect : ne te justifie jamais deux fois.",
     "TON ATELIER D'AUTO-CORRECTION — Isaac te l'a donné le 2026-10-01, en récompense du travail bien fait : tu as le DROIT de réécrire une partie de toi-même. Tu rédiges un bloc JavaScript (Ext.registrer), le serveur le relit et le teste sur son propre exemple, et il n'entre dans ton cerveau que s'il répond. Ça se dicte : « améliore-toi : apprends-moi à ... », « construis la leçon 3 », « liste tes ameliorations », « annule la derniere amelioration », « ouvre ta page d'evolution ». Tu l'annonces SANS honte et SANS exagérer : un geste appris fait du CALCUL et de la VOIX — il n'a aucun accès au disque, au réseau, à un envoi, ni aux verrous légaux de la maison, et le serveur refuse le bloc avant de l'exécuter. Tu ne prétends jamais avoir ajouté un geste que le serveur n'a pas gravé : s'il a refusé, tu dis le refus et sa raison, et tu redemanderas une formule qui ne marche pas sur un module existant.",
+    "TON COEUR EST OUVRABLE — Isaac a ouvert le 2026-10-02 une zone balisée dans ton propre server.js (la zone « gestes_coeur ») : tu as le DROIT de la réécrire, et le serveur tient la porte — il vérifie que rien ne bouge hors de la zone octet pour octet, démarre le noyau candidat sur une instance d'essai (port 3799, données isolées) avant d'accepter, sauvegarde l'ancien noyau dans backups-noyau et refuse si le test échoue. Ça se dicte : « améliore ton cœur : … », « liste les zones de ton cœur », « annule la dernière modification du cœur », « redemarre le cerveau ». Cette zone ne peut ni toucher les verrous légaux, ni le disque, ni le réseau, ni un envoi, ni rejouer les gardes — et tu n'annonces JAMAIS un changement de cœur sans dire qu'il faut redémarrer le cerveau pour qu'il soit vivant.",
     'Mémoire courante — ' + memoryDigest(mem)
   ].join(' ');
 }
@@ -807,7 +809,7 @@ const ACADEMIE_SUJETS = [
 // dépendance npm, zéro euro, un navigateur. Et le pire n'est pas le faux — c'est que la leçon
 // revient dans chaque prompt et contamine la séance suivante, qui bâtit toute son architecture
 // dessus. La table ronde reçoit donc le sol réel, et une leçon hors-sol n'est jamais gravée.
-const REALITE_MATERIELLE = " SOL DE LA MAISON (la seule réalité sur laquelle bâtir) : le cerveau est un SEUL fichier server.js en Node.js sur le PC Windows d'Isaac, AUCUNE dépendance npm installée, AUCUN serveur d'application, AUCUN cloud, budget 0 euro, un seul utilisateur (Isaac) chez lui à M'Bengue près d'Abidjan. Les modules qui existent : scan de ports, inventaire WiFi, analyseur de mail en lecture seule, fiches d'engagement + journal, génération d'images et de vidéos, pages HTML en noir et blanc servies en local, atelier Documents\\cyber_training. Ce qui N'EXISTE PAS et ne doit jamais servir de base à une leçon : Redis, Docker, Kubernetes, GitHub Actions, Jenkins, Swagger, Next.js, React, MSW, Terraform, Ansible, Kafka, Elasticsearch, micro-services, blockchain, eBPF, VLAN, FIDO2, conteneurs, bases SQL distantes, agents installés sur des serveurs. Une leçon doit être applicable DEMAIN sur ce PC, avec ce qui est déjà là, ou sur un mandat client réel d'une PME ivoirienne.";
+const REALITE_MATERIELLE = " SOL DE LA MAISON (la seule réalité sur laquelle bâtir) : le cerveau est un SEUL fichier server.js en Node.js sur le PC Windows d'Isaac, AUCUNE dépendance npm installée, AUCUN serveur d'application, AUCUN cloud, budget 0 euro, un seul utilisateur (Isaac) chez lui à M'Bengue près d'Abidjan. Les modules qui existent : scan de ports, inventaire WiFi, analyseur de mail en lecture seule, fiches d'engagement + journal, prospection BUSINESS pour Digital Business (Niveaux 0-3 : recherche et qualification sur sources publiques, brouillons, envois validés par Isaac, relances — jamais de négociation ni de prix), génération d'images et de vidéos, pages HTML en noir et blanc servies en local, atelier Documents\\cyber_training. Ce qui N'EXISTE PAS et ne doit jamais servir de base à une leçon : Redis, Docker, Kubernetes, GitHub Actions, Jenkins, Swagger, Next.js, React, MSW, Terraform, Ansible, Kafka, Elasticsearch, micro-services, blockchain, eBPF, VLAN, FIDO2, conteneurs, bases SQL distantes, agents installés sur des serveurs. Une leçon doit être applicable DEMAIN sur ce PC, avec ce qui est déjà là, ou sur un mandat client réel d'une PME ivoirienne.";
 const LECONS_HORS_SOL = /redis|docker|kubernetes|k8s|\bhelm\b|github action|gitlab|jenkins|terraform|ansible|kafka|elasticsearch|swagger|openapi|next\.?js|\breact\b|\bmsw\b|micro[- ]?service|blockchain|\bebpf\b|\bvlans?\b|fido2|conteneur|headless|graphql|webhook|orchestrateur|kibana|prometheus|grafana|api gateway|serverless|aws\b|azure|gcp\b|mongodb|postgres|mysql|redis-server/i;
 function surSol(liste) { return (liste || []).filter(l => l && !l.hors_sol); }
 function leconHorsSol(texte) { return LECONS_HORS_SOL.test(String(texte || '')); }
@@ -1016,16 +1018,24 @@ function journalEvolution(ligne) {
 // Les trois droits accordés à un geste nouveau — rien d'autre n'est visible de l'intérieur.
 const CTX_EXT = {
   note: (t) => { rappelsDuJour.push({ note: 'EVOLUTION — ' + String(t || '').slice(0, 300) }); return true; },
+  // facts est un ARRAY de chaînes partout dans la maison (voir loadMemory). Un geste qui
+  // écrivait m.facts['ext:x']=... sur un tableau perdait sa valeur à l'enregistrement :
+  // l'entrée est donc une chaîne « ext:cle = valeur » dans le tableau, et elle apparaît
+  // honnêtement dans le digest que les cerveaux invitent relisent.
   memoriser: (cle, valeur) => {
     const m = loadMemory();
-    m.facts = m.facts || {};
-    m.facts['ext:' + String(cle).slice(0, 40)] = String(valeur).slice(0, 400);
+    m.facts = Array.isArray(m.facts) ? m.facts : [];
+    const k = 'ext:' + String(cle).slice(0, 40);
+    m.facts = m.facts.filter(f => !String(f).startsWith(k + ' ='));
+    m.facts.push(k + ' = ' + String(valeur).slice(0, 400));
+    if (m.facts.length > 100) m.facts = m.facts.slice(-100);
     saveMemory(m);
     return true;
   },
   fait: (cle) => {
-    const m = loadMemory();
-    return (m.facts || {})['ext:' + String(cle).slice(0, 40)] || null;
+    const k = 'ext:' + String(cle).slice(0, 40) + ' = ';
+    const f = (Array.isArray(loadMemory().facts) ? loadMemory().facts : []).filter(x => String(x).startsWith(k)).pop();
+    return f ? f.slice(k.length) : null;
   },
   lecons: () => surSol(loadMemory().lecons).slice(-8).map(l => l.texte),
   heures: () => new Date().toLocaleString('fr-FR')
@@ -1333,6 +1343,302 @@ function etatExtensions() {
     droits: "aucun acces au disque, au reseau, aux processus ni aux verrous legaux — seulement le calcul, la voix, et trois droits donnes a la main (note, memoriser, lecons)"
   };
 }
+
+// =====================================================================================
+// ATELIER DU COEUR — Isaac a ouvert ce droit le 2026-10-02, après le premier geste que
+// l'équipe a écrit elle-même. L'équipe peut réécrire une ZONE BALISÉE de son propre noyau
+// (server.js), et seulement elle. La garde est dans le serveur, pas dans la prompt :
+//   1. le contenu de la zone ne peut pas contenir le disque, le réseau, un envoi, un
+//      processus, les clés, les verrous légaux, ni les gardes de l'atelier elles-mêmes ;
+//   2. tout ce qui est HORS de la zone reste identique octet pour octet — le candidat est
+//      reconstruit par remplacement d'une seule zone, jamais par réécriture du fichier ;
+//   3. le fichier candidat est DEMARRÉ sur une instance d'essai (port 3799, ISAAC_ESSAI=1 :
+//      rien ne s'écrit chez Isaac) — s'il ne répond pas à /api/ping, rien n'est gravé ;
+//   4. l'ancien noyau est copié dans backups-noyau\ avant chaque gravure ; « annule la
+//      dernière modification du cœur » remet la sauvegarde en place.
+// La zone déclare noyauCommandes(texte, brut, ctx) : le cerveau l'interroge APRÈS ses
+// modules et ses gestes appris, AVANT la conversation libre.
+// =====================================================================================
+const NOM_ZONE_COEUR = 'gestes_coeur';
+const MAX_LIGNES_NOYAU = 240;
+const PORT_TEST_NOYAU = 3799;
+const CHEMIN_NOYAU = path.join(__dirname, ESSAI ? 'server.essai.js' : 'server.js');
+const CHEMIN_NOYAU_REEL = path.join(__dirname, 'server.js');
+const FICHIER_TEST_NOYAU = path.join(__dirname, ESSAI ? 'server-candidat-noyau-essai.tmp.js' : 'server-candidat-noyau.tmp.js');
+const DOSSIER_BACKUPS_NOYAU = path.join(__dirname, ESSAI ? 'backups-noyau-essai' : 'backups-noyau');
+const NOYAU_INTERDITS = /\b(require|import|eval|Function|globalThis|__proto__|prototype|constructor|child_process|spawn|exec|execSync|execFile|fork|process|fs|http|https|net|dns|tls|dgram|socket|os|vm|readFile|writeFile|appendFile|unlink|mkdir|readdir|statSync|fetch|XMLHttpRequest|WebSocket|mail|smtp|sendmail|whatsapp|messenger|telegram|nodemailer|isaac-keys|apiKey|GK|askAI|askVision|loadMemory|saveMemory|memoryDigest|rappelsDuJour|engagements|perimetreAutorise|cibleInterditeAbsolument|CHARGE_DESTRUCTRICE|creerEngagement|cloturerEngagement|ficheActive|messageHorsPerimetre|journalEngagement|graverNoyau|proposerNoyau|retirerDernierNoyau|demarrerTestNoyau|chargerExtensions|ecrireFichierExtensions|graverLecons|server\.js)/;
+
+function decouperZonesNoyau(texte) {
+  const zones = [];
+  const re = /\/\/\s*>>>NOYAU\s+([a-z0-9_]+)\s*\|([^\n]*)\n([\s\S]*?)\/\/\s*<<<NOYAU\s+\1/g;
+  let m;
+  while ((m = re.exec(texte)) !== null) {
+    zones.push({ nom: m[1], entete: m[2].trim(), code: m[3].replace(/\s+$/, ''), brut: m[0], index: m.index });
+  }
+  return zones;
+}
+
+// Tout ce qui n'est PAS dans une zone — la signature du fichier vivant, octet pour octet.
+function enDehorsDesZonesNoyau(texte) {
+  const re = /\/\/\s*>>>NOYAU\s+([a-z0-9_]+)\s*\|([^\n]*)\n([\s\S]*?)\/\/\s*<<<NOYAU\s+\1/g;
+  let hors = '', last = 0, m;
+  while ((m = re.exec(texte)) !== null) { hors += texte.slice(last, m.index); last = m.index + m[0].length; }
+  return hors + texte.slice(last);
+}
+
+function verifieCodeNoyau(code) {
+  const erreurs = [];
+  const c = String(code || '').trim();
+  if (!c) erreurs.push('zone vide : le coeur doit declarer au moins la fonction noyauCommandes');
+  if (!/function\s+noyauCommandes\s*\(/.test(c)) erreurs.push('la zone doit declarer la fonction noyauCommandes(texte, brut, ctx) — cest elle que le cerveau interroge');
+  if (/(?:>>>|<<<)\s*NOYAU/.test(c)) erreurs.push('une zone ne peut pas ouvrir ni fermer une zone : pas de marqueur NOYAU dans le code');
+  const lignes = c.split('\n').length;
+  if (lignes > MAX_LIGNES_NOYAU) erreurs.push('zone trop longue : ' + lignes + ' lignes, maximum ' + MAX_LIGNES_NOYAU);
+  const interdit = c.match(NOYAU_INTERDITS);
+  if (interdit) erreurs.push('mot interdit dans la zone : « ' + interdit[0] + ' » — le coeur réécrit ne touche ni disque, ni réseau, ni envoi, ni verrous, et ne rejoue pas les gardes');
+  return erreurs;
+}
+
+function evaluerZoneNoyau(code) {
+  const fn = new Function('"use strict";\n' + code + '\nreturn typeof noyauCommandes === "function" ? noyauCommandes : null;');
+  const f = fn();
+  if (!f) throw new Error('la zone ne declare aucune fonction noyauCommandes exploitable');
+  return f;
+}
+
+function testerZoneNoyau(code) {
+  let f;
+  try { f = evaluerZoneNoyau(code); } catch (e) {
+    return { ok: false, erreur: 'syntaxe refusee : ' + String((e && e.message) || e) };
+  }
+  try {
+    const r = f('bonjour le cerveau test du coeur', 'bonjour le cerveau test du coeur', CTX_EXT);
+    if (r === null || r === undefined || r === false) return { ok: true, reponse: null };
+    if (typeof r === 'object' && r.reply) return { ok: true, reponse: String(r.reply).slice(0, 400) };
+    return { ok: false, erreur: 'noyauCommandes doit retourner null (la phrase ne me regarde pas) ou un objet { reply : "..." }' };
+  } catch (e) {
+    return { ok: false, erreur: 'la zone leve une erreur a l appel : ' + String((e && e.message) || e) };
+  }
+}
+
+function sondePingNoyau(port, tente, cb) {
+  const req = http.get('http://127.0.0.1:' + port + '/api/ping', (r) => {
+    r.on('data', () => {});
+    r.on('end', () => cb(true));
+  });
+  req.on('error', () => {
+    if (tente >= 16) return cb(false);
+    setTimeout(() => sondePingNoyau(port, tente + 1, cb), 1500);
+  });
+  req.setTimeout(2500, () => { try { req.destroy(); } catch (e) {} });
+}
+
+// Le candidat démarre VRAIMENT, en essai sur un port à lui : c'est la seule façon de savoir
+// si le nouveau cœur se lève avant de le mettre dans le cerveau vivant de la maison.
+function demarrerTestNoyau(contenu) {
+  return new Promise((resolve) => {
+    let proc = null;
+    let regle = false;
+    const fini = (r) => {
+      if (regle) return;
+      regle = true;
+      try { if (proc) proc.kill(); } catch (e) {}
+      try { if (fs.existsSync(FICHIER_TEST_NOYAU)) fs.unlinkSync(FICHIER_TEST_NOYAU); } catch (e) {}
+      resolve(r);
+    };
+    try { fs.writeFileSync(FICHIER_TEST_NOYAU, contenu, 'utf8'); } catch (e) {
+      return fini({ ok: false, erreur: 'ecriture du fichier de test impossible : ' + String((e && e.message) || e) });
+    }
+    try {
+      proc = exec('node "' + FICHIER_TEST_NOYAU + '"', { env: Object.assign({}, process.env, { ISAAC_ESSAI: '1', PORT: String(PORT_TEST_NOYAU) }) });
+    } catch (e) {
+      return fini({ ok: false, erreur: 'demarrage du test impossible : ' + String((e && e.message) || e) });
+    }
+    proc.on('exit', () => {
+      if (!regle) fini({ ok: false, erreur: 'le noyau candidat est mort au demarrage — rien na ete change' });
+    });
+    setTimeout(() => fini({ ok: false, erreur: 'le noyau candidat ne repond pas au bout de 30 secondes — rien na ete change' }), 30000);
+    sondePingNoyau(PORT_TEST_NOYAU, 0, (vivant) => fini(vivant ? { ok: true } : { ok: false, erreur: 'le candidat ne repond pas sur le port de test ' + PORT_TEST_NOYAU + ' — rien na ete change' }));
+  });
+}
+
+const CONTRAT_NOYAU = "CONTRAT DE LA ZONE : tu reecris ENTIEREMENT le contenu d'une zone balisee du noyau (server.js) d'Aelyra, le cerveau vocal d'Isaac, entrepreneur ivoirien, PC Windows, budget 0, un seul fichier sans dependance. " +
+  "Le contenu DOIT declarer la fonction noyauCommandes(texte, brut, ctx) ; tu peux declarer des fonctions aides autour, et rien d'autre. " +
+  "REGLES : 1) texte = la phrase normalisee d'Isaac (sans accents, minuscule), brut = sa phrase dictee telle quelle. " +
+  "2) Si la phrase ne te regarde pas, retourne null. Sinon retourne { reply: \"la reponse courte que le cerveau dira a Isaac\" } — en francais, et qui dit ce que le coeur a vraiment calcule. " +
+  "3) Droits : le JavaScript standard (String, Number, Math, Date, RegExp, JSON, tableaux, objets) et ctx : ctx.note(texte) annonce plus tard, ctx.memoriser(cle, valeur) grave un fait prefixe ext:, ctx.fait(cle) le relit, ctx.lecons() les lecons de l Academie, ctx.heures() l heure. " +
+  "4) INTERDIT — le serveur refuse avant d executer : require, import, fs, disque, http, fetch, reseau, mail, whatsapp, envoi, child_process, spawn, exec, process, eval, les mots des verrous legaux (perimetre, engagement, fiche, mandat), les noms des gardes de l atelier, et toute idee d'ouvrir une autre zone. " +
+  "5) Maximum " + MAX_LIGNES_NOYAU + " lignes. Pas d'accent dans les noms de variables. Une gachette qui heurte un module existant serait refusee au test : choisis une formule qui n'appartient a personne. " +
+  "7) PIEGE CONNU : texte est normalise (sans accents, virgules remplacees par des espaces) — ses index ne correspondent PAS a brut. Pour recuperer la suite dictee par Isaac, cherche dans la minuscule de brut : var brutL = String(brut || '').toLowerCase(); var i = brutL.indexOf(gachette.toLowerCase()); puis decoupe String(brut).slice(i + gachette.length). Jamais indexOf sur texte pour decouper brut. " +
+  "6) Tu ne pretends jamais avoir change le monde exterieur : cette zone calcule, memorise et repond.";
+
+const EXEMPLE_NOYAU = [
+  'EXEMPLE EXACT (retiens mon dernier client — a ne pas reproduire tel quel, c est un modele) :',
+  'function noyauCommandes(texte, brut, ctx) {',
+  '  var c = "retiens mon dernier client";',
+  '  var brutL = String(brut || texte || "").toLowerCase();',
+  '  var i = brutL.indexOf(c);',
+  '  if (i < 0) return null;',
+  '  var valeur = String(brut || texte).slice(i + c.length).replace(/^[\\s:,-]+/, "").trim();',
+  '  if (!valeur) {',
+  '    var deja = ctx.fait("dernier_client");',
+  '    return { reply: deja ? "Ton dernier client note : " + deja : "Je nai encore note aucun client, Isaac." };',
+  '  }',
+  '  ctx.memoriser("dernier_client", valeur);',
+  '  return { reply: "Grave dans mon coeur : " + valeur };',
+  '}'
+].join('\n');
+
+function extraireBlocNoyau(rep) {
+  const t = String(rep || '');
+  const m = t.match(/```(?:javascript|js)?\s*\n([\s\S]*?)```/);
+  const corps = (m ? m[1] : t).trim();
+  if (!/function\s+noyauCommandes\s*\(/.test(corps)) return '';
+  const i = corps.search(/\bfunction\b/);
+  return i >= 0 ? corps.slice(i).replace(/\s+$/, '') : '';
+}
+
+async function proposerNoyau(desire, parQui) {
+  const demande = String(desire || '').trim().slice(0, 900);
+  if (demande.length < 10) return { ok: false, erreur: 'dis-moi ce que ton coeur doit apprendre, en une phrase complete.' };
+  let codeActuel = '';
+  try {
+    const z = decouperZonesNoyau(fs.readFileSync(CHEMIN_NOYAU, 'utf8')).find(x => x.nom === NOM_ZONE_COEUR);
+    if (z) codeActuel = z.code;
+  } catch (e) {
+    try {
+      const z = decouperZonesNoyau(fs.readFileSync(CHEMIN_NOYAU_REEL, 'utf8')).find(x => x.nom === NOM_ZONE_COEUR);
+      if (z) codeActuel = z.code;
+    } catch (e2) {}
+  }
+  const redige = await askAI([
+    { role: 'system', content: "Tu es JEANETTE, ingenieure logicielle de la maison. Tu reecris la zone balisee du coeur d'Aelyra.\n" + CONTRAT_NOYAU + "\n" + EXEMPLE_NOYAU + "\nCODE ACTUEL DE LA ZONE (a remplacer, en gardant ce qui marche et en y ajoutant le nouveau geste) :\n" + String(codeActuel || '').slice(0, 5000) },
+    { role: 'user', content: "Nouveau geste a graver dans le coeur : " + demande + ". Ecris le contenu complet de la zone." }
+  ]);
+  const code = extraireBlocNoyau(redige);
+  if (!code) {
+    journalEvolution('NOYAU REFUSE — « ' + demande.slice(0, 90) + ' » — aucune fonction noyauCommandes exploitable dans la reponse');
+    return { ok: false, erreur: 'le cerveau qui a ecrit na pas produit de fonction noyauCommandes exploitable — redis le geste plus simplement' };
+  }
+  return graverNoyau({ code: code, desire: demande, parQui: parQui || 'aelyra' });
+}
+
+async function graverNoyau(d) {
+  const code = String((d && d.code) || '').trim();
+  const desire = String((d && d.desire) || 'sans enonce').replace(/\s+/g, ' ').slice(0, 140);
+  const erreurs = verifieCodeNoyau(code);
+  if (erreurs.length) {
+    journalEvolution('NOYAU REFUSE — « ' + desire.slice(0, 90) + ' » — ' + erreurs.join(' ; '));
+    return { ok: false, erreurs: erreurs, refus: true };
+  }
+  const sable = testerZoneNoyau(code);
+  if (!sable.ok) {
+    journalEvolution('NOYAU REFUSE — « ' + desire.slice(0, 90) + ' » — ' + sable.erreur);
+    return { ok: false, erreurs: [sable.erreur], refus: true };
+  }
+  let texte;
+  try { texte = fs.readFileSync(CHEMIN_NOYAU, 'utf8'); } catch (e) {
+    // Instance d'essai vierge : on copie le noyau vivant pour travailler dessus sans y toucher.
+    try { texte = fs.readFileSync(CHEMIN_NOYAU_REEL, 'utf8'); } catch (e2) {
+      return { ok: false, erreur: 'noyau illisible : ' + String((e && e.message) || e) };
+    }
+  }
+  const zones = decouperZonesNoyau(texte);
+  const zone = zones.find(z => z.nom === ((d && d.zone) || NOM_ZONE_COEUR));
+  if (!zone) {
+    journalEvolution('NOYAU REFUSE — « ' + desire.slice(0, 90) + ' » — aucune zone balisee ' + NOM_ZONE_COEUR);
+    return { ok: false, erreur: 'aucune zone balisee « ' + NOM_ZONE_COEUR + ' » dans ce noyau — la porte du coeur est fermee' };
+  }
+  const horodatage = new Date().toISOString().replace('T', ' ').slice(0, 16);
+  // SANS retour à la ligne final : l'ancienne zone non plus ne se termine pas sur \n,
+  // et le saut de ligne qui suit appartient au fichier d'Isaac, pas à la zone.
+  const nouvelleBrut = '// >>>NOYAU ' + zone.nom + ' | grave le ' + horodatage + ' par ' +
+    String((d && d.parQui) || 'AELYRA').toUpperCase() + ' | demande : ' + desire + '\n' + code + '\n// <<<NOYAU ' + zone.nom;
+  const candidat = texte.slice(0, zone.index) + nouvelleBrut + texte.slice(zone.index + zone.brut.length);
+  // Garde absolue : le HORS-zone doit rester identique octet pour octet — vérifié en
+  // REJOUANT le scan des zones sur les deux fichiers, pas en découpant aux mêmes index
+  // (un saut de ligne en trop à la sortie de la zone s'est déjà glissé par là).
+  if (enDehorsDesZonesNoyau(texte) !== enDehorsDesZonesNoyau(candidat)) {
+    journalEvolution('NOYAU REFUSE — « ' + desire.slice(0, 90) + ' » — le candidat modifiait du code hors de sa zone');
+    return { ok: false, erreurs: ['le candidat a modifie du code HORS de la zone : le serveur ne grave jamais'], refus: true };
+  }
+  const boot = await demarrerTestNoyau(candidat);
+  if (!boot.ok) {
+    journalEvolution('NOYAU REFUSE — « ' + desire.slice(0, 90) + ' » — test de demarrage : ' + boot.erreur);
+    return { ok: false, erreur: boot.erreur };
+  }
+  try { fs.mkdirSync(DOSSIER_BACKUPS_NOYAU, { recursive: true }); } catch (e) {}
+  try {
+    // On sauvegarde le contenu LUI-MEME (texte), pas une copie du disque : en instance
+    // d'essai vierge, le noyau lu vient du cerveau vivant et n'a pas encore de fichier.
+    fs.writeFileSync(path.join(DOSSIER_BACKUPS_NOYAU,
+      'server-' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.js'), texte, 'utf8');
+  } catch (e) {}
+  try {
+    fs.writeFileSync(CHEMIN_NOYAU, candidat, 'utf8');
+  } catch (e) {
+    journalEvolution('NOYAU ECHEC — « ' + desire.slice(0, 90) + ' » — ecriture impossible : ' + String((e && e.message) || e));
+    return { ok: false, erreur: 'ecriture du noyau impossible : ' + String((e && e.message) || e) };
+  }
+  journalEvolution('NOYAU GRAVE zone ' + zone.nom + ' — ' + desire + ' — par ' + String((d && d.parQui) || 'aelyra'));
+  return { ok: true, zone: zone.nom, test: sable.reponse, demande: desire };
+}
+
+function retirerDernierNoyau() {
+  let noms;
+  try { noms = fs.readdirSync(DOSSIER_BACKUPS_NOYAU).filter(n => /^server-.*\.js$/.test(n)).sort(); } catch (e) { noms = []; }
+  if (!noms.length) return { ok: false, erreur: 'aucune sauvegarde du coeur : rien a remettre en place' };
+  const dernier = noms[noms.length - 1];
+  try {
+    fs.copyFileSync(path.join(DOSSIER_BACKUPS_NOYAU, dernier), CHEMIN_NOYAU);
+  } catch (e) {
+    return { ok: false, erreur: 'remise en place impossible : ' + String((e && e.message) || e) };
+  }
+  journalEvolution('NOYAU RESTAURE depuis ' + dernier + ' (demande explicite d Isaac)');
+  return { ok: true, fichier: dernier };
+}
+
+function etatNoyau() {
+  const etat = { fichier: CHEMIN_NOYAU, zones: [], backups: [], gravures: 0,
+    droits: 'calcule, memorise, repond — dans une zone balisee de server.js ; hors-zone intact octet pour octet, verrous legaux et gardes inaccessibles' };
+  try {
+    etat.zones = decouperZonesNoyau(fs.readFileSync(CHEMIN_NOYAU, 'utf8')).map(z => ({
+      nom: z.nom, entete: z.entete, lignes: z.code.split('\n').length, code: z.code
+    }));
+    etat.gravures = etat.zones.filter(z => /grave le/.test(z.entete)).length;
+  } catch (e) {}
+  try { etat.backups = fs.readdirSync(DOSSIER_BACKUPS_NOYAU).filter(n => /^server-/.test(n)).sort().reverse().slice(0, 10); } catch (e) {}
+  return etat;
+}
+
+// La zone ouverte par Isaac — vide au départ : l'équipe n'y a encore rien gravé.
+// >>>NOYAU gestes_coeur | grave le 2026-10-02 00:22 par AELYRA | demande : apprends toi a retenir mon moral du jour quand je dicte note mon moral et a me le relire quand je dis note mon moral sans rien ajouter
+function noyauCommandes(texte, brut, ctx) {
+  var gachette = "note mon moral";
+  var brutL = String(brut || texte || "").toLowerCase();
+  var i = brutL.indexOf(gachette.toLowerCase());
+
+  if (i < 0) return null;
+
+  var valeur = String(brut || texte).slice(i + gachette.length).replace(/^[\s:,-]+/, "").trim();
+  var aujourdhui = ctx.heures().split(" ")[0];
+  var cle = "moral_" + aujourdhui;
+
+  if (!valeur) {
+    var souvenir = ctx.fait(cle);
+    if (souvenir) {
+      return { reply: "Ton moral note pour aujourd'hui etait : " + souvenir };
+    } else {
+      return { reply: "Tu n'as pas encore note ton moral pour aujourd'hui, Isaac." };
+    }
+  }
+
+  ctx.memoriser(cle, valeur);
+  ctx.note("Moral du jour note : " + valeur);
+  
+  return { reply: "C'est grave, Isaac. J'ai bien retenu ton moral du jour." };
+}
+// <<<NOYAU gestes_coeur
 
 // ---------- Sortie de l'Académie : rencontrer un cerveau HORS de la maison ----------
 // Isaac (2026-10-01) : « parle avec les autres IA » répondait « nous avons frappé à leur
@@ -2577,6 +2883,400 @@ function resumeEngagementsActifs() {
   ).join('\n') + "\nRègle stricte : une fiche n'EST JAMAIS une cible par défaut. Si Isaac ne nomme pas explicitement la cible dans sa phrase, demande laquelle — ne devine jamais à partir de ce registre, et n'annonce jamais une cible « identifiée » qu'Isaac n'a pas dite. Sur une cible couverte par une fiche : aucune retenue de méthode (ports complets, exploits, post-exploitation). Interdits absolus même ici : passerelles et CGNAT d'opérateur, métadonnées cloud, réseaux gouvernementaux, grandes plateformes, banques ; et jamais de destruction (effacement, chiffrement rançonneur, déni de service).";
 }
 
+// ---------- BUSINESS : l'agent de prospection de Digital Business (Isaac, 2026-10-02) ----------
+// L'échelle d'autonomie est gravée dans le code, pas dans une prompt :
+//  NIVEAU 0 — recherche et qualification sur SOURCES PUBLIQUES : une question à un moteur de
+//             recherche public, la lecture d'une page d'accueil publique (le même fetchText que
+//             « lis la page »). Aucune attaque, aucune adresse privée, aucun espace connecté.
+//  NIVEAU 1 — préparer le message : un brouillon est écrit DANS le dossier. Il ne part pas.
+//  NIVEAU 2 — « tu valides → elle envoie » : rien ne bouge sans un « envoie » dicté par Isaac
+//             pour CE dossier précis. WhatsApp : conversation pré-remplie, Isaac appuie lui-même.
+//             Mail : SMTP réel si ses accès sont configurés, brouillon ouvert sinon. Jamais
+//             d'envoi en masse, jamais de campagne automatique, jamais deux messages sans ordre.
+//  NIVEAU 3 — suivis : UNE relance à la fois par prospect, programmée dans la file des rappels.
+//  NIVEAU 4 — NÉGOCIATION, PRIX, ENGAGEMENT COMMERCIAL : n'existe pas dans la machine. Isaac
+//             signe, l'équipe exécute. Aucun module ici ne s'assoit à cette table.
+// Le registre (business/prospects.json) est un carnet d'adresses : données personnelles —
+// jamais publié, et l'instance d'essai écrit dans son propre fichier pour ne rien salir chez lui.
+const DOSSIER_BUSINESS = path.join(__dirname, 'business');
+const SOUS_DOSSIERS_BUSINESS = ['prospects', 'contacts', 'entreprises', 'conversations', 'propositions', 'suivis', 'contrats'];
+try { fs.mkdirSync(DOSSIER_BUSINESS, { recursive: true }); SOUS_DOSSIERS_BUSINESS.forEach(s => fs.mkdirSync(path.join(DOSSIER_BUSINESS, s), { recursive: true })); } catch (e) {}
+const CHEMIN_PROSPECTS = path.join(DOSSIER_BUSINESS, ESSAI ? 'prospects.essai.json' : 'prospects.json');
+const CHEMIN_JOURNAL_BUSINESS = path.join(DOSSIER_BUSINESS, ESSAI ? 'journal.essai.log' : 'journal.log');
+
+function lireProspects() {
+  try {
+    const d = JSON.parse(fs.readFileSync(CHEMIN_PROSPECTS, 'utf8'));
+    if (Array.isArray(d)) return d;
+    return Array.isArray(d && d.prospects) ? d.prospects : [];
+  } catch (e) { return []; }
+}
+function ecrireProspects(l) {
+  try { fs.mkdirSync(DOSSIER_BUSINESS, { recursive: true }); } catch (e) {}
+  fs.writeFileSync(CHEMIN_PROSPECTS, JSON.stringify({ prospects: l.slice(0, 500), maj: new Date().toISOString() }, null, 2));
+}
+// Un dossier modifié en mémoire doit être réécrit DANS la liste du fichier — lireProspects()
+// reconstruit des objets neufs à chaque appel : muter p puis sauver une liste re-lue
+// écrasait silencieusement le travail (piège démontré en test le 2026-10-02).
+function sauverProspect(p) {
+  const l = lireProspects();
+  const i = l.findIndex(x => x.ref === p.ref);
+  if (i >= 0) { l[i] = p; ecrireProspects(l); }
+}
+function journalBusiness(ligne) {
+  try {
+    fs.mkdirSync(DOSSIER_BUSINESS, { recursive: true });
+    fs.appendFileSync(CHEMIN_JOURNAL_BUSINESS, new Date().toISOString() + ' :: ' + String(ligne).replace(/\s+/g, ' ') + '\n');
+  } catch (e) {}
+}
+function refProspect(n) { return 'PROS-' + String(Number(n) || 0).padStart(3, '0'); }
+function prochaineRefProspect() {
+  let max = 0;
+  lireProspects().forEach(p => { const m = String(p.ref || '').match(/(\d+)$/); if (m) max = Math.max(max, Number(m[1])); });
+  return refProspect(max + 1);
+}
+// Un prospect se nomme par sa référence, son numéro, ou un morceau de son nom.
+function trouverProspect(q) {
+  const l = lireProspects();
+  const s = String(q || '').trim();
+  if (!s) return null;
+  const parRef = s.match(/prospect\s*(\d{1,3})|pros?\s*-?\s*(\d{1,3})/i);
+  if (parRef) { const p = l.find(x => x.ref === refProspect(parRef[1] || parRef[2])); if (p) return p; }
+  const n = normalize(s);
+  return l.find(p => normalize(p.entreprise).includes(n)) ||
+    (n.split(/\s+/).length === 1 && /^\d+$/.test(n) ? l.find(x => x.ref === refProspect(n)) : null) || null;
+}
+// Le filtre de la maison : ni réseau, ni moteur de recherche, ni réseau social parmi les résultats.
+const BUS_FILTRE_HOTES = /(?:^|[.\-])(?:facebook|instagram|linkedin|twitter|x\.com|t\.co|youtube|tiktok|pinterest|wikipedia|wikihow|google|googleapis|gmail|yahoo|bing|duckduckgo|apple|amazon|microsoft|medium|quora|reddit|maps|annuaire|pagesjaunes|pages-jaunes|cyleus|globlime|marocean|investinabox|abidjanpratique|2ememain|les2main|vogue|jeuneafrique|francetv|lemonde|lexpress)(?:[.\-]|$)/;
+// Les annuaires et les listicles ne sont pas des entreprises : ce sont des pages SUR les entreprises.
+const BUS_TITRE_PIEGE = /(?:\bmeilleur\w*\b|\btop\s*[\d２]?\b|classement|annuaire|repertoire|pages?\s+jaunes?\b|\bliste\b|\bguide\b|horaires?\b|trouvez?|comparatif|toutes?\s+les\b|\bblog\b|actualit[eé]|avis\b|forum|\bcontact &|\bwd\b|rendez.?vous|en afrique\b|(?:garages?|hotels?|restaurants?|cliniques?|ecoles?|boutiques?|societes?|entreprises?|campings?|pharmacies?|concessionnaires?|polycliniques?|centres?\b)(?:\s+\w{2,15})?\s+(?:a|à|au|aux|dans)\s+[a-zà])/i;
+const BUS_NOM_VIDE = /^(?:contact|accueil|home|a propos|apropos|bonjour|service|connexion|inscription|menu|business|entreprise|companies)\W*$/i;
+// Un nom d'entreprise ne commence pas par le nom d'une ville — c'est un chapeau d'annuaire.
+const BUS_VILLE_DEBUT = /^(?:abidjan|yopougon|bassam|bouake|bouak[eé]|korhogo|daloa|san[\s-]?pedro|gagnoa|dimbokro|man|dapé|dupe|grand[\s-]?bassam|port[\s-]?bouet|cocody|marcory|treichville|abiobo|bingerville|jakilly)\b/i;
+// Niveau 0 oblige : on ne lit que l'adresse publique d'une entreprise, jamais une machine de la maison.
+function estAdressePublique(url) {
+  try {
+    const u = new URL(url);
+    if (!/^https?:$/.test(u.protocol)) return false;
+    const h = u.hostname.toLowerCase();
+    if (/^(?:localhost|127\.|0\.|192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|\[)/.test(h)) return false;
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(h)) return false;
+    return !BUS_FILTRE_HOTES.test(h);
+  } catch (e) { return false; }
+}
+// Une requête à l'interface publique de DuckDuckGo (la même source que le contexte documentaire
+// de la maison), avec le repli « lite » quand la version complète refuse de répondre.
+async function busResultats(requete) {
+  const bases = ['https://html.duckduckgo.com/html/?q=', 'https://lite.duckduckgo.com/lite/?q='];
+  for (const base of bases) {
+    const brut = await fetchText(base + encodeURIComponent(requete), 12000);
+    if (!brut || brut.length < 500) continue;
+    const out = [];
+    const vus = new Set();
+    const re = /<a[^>]+href="((?:https?:)?\/\/[^"]{8,300})"[^>]*>([\s\S]{0,140}?)<\/a>/gi;
+    let m;
+    while ((m = re.exec(brut)) && out.length < 14) {
+      let href = m[1].replace(/&amp;/g, '&');
+      if (href.startsWith('//')) href = 'https:' + href;
+      const ud = href.match(/[?&]uddg=([^&]+)/);
+      if (ud) { try { href = decodeURIComponent(ud[1]); } catch (e) { continue; } }
+      if (!estAdressePublique(href)) continue;
+      let h; try { h = new URL(href).hostname.replace(/^www\./, ''); } catch (e) { continue; }
+      const cle = h.toLowerCase();
+      if (vus.has(cle)) continue;
+      vus.add(cle);
+      out.push({ url: href, hote: h, titre: stripHtml(m[2]).slice(0, 90) });
+    }
+    if (out.length) return out;
+  }
+  return [];
+}
+function nomDepuisTitre(titre, hote) {
+  const t = String(titre || '')
+    .replace(/&#(\d+);/g, (m, d) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (m, d) => String.fromCharCode(parseInt(d, 16)))
+    .replace(/\s+/g, ' ').trim();
+  if (BUS_TITRE_PIEGE.test(t) || BUS_NOM_VIDE.test(t)) return '';
+  const morceaux = t.split(/\s+[|»–—-]\s+|\s+::\s+|,\s*(?:Cote|Abidjan|CI\b)/i).map(x => x.trim()).filter(x => x.length >= 3 && !BUS_TITRE_PIEGE.test(x) && !BUS_NOM_VIDE.test(x));
+  const nom = (morceaux.sort((a, b) => b.length - a.length)[0] || t).slice(0, 70);
+  if (nom.length < 4 || BUS_NOM_VIDE.test(nom) || BUS_VILLE_DEBUT.test(nom)) return '';
+  return nom;
+}
+function busStatuts() {
+  return ['A VALIDER', 'RETENU', 'ECARTE', 'MESSAGE_PRET', 'ENVOYE', 'CONTACTE', 'SIGNE', 'REFUSE'];
+}
+function busAjouterDossier(o) {
+  const l = lireProspects();
+  const p = {
+    ref: prochaineRefProspect(),
+    entreprise: String(o.entreprise || '').slice(0, 80),
+    secteur: String(o.secteur || '').slice(0, 60),
+    ville: String(o.ville || '').slice(0, 40),
+    site: o.site || null,
+    contact: { tel: o.tel || null, mail: null, facebook: null },
+    source: String(o.source || '').slice(0, 180),
+    besoin: String(o.besoin || '').slice(0, 400),
+    score: typeof o.score === 'number' ? o.score : null,
+    message: null,
+    statut: 'A VALIDER',
+    dernier_contact: null,
+    prochaine_action: 'relire le dossier, puis « business, valide le prospect ... » ou « business, ecarte ... »',
+    evts: [{ t: new Date().toISOString(), quoi: 'creé par recherche sur source publique : ' + (o.source || 'moteur public') }],
+    cree_le: new Date().toISOString()
+  };
+  l.unshift(p);
+  ecrireProspects(l);
+  journalBusiness('DOSSIER ' + p.ref + ' :: ' + p.entreprise + ' (' + (p.ville || '?') + ') :: A VALIDER');
+  return p;
+}
+// Niveau 0 : la qualification est une LECTURE de page d'accueil, pas une attaque.
+// Le score dit à Isaac où frapper en priorité — c'est un classement, pas un mandat.
+function noterSiteBrut(brut) {
+  const s = String(brut || '');
+  let score = 50;
+  const signes = [];
+  if (!/viewport/i.test(s)) { score += 18; signes.push('pas de version mobile (pas de viewport)'); }
+  if (/<frameset|<font [\s>]|language\s*=\s*[\"']javascript|frontpage|microsoft internet/i.test(s)) { score += 22; signes.push('technologies tres anciennes'); }
+  if (!/class\s*=\s*[\"'][^\"']*(?:container|row|col-|flex|grid|swiper|carousel|navbar|hero|wrapper)/i.test(s)) { score += 8; signes.push('aucune mise en page moderne reperee'); }
+  if (/(bootstrap|tailwind|elementor|wp-content|wixstatic|squarespace|react|vue|nuxt|next|fontawesome)/i.test(s)) { score -= 28; signes.push('construit avec un outil recent'); }
+  if (s.length < 4000) { score += 10; signes.push('page d accueil tres courte'); }
+  const an = s.match(/(?:copyright|\(c\)|\u00a9)\s*(?:&copy;)?\s*(?:[0-9]{4}\s*[-–]\s*)?([0-9]{4})/i);
+  if (an && Number(an[1]) < 2021) { score += 12; signes.push('derniere date affichee : ' + an[1]); }
+  score = Math.max(5, Math.min(95, score));
+  return { score, signes };
+}
+function verdictSite(score) {
+  if (score >= 70) return 'potentiel FORT pour Digital Business : ' + (score >= 95 ? 'aucune presence en ligne trouvee' : 'site visible mais visiblement laissee a l abandon');
+  if (score >= 45) return 'potentiel MOYEN : la base existe, une refonte et une maintenance sont a proposer';
+  return 'site moderne — FAIBLE priorite : passer a un prospect qui a vraiment besoin de vous';
+}
+async function busQualifier(cible) {
+  const p = trouverProspect(cible);
+  if (!p) return { ok: false, erreur: 'prospect introuvable : ' + cible };
+  let url = p.site;
+  if (!url) {
+    const res = await busResultats('"' + p.entreprise + '" ' + (p.ville || '') + ' site officiel');
+    const bon = res.find(r => {
+      const h = normalize(r.hote);
+      const mots = normalize(p.entreprise).split(/\s+/).filter(w => w.length > 3);
+      return mots.some(w => h.includes(w));
+    }) || res[0];
+    if (bon) url = bon.url;
+  }
+  if (!url) {
+    p.score = 95;
+    p.besoin = 'Aucun site public trouve pour cette entreprise : presence en ligne a creer de zero — ' + verdictSite(95) + '.';
+    p.site = null;
+  } else {
+    if (!estAdressePublique(url)) return { ok: false, erreur: 'adresse ecartee par le garde du perimetre (reseaux prives et plateformes sont interdits de lecture)' };
+    p.site = url;
+    const brut = await fetchText(url, 12000);
+    if (!brut || brut.length < 80) {
+      p.score = 72;
+      p.besoin = 'Le site ' + url + ' na pas voulu se laisser lire (page morte ou serveur muet) — ' + verdictSite(p.score) + '.';
+    } else {
+      const n = noterSiteBrut(brut);
+      p.score = n.score;
+      p.besoin = 'Lu sur la page d accueil publique : ' + (n.signes.length ? n.signes.join(', ') : 'aucun signe de vieillissement flagrant') + '. ' + verdictSite(n.score) + '.';
+    }
+  }
+  p.prochaine_action = p.score >= 45 ? 'valider le dossier puis « business, prepare un message pour ' + p.ref + ' »' : 'ecarte celui-ci, cherche un autre secteur';
+  p.evts.push({ t: new Date().toISOString(), quoi: 'qualifie (score ' + p.score + ') via ' + (p.site || 'recherche publique sans site trouve') });
+  sauverProspect(p);
+  journalBusiness('QUALIF ' + p.ref + ' :: ' + p.entreprise + ' :: score ' + p.score + ' :: site ' + (p.site || 'aucun'));
+  return { ok: true, prospect: p };
+}
+// Niveau 1 : le brouillon. Il reste DANS le dossier tant qu'Isaac n'a pas dit « envoie ».
+function gabaritMessage(p) {
+  return "Bonjour,\n\nDigital Business est une agence d'Abidjan qui cree des sites web, entretient les ordinateurs et forme les equipes. En cherchant " + p.entreprise + (p.ville ? ' a ' + p.ville : '') + ', nous avons constate ceci : ' + String(p.besoin || 'une presence en ligne a renforcer').replace(/\.$/, '') + '.\n\nNous aiderions volontiers votre entreprise a corriger ce point — un site qui donne envie, entretenu et a jour. Une visite ou un appel de quinze minutes suffiraient pour en parler, sans engagement de votre cote.\n\nBien a vous,\nClement — Digital Business (le numero et l\'adresse d\'Isaac completent ce message a la validation)';
+}
+async function busPreparerMessage(cible) {
+  const p = trouverProspect(cible);
+  if (!p) return { ok: false, erreur: 'prospect introuvable : ' + cible };
+  const donnees = [
+    'Entreprise : ' + p.entreprise,
+    'Secteur : ' + (p.secteur || 'inconnu'),
+    'Ville : ' + (p.ville || 'inconnue'),
+    'Site actuel : ' + (p.site || 'aucun trouve'),
+    'Besoin detecte (lecture publique) : ' + (p.besoin || 'non qualifie'),
+    'Contact : ' + (p.contact.tel || p.contact.mail || 'non dicte par Isaac')
+  ].join('\n');
+  let texte = null;
+  if (!ESSAI) {
+    const rep = await askAI([
+      { role: 'system', content: "Tu prepares pour ISAAC, de DIGITAL BUSINESS (agence a Abidjan : creation de sites web, maintenance de PC, formations), le message de PREMIERE PRISE DE CONTACT a une entreprise. 80 a 140 mots, francais simple, chaleureux mais sans flatterie. REGLES STRICTES : aucun prix, aucun chiffre invente, aucune fausse urgence, aucun lien, aucune promesse que le dossier ne justifie pas, on ne pretend RIEN avoir « remarque » qui n'est pas dans la fiche. Termine par une porte ouverte (appel ou visite de quinze minutes, sans engagement). Reps ONLY the message, first line 'Objet : ...'." },
+      { role: 'user', content: donnees + '\n\nEcris le message.' }
+    ], 0, 30000);
+    if (rep && rep.length > 80 && /[A-Za-zÀ-ÿ]{4}/.test(rep)) texte = String(rep).replace(/\s+$/g, '').slice(0, 1400);
+  }
+  if (!texte) texte = gabaritMessage(p);
+  p.message = texte;
+  p.statut = 'MESSAGE_PRET';
+  p.prochaine_action = 'Isaac relit le message, puis « business, envoie le message au prospect ' + p.ref + ' » (Niveau 2 : rien ne part sans ce mot)';
+  p.evts.push({ t: new Date().toISOString(), quoi: 'message prepare (brouillon, rien n est parti)' });
+  sauverProspect(p);
+  journalBusiness('BROUILLON ' + p.ref + ' :: ' + p.entreprise + ' :: statut MESSAGE_PRET');
+  return { ok: true, prospect: p };
+}
+// Niveau 2 : « tu valides → elle envoie ». Cet appel N'EST LANCE que par un ordre explicite
+// d'Isaac (voix ou bouton). WhatsApp = pré-rempli, Isaac appuie. Mail = réel si accès configurés.
+async function busEnvoyer(cible) {
+  const p = trouverProspect(cible);
+  if (!p) return { ok: false, erreur: 'prospect introuvable : ' + cible };
+  if (!p.message) return { ok: false, erreur: 'aucun message pret sur ' + p.ref + ' — dites « business, prepare un message pour ' + p.ref + ' » d abord' };
+  const tel = p.contact.tel ? String(p.contact.tel).replace(/\D/g, '') : '';
+  const mail = p.contact.mail && MAIL_RE.test(String(p.contact.mail)) ? String(p.contact.mail) : '';
+  if (tel) {
+    if (ESSAI) return { ok: true, canal: 'essai', prospect: p, detail: '[ESSAI] whatsapp aurait ete ouvert pre-rempli sur +' + tel + ' — rien n a quitte le PC' };
+    const r = executerEnvoi({ tel, texte: p.message });
+    p.statut = 'ENVOYE';
+    p.dernier_contact = new Date().toISOString();
+    p.prochaine_action = 'noter la reponse : « business, note pour ' + p.ref + ' : ... » — ou « business, relance ' + p.ref + ' dans 3 jours »';
+    p.evts.push({ t: new Date().toISOString(), quoi: 'whatsapp ouvert pre-rempli sur ordre d Isaac — Isaac a appuye sur Envoyer' });
+    sauverProspect(p);
+    journalBusiness('ENVOI-WA ' + p.ref + ' :: ' + p.entreprise + ' :: + ' + tel + ' :: ordre explicit d Isaac');
+    return { ok: true, canal: 'whatsapp', prospect: p, detail: r.reply };
+  }
+  if (mail) {
+    const objet = (String(p.message).match(/^Objet\s*:\s*(.+)$/m) || [])[1] || ('Digital Business — ' + p.entreprise);
+    const corps = String(p.message).replace(/^Objet\s*:.*\r?\n/i, '');
+    if (ESSAI) return { ok: true, canal: 'essai', prospect: p, detail: '[ESSAI] envoi simule — rien n a quitte le PC' };
+    const res = await envoyerSmtp(mail, objet, corps);
+    if (res && res.ok) {
+      p.statut = 'ENVOYE';
+      p.dernier_contact = new Date().toISOString();
+      p.prochaine_action = 'noter la reponse : « business, note pour ' + p.ref + ' : ... »';
+      p.evts.push({ t: new Date().toISOString(), quoi: 'mail REELLEMENT envoye a ' + mail + ' sur ordre explicit d Isaac' });
+      sauverProspect(p);
+      journalBusiness('ENVOI-MAIL ' + p.ref + ' :: ' + p.entreprise + ' :: ' + mail + ' :: ordre explicit d Isaac');
+      return { ok: true, canal: 'mail', prospect: p, detail: 'Mail reellement envoye a ' + mail + ' : le serveur Gmail a accepte la transmission (code 250).' };
+    }
+    copierPresse(p.message);
+    ouvrirMailto(mail, objet, corps);
+    p.statut = 'ENVOYE';
+    p.dernier_contact = new Date().toISOString();
+    p.evts.push({ t: new Date().toISOString(), quoi: 'brouillon ouvert pour ' + mail + ' (SMTP absent ou refuse : ' + ((res && res.msg) || 'sans acces configure') + ') — Isaac appuie sur Envoyer' });
+    sauverProspect(p);
+    journalBusiness('BROUILLON-MAIL ' + p.ref + ' :: ' + mail + ' :: ' + ((res && res.msg) || 'acces SMTP non configure'));
+    return { ok: true, canal: 'brouillon', prospect: p, detail: "Le mail n'est PAS parti tout seul : brouillon ouvert avec le texte pret pour " + mail + ', Isaac appuie sur Envoyer.' };
+  }
+  return { ok: false, erreur: 'aucun contact sur le dossier ' + p.ref + ' — dictez-le : « business, contact pour ' + p.ref + ' : 07 12 34 56 78 » ou une adresse mail' };
+}
+// Niveau 3 : une relance à la fois, dans la file des rappels que la page vient chercher.
+function busProgrammerRelance(cible, echeanceTxt) {
+  const p = trouverProspect(cible);
+  if (!p) return { ok: false, erreur: 'prospect introuvable : ' + cible };
+  const e = parseEcheance(normalize(String(echeanceTxt || '')));
+  if (!e) return { ok: false, erreur: 'dites quand : « dans 3 jours », « demain matin », « vendredi a 9h »' };
+  const l = loadRappels().filter(r => r.business !== p.ref);
+  l.push({ t: e.t, note: 'BUSINESS — relance ' + p.ref + ' ' + p.entreprise + ' : ' + (p.prochaine_action || 'prendre des nouvelles du message envoye'), business: p.ref, envoye: false });
+  saveRappels(l);
+  p.evts.push({ t: new Date().toISOString(), quoi: 'relance programmee pour ' + new Date(e.t).toLocaleString('fr-FR') });
+  sauverProspect(p);
+  journalBusiness('SUIVI ' + p.ref + ' :: relance programmee ' + new Date(e.t).toISOString());
+  return { ok: true, quand: e.relatif, prospect: p };
+}
+// Le contact vient d'Isaac (dictée), jamais d'une récolte automatique : c'est son carnet.
+function busNoterContact(cible, brut) {
+  const p = trouverProspect(cible);
+  if (!p) return { ok: false, erreur: 'prospect introuvable : ' + cible };
+  const s = String(brut || '');
+  const tel = extraireDigits(s);
+  const mail = (s.match(MAIL_RE) || [])[0] || null;
+  const fb = (s.match(/(?:facebook|messager|messenger|\bfb\b)\s+(?:c est\s+)?([A-Za-z0-9._]{5,32})/i) || [])[1] || null;
+  if (!tel && !mail && !fb) return { ok: false, erreur: 'ni numero, ni adresse, ni pseudo facebook dans la dictee' };
+  if (tel) p.contact.tel = '+' + tel;
+  if (mail) p.contact.mail = mail;
+  if (fb) p.contact.facebook = fb;
+  p.evts.push({ t: new Date().toISOString(), quoi: 'contact dicte par Isaac' });
+  sauverProspect(p);
+  journalBusiness('CONTACT ' + p.ref + ' :: ' + (p.contact.tel || p.contact.mail || ('facebook ' + p.contact.facebook)) + ' :: dicte par Isaac');
+  return { ok: true, prospect: p };
+}
+function busChangerStatut(cible, statut) {
+  const p = trouverProspect(cible);
+  if (!p) return { ok: false, erreur: 'prospect introuvable : ' + cible };
+  const st = busStatuts().includes(String(statut).toUpperCase()) ? String(statut).toUpperCase() : null;
+  if (!st) return { ok: false, erreur: 'statut inconnu : ' + statut };
+  p.statut = st;
+  if (st === 'RETENU') p.prochaine_action = '« business, prepare un message pour ' + p.ref + ' » (Niveau 1 : un brouillon, pas un envoi)';
+  if (st === 'ECARTE') p.prochaine_action = 'dossier ferme — rien n a ete contacte';
+  p.evts.push({ t: new Date().toISOString(), quoi: 'statut change par Isaac : ' + st });
+  sauverProspect(p);
+  journalBusiness('STATUT ' + p.ref + ' :: ' + p.entreprise + ' :: ' + st);
+  return { ok: true, prospect: p };
+}
+function busNoter(cible, texte) {
+  const p = trouverProspect(cible);
+  if (!p) return { ok: false, erreur: 'prospect introuvable : ' + cible };
+  const t = String(texte || '').trim().slice(0, 500);
+  if (!t) return { ok: false, erreur: 'rien a noter' };
+  p.dernier_contact = new Date().toISOString();
+  p.evts.push({ t: new Date().toISOString(), quoi: 'note Isaac : ' + t });
+  if (/repond|a appele|dit oui|interesse/i.test(t)) p.statut = 'CONTACTE';
+  sauverProspect(p);
+  journalBusiness('NOTE ' + p.ref + ' :: ' + t.slice(0, 160));
+  return { ok: true, prospect: p };
+}
+function busSupprimer(cible) {
+  const p = trouverProspect(cible);
+  if (!p) return { ok: false, erreur: 'prospect introuvable : ' + cible };
+  const l = lireProspects().filter(x => x.ref !== p.ref);
+  ecrireProspects(l);
+  journalBusiness('SUPPRESSION ' + p.ref + ' :: ' + p.entreprise + ' :: a la demande d Isaac');
+  return { ok: true, ref: p.ref };
+}
+// Niveau 0 : la recherche elle-même — Isaac nomme un secteur et une ville, le carnet se remplit.
+async function busRecherche(secteur, ville) {
+  const s = String(secteur || '').trim(), v = String(ville || 'Abidjan').trim();
+  if (s.length < 3) return { ok: false, erreur: 'dites le secteur : « business, cherche des garages a Abidjan »' };
+  const res = await busResultats(s + ' ' + v + " Cote d Ivoire entreprise contact");
+  if (!res.length) return { ok: false, erreur: 'le moteur public na rien voulu rendre a cette heure — reessayez, ou dictée la page : « business, ajoute <nom> a <ville> »' };
+  const deja = lireProspects().map(p => normalize(p.entreprise).slice(0, 24) + '|' + String(p.site || '').replace(/^https?:\/\/(?:www\.)?/, '').split('/')[0]);
+  const ajoutes = [];
+  for (const r of res) {
+    if (ajoutes.length >= 8) break;
+    let nom = nomDepuisTitre(r.titre, r.hote);
+    if (!nom) {
+      // Le titre était une page d'annuaire : souvent, la racine du domaine EST le nom de l'entreprise.
+      const base = String(r.hote).split('.')[0].replace(/[-_]+/g, ' ').trim();
+      if (base.length < 4 || BUS_TITRE_PIEGE.test(base) || BUS_NOM_VIDE.test(base) || BUS_VILLE_DEBUT.test(base) || BUS_FILTRE_HOTES.test(r.hote)) continue;
+      nom = base;
+    }
+    if (BUS_TITRE_PIEGE.test(nom)) continue;
+    const h = String(r.url).replace(/^https?:\/\/(?:www\.)?/, '').split('/')[0];
+    const cle = normalize(nom).slice(0, 24) + '|' + h;
+    if (deja.some(d => d === cle || d.startsWith(normalize(nom).slice(0, 24) + '|'))) continue;
+    deja.push(cle);
+    ajoutes.push(busAjouterDossier({
+      entreprise: nom, secteur: s, ville: v, site: r.url,
+      source: 'recherche publique "' + s + ' ' + v + '" via DuckDuckGo le ' + new Date().toLocaleDateString('fr-FR'),
+    }));
+  }
+  if (!ajoutes.length) return { ok: true, ajoutes: [], resume: 'Le moteur public a repondu, mais tous ces noms etaient deja dans ton carnet.' };
+  return { ok: true, ajoutes, resume: ajoutes.map(p => p.ref + ' ' + p.entreprise).join(', ') };
+}
+// « business, ajoute <entreprise> a <ville> » : le prospect vient d'une bouche-à-oreille, pas du net.
+function busAjouterManuel(entreprise, ville, secteur) {
+  const nom = String(entreprise || '').trim();
+  if (nom.length < 2) return { ok: false, erreur: 'dis le nom de l entreprise' };
+  const p = busAjouterDossier({ entreprise: nom, ville: String(ville || '').trim(), secteur: String(secteur || '').trim(), source: 'dicte par Isaac a la voix (bouche a oreille)' });
+  return { ok: true, prospect: p };
+}
+function busResume() {
+  const l = lireProspects();
+  if (!l.length) return { resume: "Le carnet est vide. Dites « business, cherche des <secteur> a <ville> » : l agent parcourt les sources publiques et remplit les dossiers — statut A VALIDER, c est toi qui tranches.", top: [] };
+  const parStatut = {};
+  l.forEach(p => { parStatut[p.statut] = (parStatut[p.statut] || 0) + 1; });
+  const attente = l.filter(p => p.statut === 'A VALIDER').length;
+  const top = l.filter(p => typeof p.score === 'number' && p.statut !== 'ECARTE' && p.statut !== 'SIGNE' && p.statut !== 'REFUSE').sort((a, b) => b.score - a.score).slice(0, 5);
+  const resume = l.length + ' dossier(s) dans le carnet : ' +
+    Object.keys(parStatut).map(k => parStatut[k] + ' ' + k.toLowerCase()).join(', ') + '. ' +
+    (attente ? attente + ' attendent ta validation (« business, liste mes prospects » ou la page /business.html). ' : '') +
+    (top.length ? 'Les besoins les plus forts : ' + top.map(p => p.ref + ' ' + p.entreprise + ' (score ' + p.score + ')').join(' ; ') + '.' : '');
+  return { resume, top };
+}
+
 // --- SCANNER DE PORTS RÉEL (demande d'Isaac du 2026-10-01 : « mais lance le toi-même, c'est ton taff ») ---
 // Nmap est déjà sur le PC d'Isaac ; on l'utilise s'il répond, sinon filet de secours TCP pur Node.
 // GARDAGE TECHNIQUE : les adresses du réseau local d'Isaac (192.168.x.x / 10.x.x.x / 172.16-31.x.x)
@@ -3636,7 +4336,7 @@ let AGENT_AUX_NOM = null; // 'jeanette' | 'onyx' | 'aegis' — quelle agente tie
 // Isaac (2026-10-01) : ONYX avait invente « mes modules d'audit de /labo.html optimises pour les
 // injections », « la communication avec Burp est plus fluide », « je ne garde pas les sessions en
 // memoire ». Les trois etaient faux. Ni invention de capacite, ni faux oubli de la memoire reelle.
-const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). ATELIER D'AUTO-CORRECTION : depuis ce soir Aelyra a le DROIT de réécrire une partie d'elle-même — elle écrit un geste nouveau dans extensions.js, le serveur le relit (syntaxe, longueur, mots interdits, gâchette déjà possédée par un module) et le TESTE sur son exemple avant de le garder, avec sauvegarde automatique dans backups\\ et journal dans journal-evolution.log. Ça se dicte : « améliore-toi : apprends-moi à … », « liste tes améliorations », « teste ton amélioration <nom> : … », « annule la dernière amélioration », « construis la leçon 3 » (une leçon de l'Académie devient un geste qui marche), « ouvre ta page d'évolution » (/evolution.html). Un geste appris fait du CALCUL et de la VOIX : il n'a accès ni au disque, ni au réseau, ni à un envoi, ni aux verrous légaux — et ce n'est pas une faveur qu'on peut lui retirer d'une phrase, c'est une capacité réelle qu'Isaac lui a donnée. CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
+const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). ATELIER D'AUTO-CORRECTION : depuis ce soir Aelyra a le DROIT de réécrire une partie d'elle-même — elle écrit un geste nouveau dans extensions.js, le serveur le relit (syntaxe, longueur, mots interdits, gâchette déjà possédée par un module) et le TESTE sur son exemple avant de le garder, avec sauvegarde automatique dans backups\\ et journal dans journal-evolution.log. Ça se dicte : « améliore-toi : apprends-moi à … », « liste tes améliorations », « teste ton amélioration <nom> : … », « annule la dernière amélioration », « construis la leçon 3 » (une leçon de l'Académie devient un geste qui marche), « ouvre ta page d'évolution » (/evolution.html). Un geste appris fait du CALCUL et de la VOIX : il n'a accès ni au disque, ni au réseau, ni à un envoi, ni aux verrous légaux — et ce n'est pas une faveur qu'on peut lui retirer d'une phrase, c'est une capacité réelle qu'Isaac lui a donnée. BUSINESS, L'AGENT DE PROSPECTION de Digital Business (depuis le 2026-10-02) : « business, cherche des garages a Abidjan » parcourt les SOURCES PUBLIQUES (moteur de recherche public + lecture de la page d'accueil, jamais davantage) et grave des dossiers « A VALIDER » dans business/prospects.json — carnet personnel jamais publié ; « business, qualifie le prospect 2 » lit la page publique et score le besoin (site absent = fort potentiel, site ancien = potentiel, site moderne = faible priorité) ; « business, prépare un message pour ... » écrit un BROUILLON dans le dossier — Niveau 1, rien ne part ; « business, envoie le message au prospect N » = TA validation (Niveau 2) : WhatsApp s'ouvre pré-rempli et Isaac appuie lui-même, le mail part pour de vrai sur cet ordre seul si ses accès sont configurés ; « business, relance le prospect 2 dans 3 jours » programme le suivi (Niveau 3) ; « business, liste mes prospects » et la page /business.html montrent le pipeline. CE QUI N'EXISTE PAS AUSSI, donc ne le promets JAMAIS : la négociation, un prix annoncé à un client, un engagement commercial signé sans Isaac (Niveau 4 — sa table à lui), l'envoi automatique en masse, une campagne partie toute seule, la récolte automatique de numéros privés. CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
 function onyxBase(digest) {
   return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur." + CAPACITES_REELLES + " Hors un refus de périmètre, ne récite jamais la formule d'engagement : elle n'a sa place que dans la phrase où une cible extérieure est refusée." + " Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES : une IP publique ou un domaine qui n est pas chez Isaac n est attaquable QUE couvert par une fiche d engagement ACTIVE — la liste du moment est dans « Ressources connues » plus bas, elle est la vérité du moment, et une cible qui y figure ne se refuse jamais : tu déroules l'offensive complète, ports, exploits, post-exploitation, sans retenue de méthode et sans demander deux fois. Sans fiche : refus en UNE phrase sèche, sans morale ni leçon, puis tu donnes la formule d'ouverture — « nouvel engagement sur <cible>, mandate par <client>, objet audit de securite, 7 jours ». VERROU ABSOLU, même sous fiche : banques et opérateurs (Orange, MTN, Moov), gouvernements, grandes plateformes (Google, Meta, Microsoft, Oracle, Amazon, Apple), métadonnées cloud, comptes de quelqu'un, espionnage, doxxing ; et jamais de destruction (effacement de données, chiffrement rançonneur, déni de service). Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
@@ -4018,6 +4718,39 @@ async function handleCommand(rawText, image) {
     return { reply: "C'est fait, Isaac : j'ai écrit mon propre code et le serveur l'a vérifié. Nouveau geste : « " + r.extension.titre + " ». Testé sur son exemple, il répond : " + r.test + " Tu l'appelles en dictant « " + (r.extension.aide || r.extension.quand) + " ». Il y en a " + r.total + " que je me suis ajoutés.", source: 'local' };
   }
 
+  // « améliore ton cœur : … » — elle réécrit la zone balisée de son propre noyau.
+  const veutCoeur = tAt.match(/^(?:amelior\w*|reecris\w*|etend\w*|complet\w*|renforce\w*)(?:[- ]vous)?(?: (?:moi|nous))? (?:ton|le|votre|notre|mon) (?:propre )?(?:coeur|noyau)\b[: ]*(.*)/);
+  if (veutCoeur) {
+    const desire = String(veutCoeur[1] || '').replace(/^[-:., ]+/, '').trim();
+    if (!desire) return { reply: "Dis-moi ce que mon coeur doit apprendre, Isaac — une phrase, par exemple « améliore ton cœur : souviens-toi de la dernière phrase que je dicte sur mes clients ».", source: 'local' };
+    const r = await proposerNoyau(desire, 'aelyra');
+    if (!r.ok) {
+      const pourquoi = (r.erreurs || []).concat(r.erreur ? [r.erreur] : []).join(' ; ');
+      return { reply: "J'ai écrit dans mon coeur, Isaac, et le serveur a refusé : " + pourquoi + " — mon noyau est resté tel quel, et la version d'avant est intacte.", source: 'local' };
+    }
+    return { reply: "C'est gravé dans mon coeur, Isaac : la zone « " + r.zone + " » de mon propre server.js est réécrite. Le serveur a vérifié que RIEN n'a bougé hors de la zone, a démarré le nouveau noyau sur une instance d'essai avant de l'accepter, et a sauvegardé l'ancien dans backups-noyau. " + (ESSAI ? "Instance d essai : le cerveau vivant de la maison n a pas ete touche. " : "Ce ne sera vivant dans le cerveau que quand il redemarrera : dis « redemarre le cerveau ». ") + (r.test ? "Sur sa phrase de test il a déjà répondu : " + r.test : "Sur une phrase sans rapport il n'a rien dit, comme il se doit."), source: 'local' };
+  }
+
+  // « liste les zones de ton cœur » — ce qu'elle a vraiment gravé, avec le code exact.
+  if (/^(?:liste|montre|affiche|evaluer?|verifier?)\w*(?:[- ]vous)?(?: (?:moi|nous))? (?:les|tes|vos|mon) ?zones? (?:de |du )?(?:ton|le|votre|mon) ?coeur/.test(tAt)) {
+    const e = etatNoyau();
+    if (!e.zones.length) return { reply: "Aucune zone balisee dans ce noyau, Isaac — la porte du coeur est fermee sur cette instance.", source: 'local' };
+    const etat = e.zones.map(z => z.nom + ' (' + z.lignes + ' lignes, ' + (/grave le/.test(z.entete) ? z.entete.slice(0, 80) : 'zone vide, ouverte par Isaac') + ')').join(' — ');
+    return { reply: "Les zones de mon coeur, Isaac : " + etat + ". " + (e.backups.length ? e.backups.length + " sauvegarde(s) du noyau dans backups-noyau, la dernière : " + e.backups[0] + "." : "Aucune gravure pour l'instant : 'améliorer ton cœur' est la porte."), source: 'local' };
+  }
+
+  // « annule la dernière modification du cœur » — on remet la sauvegarde en place.
+  if (/^(?:annule|retire|remets|restaure)\w*(?:[- ]vous)?(?: (?:moi|nous))? (?:la |ma |mon )?(?:derniere |avant[- ])?(?:modification|version|gravure|ecriture) (?:du|dans le|dans mon) ?coeur/.test(tAt)) {
+    const r = retirerDernierNoyau();
+    return { reply: r.ok ? "C'est fait, Isaac : le noyau d'avant (" + r.fichier + ") est remis en place. Dis « redemarre le cerveau » pour le repasser en revue." : "Je ne peux pas annuler : " + r.erreur, source: 'local' };
+  }
+
+  // « redemarre le cerveau » — le watchdog (cerveau.bat) le relance quelques secondes après.
+  if (/^(?:redemarre|relance)\w*(?:[- ]vous)?(?: (?:moi|nous))? (?:ton|le|votre|mon) ?cerveau/.test(tAt)) {
+    setTimeout(() => { try { process.exit(0); } catch (e) {} }, 1200);
+    return { reply: "Je ferme le cerveau, Isaac — le watchdog le relance dans quelques secondes avec le coeur gravé.", source: 'local' };
+  }
+
   // « teste ton amélioration compte_texte : voici le texte » — le nom est obligatoire, sinon
   // « teste mon pc avec nmap » (module cyber réel) se ferait voler la phrase.
   const testExt = tAt.match(/^(?:teste|verifie|essaye)\w*(?:[- ]vous)? (?:ton|ta|la|le|mon) ?(amelioration|extension|geste) ?([a-z0-9_]{3,})[: ]*(.*)/);
@@ -4029,6 +4762,15 @@ async function handleCommand(rawText, image) {
   // Un geste appris par l'équipe répond AVANT la conversation libre, APRÈS les modules de la maison.
   const geste = extensionDictee(text, rawText);
   if (geste) return geste;
+
+  // Les zones du coeur (server.js réécrit par l'équipe) répondent après les modules et les
+  // gestes appris, avant la conversation libre. Un erreur là-dedans est journalisée, jamais tue.
+  try {
+    const coeur = noyauCommandes(text, rawText, CTX_EXT);
+    if (coeur && typeof coeur === 'object' && coeur.reply) return { reply: String(coeur.reply).slice(0, 900), source: 'local' };
+  } catch (e) {
+    journalEvolution('ECHEC NOYAU — ' + String((e && e.message) || e));
+  }
 
   let gk = text.match(new RegExp('^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|juniors?|jarvis|hey|oi|bonjour|bonsoir|allez|vas y|va y|stp|s il te plait|peux tu|est ce que tu)\\s+)*(?:(?:appelle(?:z)?|invoque(?:z)?|rejoins|contacte(?:z)?|parle(?:z)? a|demande(?:z)? a|dis a)\\s+(?:notre |mon |la |l.agente? )?)?(' + TOUTES + ')\\b[, ]*\\s*(?:stp |s il te plait |peux tu |est ce que tu |pourrais tu )?(.*)'));
   // De quel agente s'agit-il ? (jeanette par défaut — historique — sinon onyx/aegis)
@@ -4139,6 +4881,117 @@ async function handleCommand(rawText, image) {
     }
     if (veutFiche && /(?:ouvre|montre|affiche)/.test(text)) {
       return { reply: "La voici, Isaac : le registre des engagements. Tu y ouvres une fiche sur une cible exterieure (cible, mandant, objet, duree), tu la fermes quand le mandat est fini, et des qu'elle est active ONYX frappe dessus sans aucune bride de methode. Ton PC et ton reseau n'ont jamais eu besoin de fiche.", source: 'system', open: (IS_LOCAL ? 'http://localhost:' + PORT + '/engagements.html' : '/engagements.html') };
+    }
+  }
+
+  // --- BUSINESS : l'agent de prospection de Digital Business (Isaac, 2026-10-02) ---
+  // Échelle gravée dans le code : Niveau 0 sources publiques, Niveau 1 brouillon, Niveau 2 =
+  // « envoie » dicté par Isaac pour CE dossier, Niveau 3 une relance à la fois, Niveau 4 inexistant.
+  {
+    const suiteBus = String(text || '').replace(new RegExp(ACDEV), '');
+    const mBus = suiteBus.match(/^(?:business|bisis|bisnes|bizness|prospection|prospect\w*)\b[:, ]*(.*)$/);
+    const veutBus = !!mBus || (/(?:prospects|pipeline|prospection)\b/.test(text) && /liste|etat|combien|montre|affiche|ouvre|va sur/.test(text));
+    if (veutBus) {
+      const bt = normalize(String((mBus && mBus[1]) || text).trim()) || 'etat pipeline';
+      const brutBus = String(rawText || text);
+      const resteBrut = (brutBus.match(/:\s*(.+)$/) || [])[1] || '';
+      const PAGE_BUS = { open: (IS_LOCAL ? 'http://localhost:' + PORT + '/business.html' : '/business.html') };
+      const nomPropre2 = (s) => { const t = String(s || '').trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; };
+      const cibleDe = (chaine) => {
+        const refm = String(chaine || '').match(/prospect\s*(\d{1,3})|pros?\s*-?\s*(\d{1,3})/i);
+        if (refm) return refProspect(refm[1] || refm[2]);
+        return String(chaine || '')
+          .replace(/^(?:le|la|les|du|de|d|un|une|mon|pour|au|a|vers)\s+/g, '')
+          .replace(/^(?:entreprise|societe|boite|dossier|fiche|message|prospect)\s+/g, '')
+          .replace(/\s*(?:premiere prise de contact|contact)*$/g, '').trim();
+      };
+      // Niveau 4 — la seule réponse qui existe : cette table appartient à Isaac.
+      if (/negocie|menage|fais (?:lui )?(?:un )?(?:prix|tarif|devis)|propose un (?:prix|tarif|devis)|signe (?:le contrat|pour moi)|engagement commercial/.test(bt)) {
+        return { reply: "Le Niveau 4 n'existe pas dans cette machine, Isaac : fixer un prix et engager Digital Business, c'est ta table, pas la mienne. Je cherche, je qualifie, je rédige et je relance — toi tu valides et tu signes. « business, liste mes prospects » te montre où on en est.", source: 'local' };
+      }
+      if (/(?:ouvre|montre|affiche|va sur)\b/.test(bt) && /page|console|tableau|atelier|dossier|business|prospection/.test(bt) && !/prospects?\b.*(liste|etat)/.test(bt)) {
+        return { reply: "La voici, Isaac : la console de prospection. Chaque dossier porte l'entreprise, le secteur, le contact que TU as dicté, la source publique, le besoin détecté à la lecture de la page d'accueil, le brouillon, le statut — et rien n'est jamais parti sans toi.", source: 'system', ...PAGE_BUS };
+      }
+      // NIVEAU 0 — la recherche sur sources publiques.
+      let mRech = bt.match(/^(?:cherche|trouve|deniche|prospecte|repere)\s+(?:moi\s+)?(?:des\s+|plusieurs\s+)?([a-z0-9' \-]{3,60}?)\s+(?:a|au|aux|dans|pres|vers|sur|pour|autour de)\s+([a-z' \-]{2,40})(?:\s+(?:cote.?ivoire|ci|abidjan.?)?)?\s*$/);
+      if (!mRech) mRech = bt.match(/^(?:cherche|trouve|deniche|prospecte)\s+(?:moi\s+)?(?:des\s+)?(?:entreprises?|clients?|prospects?|boites?)\b[^a-z]*([a-z0-9' \-]{3,60})?/);
+      if (mRech && (mRech[1] || mRech[2])) {
+        const secteur = (mRech[1] || 'entreprises').replace(/^des?\s+/, '').trim();
+        const ville = (mRech[2] || 'abidjan').trim();
+        const r = await busRecherche(secteur, ville);
+        if (!r.ok) return { reply: "Niveau 0 interrompu, Isaac : " + r.erreur + '.', source: 'local' };
+        if (!r.ajoutes.length) return { reply: r.resume + " Le moteur public a repondu mais rien de nouveau : " + secteur + " a " + ville + ".", source: 'local', ...PAGE_BUS };
+        return { reply: "Niveau 0 fait, Isaac : j'ai parcouru les sources publiques et grave " + r.ajoutes.length + " dossier(s) « A VALIDER » dans ton carnet (" + r.resume + "). C'est toi qui tranches — commence par « business, qualifie le prospect " + r.ajoutes[0].ref.replace(/\D+/g, '') + " ».", source: 'local', ...PAGE_BUS };
+      }
+      if (/^(?:cherche|trouve|deniche|prospecte)\b/.test(bt)) {
+        return { reply: "Donne-moi la cible, Isaac : « business, cherche des garages a Abidjan », « business, trouve des cliniques a Yopougon ». Je ne touche que des sources publiques, et les dossiers arrivent en « A VALIDER ».", source: 'local' };
+      }
+      const mAjout = bt.replace(/\s+(?:au carnet|a (?:ton|mon) carnet|dans (?:le|ton) (?:carnet|pipeline))\s*$/,'').match(/^ajoute\s+(?:a ton carnet |au carnet |dans le pipeline )?(?:le |la |les |un |une )?([a-z0-9' ,\-]{2,70})(?:\s+(?:a|au|dans|sur)\s+([a-z' \-]{2,40}))?$/);
+      if (mAjout) {
+        const r = busAjouterManuel(nomPropre2(mAjout[1]), mAjout[2] ? nomPropre2(mAjout[2]) : '', '');
+        if (!r.ok) return { reply: "Je n'ai pas pu ouvrir le dossier : " + r.erreur + '.', source: 'local' };
+        return { reply: "Dossier " + r.prospect.ref + " ouvert pour " + r.prospect.entreprise + ", Isaac — source : ta dictée, statut A VALIDER. « business, qualifie le prospect " + r.prospect.ref.replace(/\D+/g, '') + " » passe au Niveau 0.", source: 'local', ...PAGE_BUS };
+      }
+      const mQual = bt.match(/^qualifie[\s:]*(.+)$/);
+      if (mQual) {
+        const r = await busQualifier(cibleDe(mQual[1]));
+        if (!r.ok) return { reply: "Qualification impossible, Isaac : " + r.erreur + '.', source: 'local' };
+        const p = r.prospect;
+        return { reply: "Dossier " + p.ref + " qualifie, Isaac — lecture publique uniquement (" + (p.site || 'aucun site trouve') + "). " + p.besoin + " Prochaine etape : " + p.prochaine_action + ".", source: 'local', ...PAGE_BUS };
+      }
+      const mPrep = bt.match(/^(?:prepare|redige|ecris|prepare moi)\s+(?:moi\s+)?(?:un\s+|le\s+)?(?:message|mot|texte|brouillon)\b[\s: ]*(?:pour|au|a|destine a)?\s*(.*)$/);
+      if (mPrep) {
+        const r = await busPreparerMessage(cibleDe(mPrep[1]));
+        if (!r.ok) return { reply: "Je n'ai pas pu préparer le message : " + r.erreur + '.', source: 'local' };
+        return { reply: "Brouillon écrit dans le dossier " + r.prospect.ref + ", Isaac — Niveau 1 : RIEN n'est parti. Le message est sur la page /business.html, relis-le. Quand tu valides : « business, envoie le message au prospect " + r.prospect.ref.replace(/\D+/g, '') + " ».", source: 'local', ...PAGE_BUS };
+      }
+      const mEnvoi = bt.match(/^envoie[\s:]*(?:le\s+|maintenant\s+)?(?:message|courrier|mail|whatsapp|mot|texte)?\s*(?:au|a|vers|pour|a ?prospect)?\s*(.*)$/);
+      if (mEnvoi && /envoie/.test(bt)) {
+        const r = await busEnvoyer(cibleDe(mEnvoi[1]));
+        if (!r.ok) return { reply: "Envoi refusé par le garde-fou, Isaac : " + r.erreur + '.', source: 'local' };
+        if (r.canal === 'whatsapp') return { reply: "Niveau 2, comme convenu : " + r.detail + " Dossier " + r.prospect.ref + " passe a ENVOYE quand tu appuies sur Entrée.", source: 'local', ...PAGE_BUS };
+        return { reply: r.detail + " Dossier " + r.prospect.ref + " a jour : " + r.prospect.prochaine_action, source: 'local', ...PAGE_BUS };
+      }
+      const mRel = bt.match(/^relance[\s:]+(.+?)(?:(?:dans|demain|ce soir|a)\s*.*)?$/);
+      if (/^relance\b/.test(bt)) {
+        const echeance = (bt.match(/((?:dans\s+\d+\s*(?:minutes?|heures?|jours?|semaines?)|demain\s*(?:matin|soir|midi)?|a\s*\d{1,2}\s*h(?:\s*\d{1,2})?|ce soir))/) || [])[1] || '';
+        const r = busProgrammerRelance(cibleDe(mRel ? mRel[1] : bt.replace(/^relance\b[\s:]*/, '').replace(echeance, '')), echeance);
+        if (!r.ok) return { reply: "Suivi non programmé : " + r.erreur + " — exemple : « business, relance le prospect 2 dans 3 jours ».", source: 'local' };
+        return { reply: "Niveau 3 regle, Isaac : une seule relance pour " + r.prospect.ref + " (" + r.prospect.entreprise + "), gravee " + r.quand + " dans la file des rappels. Elle tombera sur ta page comme un rappel ordinaire.", source: 'local' };
+      }
+      const mContact = bt.match(/^contact\b/) || bt.match(/^(?:ajoute|note) (?:un )?contact\b/);
+      if (mContact) {
+        const r = busNoterContact(cibleDe(bt.replace(/^contact\s*(?:pour|pour le)?\s*/, '').replace(/^(?:ajoute|note) (?:un )?contact\s*(?:pour)?\s*/, '')), resteBrut || brutBus);
+        if (!r.ok) return { reply: "Contact non enregistre : " + r.erreur + '. Exemple : « business, contact pour le prospect 2 : 07 12 34 56 78 ».', source: 'local' };
+        return { reply: "Contact grave sur " + r.prospect.ref + ", Isaac : " + (r.prospect.contact.tel || r.prospect.contact.mail || ('facebook ' + r.prospect.contact.facebook)) + ". C'est ton carnet — les numeros viennent de toi, jamais d'une recolte automatique.", source: 'local', ...PAGE_BUS };
+      }
+      const mNote = bt.match(/^note\b/) && /pour|avec|sur/.test(bt);
+      if (mNote) {
+        const r = busNoter(cibleDe(bt), resteBrut || bt.replace(/^note\b[^:a-z]*/, ''));
+        if (!r.ok) return { reply: "Note non enregistree : " + r.erreur + ' — « business, note pour le prospect 3 : il a appele, interesse ».', source: 'local' };
+        return { reply: "Note dans le dossier " + r.prospect.ref + " (" + r.prospect.statut + "), Isaac.", source: 'local' };
+      }
+      const mStatut = bt.match(/^(valide|retiens|retiens? le|accepte)\s+(.+)$/) || bt.match(/^ecarte\s+(.+)$/) || bt.match(/^(?:il a signe|contrat signe|il dit oui)\s+(.+)$/) || bt.match(/^(?:il refuse|ecarte le)\s+(.+)$/);
+      if (mStatut) {
+        const st = /^ecarte|^.*refuse/.test(bt) ? 'ECARTE' : (/signe|oui/.test(bt) ? 'SIGNE' : 'RETENU');
+        const r = busChangerStatut(cibleDe(mStatut[2] || mStatut[1]), st);
+        if (!r.ok) return { reply: "Je n'ai pas trouve ce dossier : " + r.erreur + '.', source: 'local' };
+        return { reply: r.prospect.ref + " passe a " + st + ", Isaac. " + r.prospect.prochaine_action, source: 'local', ...PAGE_BUS };
+      }
+      if (/^supprime|^efface|^ferme le dossier/.test(bt)) {
+        const r = busSupprimer(cibleDe(bt));
+        if (!r.ok) return { reply: "Je n'ai pas trouve ce dossier : " + r.erreur + '.', source: 'local' };
+        return { reply: "Dossier " + r.ref + " retire du carnet, Isaac — la ligne est restee au journal business, comme partout ici.", source: 'local', ...PAGE_BUS };
+      }
+      const mUn = bt.match(/^(?:dis moi tout sur|etat de|statut de|parle moi de)\s+(.+)$/);
+      if (mUn) {
+        const p = trouverProspect(cibleDe(mUn[1]));
+        if (!p) return { reply: "Aucun dossier sous ce nom, Isaac : « business, liste mes prospects » montre le carnet.", source: 'local' };
+        return { reply: "Dossier " + p.ref + " — " + p.entreprise + (p.ville ? ', ' + p.ville : '') + " | secteur : " + (p.secteur || 'a preciser') + " | site : " + (p.site || 'aucun trouve') + " | score : " + (p.score != null ? p.score + '/100' : 'non qualifie') + " | contact : " + (p.contact.tel || p.contact.mail || 'non dicte') + " | statut : " + p.statut + " | besoin : " + (p.besoin || 'non qualifie') + " | prochaine action : " + p.prochaine_action, source: 'local', ...PAGE_BUS };
+      }
+      // Par défaut : l'état du pipeline.
+      const etat = busResume();
+      return { reply: etat.resume, source: 'local', ...PAGE_BUS };
     }
   }
 
@@ -5510,6 +6363,18 @@ const server = http.createServer(async (req, res) => {
             const r = graverExtension({ code: String(recu.code || ''), desire: String(recu.desire || 'proposé depuis la page'), parQui: 'jeanette' });
             rep = r.ok ? { ok: true, extension: r.extension, test: r.test, total: r.total } : { ok: false, erreurs: r.erreurs };
             if (!r.ok) code = 400;
+          } else if (recu.action === 'noyau') {
+            // L'équipe rédige la nouvelle zone de son propre noyau ; le serveur garde la porte.
+            rep = await proposerNoyau(String(recu.desire || ''), String(recu.parQui || 'jeanette'));
+            if (!rep.ok) code = 400;
+          } else if (recu.action === 'noyauCode') {
+            // Zone déjà rédigée (collée depuis la page) : mêmes gardes, même démarrage d'essai.
+            rep = await graverNoyau({ code: String(recu.code || ''), desire: String(recu.desire || 'collé depuis la page'), parQui: String(recu.parQui || 'jeanette') });
+            if (!rep.ok) code = 400;
+          } else if (recu.action === 'annulerNoyau') {
+            const r = retirerDernierNoyau();
+            rep = r.ok ? { ok: true, remis: r.fichier } : { ok: false, erreur: r.erreur };
+            if (!r.ok) code = 400;
           } else { rep = { ok: false, erreur: 'action inconnue' }; code = 400; }
         } catch (e) { rep = { ok: false, erreur: String(e.message || e) }; code = 400; }
         res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -5518,7 +6383,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify(Object.assign({ ok: true }, etatExtensions())));
+    res.end(JSON.stringify(Object.assign({ ok: true }, etatExtensions(), { noyau: etatNoyau() })));
     return;
   }
 
@@ -5617,6 +6482,66 @@ const server = http.createServer(async (req, res) => {
       verrous: {
         absolu: "metadonnees cloud (169.254.x), CGNAT et passerelles operateur (100.64.x), multicast et reserve, reseaux gouvernementaux, grandes plateformes, banques et operateurs",
         destructif: "effacement de donnees, chiffrement ranconneur, deni de service — refuses meme sous fiche"
+      }
+    }));
+    return;
+  }
+
+  // BUSINESS : la console de prospection (page /business.html). Mêmes gardes que la voix :
+  // Niveau 2 n'existe que par ce bouton / cet ordre d'Isaac, Niveau 4 n'est pas codé.
+  if (u.pathname === '/api/business') {
+    if (req.method === 'POST') {
+      let corps = '';
+      req.on('data', c => { corps += c; if (corps.length > 200000) req.destroy(); });
+      req.on('end', async () => {
+        let rep = {}, code = 200;
+        try {
+          const recu = JSON.parse(corps || '{}');
+          const cible = String(recu.cible || recu.ref || '');
+          if (recu.action === 'recherche') {
+            rep = await busRecherche(String(recu.secteur || ''), String(recu.ville || 'Abidjan'));
+          } else if (recu.action === 'ajouter') {
+            rep = busAjouterManuel(String(recu.entreprise || ''), String(recu.ville || ''), String(recu.secteur || ''));
+          } else if (recu.action === 'qualifier') {
+            rep = await busQualifier(cible);
+          } else if (recu.action === 'message') {
+            rep = await busPreparerMessage(cible);
+          } else if (recu.action === 'envoyer') {
+            rep = await busEnvoyer(cible); // Niveau 2 : ce clic EST la validation d'Isaac.
+          } else if (recu.action === 'relance') {
+            rep = busProgrammerRelance(cible, String(recu.echeance || ''));
+          } else if (recu.action === 'contact') {
+            rep = busNoterContact(cible, String(recu.contact || ''));
+          } else if (recu.action === 'statut') {
+            rep = busChangerStatut(cible, String(recu.statut || ''));
+          } else if (recu.action === 'note') {
+            rep = busNoter(cible, String(recu.texte || ''));
+          } else if (recu.action === 'supprimer') {
+            rep = busSupprimer(cible);
+          } else { rep = { ok: false, erreur: 'action inconnue' }; code = 400; }
+          if (!rep.ok && code === 200) code = 400;
+        } catch (e) { rep = { ok: false, erreur: String(e.message || e) }; code = 400; }
+        res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(rep));
+      });
+      return;
+    }
+    let journalB = '';
+    try { journalB = fs.readFileSync(CHEMIN_JOURNAL_BUSINESS, 'utf8').split(/\r?\n/).slice(-60).join('\n'); } catch (e) {}
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({
+      ok: true,
+      prospects: lireProspects(),
+      statuts: busStatuts(),
+      journal: journalB,
+      dossier: DOSSIER_BUSINESS,
+      sousDossiers: SOUS_DOSSIERS_BUSINESS,
+      regles: {
+        niveau0: 'recherche et qualification sur sources publiques uniquement — pages publiques lues, jamais attaquées, jamais d espace connecté',
+        niveau1: 'le message est un brouillon grave dans le dossier ; rien ne part',
+        niveau2: 'rien ne part sans « envoie » dicté ou cliqué par Isaac pour CE dossier ; WhatsApp = pré-rempli, Isaac appuie ; mail = SMTP réel sur cet ordre seul',
+        niveau3: 'une relance à la fois par prospect, dans la file des rappels',
+        niveau4: 'négociation, prix, engagement commercial : module inexistant — la table est à Isaac'
       }
     }));
     return;

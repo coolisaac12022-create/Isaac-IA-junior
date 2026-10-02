@@ -43,6 +43,10 @@ isaac-rappels.essai.json
 # Analyses de courriels suspects — le contenu des messages recus par Isaac ne sort pas du PC
 analyses-mail.json
 
+# Carnet de prospection BUSINESS : listes d'entreprises, contacts, messages, contrats —
+# c'est le fichier commercial d'Isaac, jamais publié (le code, lui, est dans server.js).
+business/
+
 # Le code que l'eququipe s'ecrit a elle-meme : geste appris = dictee personnelle d'Isaac.
 # Jamais publie sans son ordre (il peut le demander : c'est du code, pas des donnees).
 # Le geste appris est du CODE : ordre d'Isaac du 2026-10-01, extensions.js est publie.
@@ -50,6 +54,12 @@ analyses-mail.json
 !journal-evolution.log
 extensions.essai.js
 journal-evolution.essai.log
+# Atelier du coeur : noyau de l instance d essai, fichier de test, sauvegardes du noyau — locaux
+server.essai.js
+server-candidat-noyau.tmp.js
+server-candidat-noyau-essai.tmp.js
+backups-noyau/
+backups-noyau-essai/
 backups/
 # Sauvegardes de l instance d essai — artifacts de lecture, jamais publiés
 backups-essai/

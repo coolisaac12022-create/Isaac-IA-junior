@@ -22,3 +22,18 @@ Ext.registrer({
   }
 });
 // <<<EXT analyse_statistique
+
+// >>>EXT compte_voyelles | grave le 2026-10-01 23:30 par AELYRA | geste demande : apprends-moi a compter les voyelles d un texte
+Ext.registrer({
+  nom: 'compte_voyelles',
+  titre: 'Calculer le nombre de voyelles dans une phrase',
+  quand: 'dénombre les sons',
+  aide: 'aelyra, dénombre les sons de ce texte : ...',
+  exemple: 'Isaac travaille sur son projet',
+  trait: function (texte, ctx) {
+    var v = String(texte).toLowerCase().match(/[aeiouyàâéèêëîïôûù]/gi);
+    var n = v ? v.length : 0;
+    return 'Ton texte contient ' + n + ' voyelles au total, mon cher Isaac.';
+  }
+});
+// <<<EXT compte_voyelles

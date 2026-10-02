@@ -79,6 +79,27 @@
   </section>
 
   <section class="carte">
+    <h2>Atelier du cœur — réécrire son propre server.js</h2>
+    <div class="note" style="color:#8a8a8a;font-size:12.5px;margin:0 0 10px">Depuis le 2026-10-02, Isaac a ouvert une <b>zone balisée</b> dans le noyau lui-même (<span class="dict">server.js</span>, entre les marqueurs NOYAU). Elle peut la réécrire ; le reste du fichier reste <b>identique octet pour octet</b>, le serveur relit la zone (disque, réseau, envoi, verrous, gardes : refusés), puis <b>démarre le noyau candidat sur une instance d'essai isolée</b> avant de le garder. L'ancien noyau est copié dans <span class="dict">backups-noyau\</span>. Ce qui est gravé ici n'est vivant qu'après un redémarrage du cerveau — le serveur ne ment jamais là-dessus.</div>
+    <label>Ce que le cœur doit apprendre — c'est elle qui réécrit la zone</label>
+    <input id="coeurdesir" placeholder="ex. souviens-toi de la dernière phrase que je dicte sur mes clients" autocomplete="off">
+    <div class="barre">
+      <button class="bout" id="gravercoeur">Graver dans le cœur</button>
+      <button class="bout sec" id="plumecoeur">Ouvrir la plume (coller la zone)</button>
+      <button class="bout sec" id="annulercoeur">Remettre le noyau d'avant</button>
+      <span id="coeurinfo"></span>
+    </div>
+    <div id="plumecoeurzone" style="display:none">
+      <label>Ou colle ici le contenu complet de la zone (mêmes gardes, même démarrage d'essai)</label>
+      <textarea class="code" id="coeurcode" spellcheck="false" placeholder="function noyauCommandes(texte, brut, ctx) {&#10;  var i = String(texte || '').indexOf('mon geste a moi');&#10;  if (i < 0) return null;&#10;  return { reply: 'Le coeur a calcule ceci : …' };&#10;}"></textarea>
+      <input id="coeurbesoin" placeholder="à quoi sert ce geste du cœur (gravé dans l'en-tête de la zone)" autocomplete="off" style="margin-top:10px">
+      <div class="barre"><button class="bout" id="proposercoeur">Graver cette zone</button></div>
+    </div>
+    <div id="coeurresultat"></div>
+    <div id="coeurzones" class="vide" style="margin-top:12px">Lecture…</div>
+  </section>
+
+  <section class="carte">
     <h2>Blocs refusés à la relecture</h2>
     <div id="refus" class="vide">Aucun bloc refusé : tout ce qui est écrit dans extensions.js a passé la lecture et le test.</div>
   </section>
@@ -115,7 +136,7 @@
     <div class="note" style="color:#6d6d6d;font-size:12px;margin-top:8px">Une commande vocale suffit pour tout ceci : « <b>améliore-toi : apprends-moi à …</b> », « <b>liste tes améliorations</b> », « <b>teste ton amélioration &lt;nom&gt; : …</b> », « <b>annule la dernière amélioration</b> », « <b>construis la leçon 3</b> » (une leçon de l'Académie devient un geste qui marche), « <b>ouvre ta page d'évolution</b> ».</div>
   </div>
 
-  <div class="pied"><a href="engagements.html">FICHES D'ENGAGEMENT →</a> · <a href="analyse-mail.html">ANALYSE DE MAIL SUSPECT →</a> · <a href="labo.html">LABO →</a> · <a href="cerveau.html">CERVEAU →</a></div>
+  <div class="pied"><a href="business.html">BUSINESS →</a> · <a href="engagements.html">FICHES D'ENGAGEMENT →</a> · <a href="analyse-mail.html">ANALYSE DE MAIL SUSPECT →</a> · <a href="labo.html">LABO →</a> · <a href="cerveau.html">CERVEAU →</a></div>
 </main>
 
 <script>
@@ -175,6 +196,23 @@ function rendu(e) {
   const jo = document.getElementById('journal');
   jo.className = e.journal ? '' : 'vide';
   jo.textContent = e.journal || 'Aucune ligne pour l\'instant.';
+
+  const nz = document.getElementById('coeurzones');
+  const n = e.noyau;
+  if (!n || !n.zones) { nz.className = 'vide'; nz.innerHTML = 'Le serveur ne rapporte aucune zone du cœur — redémarre le cerveau pour qu\'il parle avec l\'atelier du cœur.'; }
+  else if (!n.zones.length) { nz.className = 'vide'; nz.innerHTML = 'Aucune zone balisée dans ce noyau : la porte du cœur est fermée sur cette instance.'; }
+  else {
+    nz.className = '';
+    nz.innerHTML = n.zones.map(z => `
+      <div class="geste">
+        <h3>zone « ${esc(z.nom)} » — ${z.lignes} ligne(s)</h3>
+        <div class="meta">${esc(z.entete)}</div>
+        <details><summary style="cursor:pointer;color:#8a8a8a;font-size:12px;margin-top:8px">le code exact de la zone</summary><pre>${esc(z.code)}</pre></details>
+      </div>`).join('')
+      + (n.backups && n.backups.length
+        ? '<div class="file" style="margin-top:10px">sauvegardes du noyau (backups-noyau\\) :<br>' + n.backups.map(b => esc(b)).join('<br>') + '</div>'
+        : '<div class="vide" style="margin-top:10px">Aucune gravure du cœur pour l\'instant — le noyau vivant est exactement celui d\'Isaac.</div>');
+  }
 }
 
 async function rafraichir() {
@@ -212,6 +250,41 @@ document.getElementById('proposer').onclick = async () => {
   const r = document.getElementById('resultat');
   if (j.ok) { r.innerHTML = '<div class="garde" style="margin-top:14px"><b>Bloc accepté</b> — ' + esc(j.extension.titre) + '. Test : ' + esc(j.test) + '</div>'; info('Gravé.'); }
   else { r.innerHTML = '<div class="interdits" style="margin-top:14px"><b>Bloc refusé</b><ul>' + (j.erreurs || [j.erreur]).filter(Boolean).map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></div>'; info('Refusé.'); }
+  rafraichir();
+};
+function coeurInfo(t) { document.getElementById('coeurinfo').textContent = t; }
+function coeurResultat(j) {
+  const r = document.getElementById('coeurresultat');
+  if (j.ok) {
+    r.innerHTML = '<div class="garde" style="margin-top:14px"><b>Zone gravée — vivante après redémarrage</b> — zone « ' + esc(j.zone) + ' ». ' + (j.test ? 'Sur sa phrase de test le cœur a répondu : ' + esc(j.test) : 'Sur une phrase sans rapport, il s\'efface comme il se doit.') + ' Le noyau d\'avant est dans <span class="dict">backups-noyau\\</span>. Dis « <b>redemarre le cerveau</b> » pour le passer en revue.</div>';
+    coeurInfo('Gravé après démarrage d\'essai.');
+  } else {
+    r.innerHTML = '<div class="interdits" style="margin-top:14px"><b>Le serveur a refusé — le noyau n\'a pas bougé</b><ul>' + (j.erreurs || [j.erreur || 'refus']).filter(Boolean).map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></div>';
+    coeurInfo('Refusé, et c\'est normal de le montrer.');
+  }
+}
+document.getElementById('gravercoeur').onclick = async () => {
+  const desire = document.getElementById('coeurdesir').value.trim();
+  if (desire.length < 10) { coeurInfo('Décris ce que le cœur doit apprendre, en une phrase complète.'); return; }
+  const b = document.getElementById('gravercoeur'); b.disabled = true; coeurInfo('Elle réécrit la zone, le serveur relit, démare le candidat en essai (jusqu\'à 30 s)…');
+  const { j } = await api({ action: 'noyau', desire });
+  b.disabled = false; coeurResultat(j); rafraichir();
+};
+document.getElementById('plumecoeur').onclick = () => {
+  const z = document.getElementById('plumecoeurzone');
+  z.style.display = z.style.display === 'none' ? 'block' : 'none';
+};
+document.getElementById('proposercoeur').onclick = async () => {
+  const code = document.getElementById('coeurcode').value.trim();
+  if (code.indexOf('function noyauCommandes') < 0) { coeurInfo('Colle une zone qui déclare function noyauCommandes(texte, brut, ctx).'); return; }
+  const b = document.getElementById('proposercoeur'); b.disabled = true; coeurInfo('Lecture, test, démarrage d\'essai du noyau candidat…');
+  const { j } = await api({ action: 'noyauCode', code, desire: document.getElementById('coeurbesoin').value.trim() || 'collé depuis la page' });
+  b.disabled = false; coeurResultat(j); rafraichir();
+};
+document.getElementById('annulercoeur').onclick = async () => {
+  if (!confirm('Remettre la dernière sauvegarde du noyau en place ? La zone reviendra à son contenu d\'avant la dernière gravure.')) return;
+  const { j } = await api({ action: 'annulerNoyau' });
+  coeurInfo(j.ok ? 'Noyau restauré : ' + j.remis + ' — dis « redemarre le cerveau ».' : 'Impossible : ' + (j.erreur || 'refusé'));
   rafraichir();
 };
 rafraichir();

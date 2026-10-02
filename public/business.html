@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BUSINESS — la prospection de Digital Business</title>
+<style>
+  :root { --bl: #e8e8e8; --gr: #8a8a8a; --line: #1e1e1e; --rouge: #ef4444; --vert: #34d399; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; color: var(--bl); font: 14px/1.55 "Segoe UI", system-ui, sans-serif; }
+  header { padding: 18px 22px 12px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 17px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; }
+  .sous { color: var(--gr); font-size: 12.5px; margin-top: 5px; max-width: 1000px; }
+  main { padding: 18px 22px 60px; max-width: 1160px; }
+  .carte { border: 1px solid var(--line); background: #050505; padding: 16px; margin-bottom: 18px; }
+  .carte h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--gr); font-weight: 600; }
+  label { display: block; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--gr); margin: 12px 0 4px; }
+  input { width: 100%; background: #000; color: #eee; border: 1px solid #2a2a2a; padding: 10px 12px; font: 14px/1.4 "Segoe UI", sans-serif; }
+  input:focus { outline: none; border-color: #4a4a4a; }
+  .bout { background: #fff; color: #000; border: 0; padding: 10px 18px; font: 600 12.5px/1 "Segoe UI", sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+  .bout.sec { background: transparent; color: var(--bl); border: 1px solid #3a3a3a; }
+  .bout.mini { padding: 6px 11px; font-size: 10.5px; }
+  .bout:hover, .bout.sec:hover { opacity: .82; }
+  .barre { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  #info { color: var(--gr); font-size: 12px; }
+  .prospects { border: 1px solid var(--line); background: #040404; padding: 14px 16px; margin-bottom: 14px; }
+  .prospects h3 { margin: 0; font-size: 14.5px; letter-spacing: .02em; }
+  .meta { color: var(--gr); font-size: 12px; margin-top: 4px; }
+  .meta b { color: #dcdcdc; font-weight: 600; }
+  .dict { color: #fff; font-family: Consolas, monospace; font-size: 12.5px; background: #0d0d0d; border: 1px solid #222; padding: 3px 7px; }
+  .champ { display: inline-block; margin: 3px 14px 3px 0; font-size: 12.5px; color: #bdbdbd; }
+  .champ span { color: #6d6d6d; text-transform: uppercase; font-size: 10px; letter-spacing: .1em; display: block; }
+  pre { white-space: pre-wrap; word-break: break-word; color: #9a9a9a; font: 11.5px/1.65 Consolas, monospace; margin: 10px 0 0; background: #000; border: 1px solid #191919; padding: 10px; }
+  .vide { color: #5c5c5c; font-size: 13px; padding: 12px 4px; }
+  .garde { border-left: 2px solid var(--vert); padding: 10px 0 10px 14px; color: var(--gr); font-size: 12.5px; }
+  .garde b { color: #dcdcdc; }
+  .interdits { border-left: 2px solid var(--rouge); padding: 10px 0 10px 14px; color: var(--gr); font-size: 12.5px; }
+  .interdits b { color: #e2e2e2; }
+  .ligne { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .ligne { grid-template-columns: 1fr; } }
+  .statut { display: inline-block; font: 600 10.5px/1 "Segoe UI", sans-serif; letter-spacing: .12em; text-transform: uppercase; padding: 5px 9px; border: 1px solid #3a3a3a; color: #cfcfcf; }
+  .statut.attente { border-color: #4a4a12; color: #d8d178; }
+  .statut.pret { border-color: #12404a; color: #78d0d8; }
+  .statut.envoye { border-color: #14401c; color: #7dd89a; }
+  .statut.signt { border-color: #1d5c2c; color: #9be8b4; }
+  .statut.mort { border-color: #3a1616; color: #d38a8a; }
+  .score { font: 600 12px/1 Consolas, monospace; }
+  .pied { text-align:center; margin-top: 26px; }
+  .pied a { color:#777; font-size:11px; letter-spacing:3px; text-transform:uppercase; }
+  .file { font: 11.5px/1.9 Consolas, monospace; color: #7d7d7d; word-break: break-all; }
+  .intr { width: auto; flex: 1 1 220px; padding: 7px 10px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Business · la prospection de Digital Business</h1>
+  <div class="sous">Carnet de prospection ouvert le 2026-10-02 par Isaac. L'agent <b>cherche dans les sources publiques</b> (moteur de recherche, lecture de la page d'accueil — jamais davantage), <b>qualifie le besoin</b> (site absent ou ancien = potentiel, site moderne = faible priorité), <b>rédige les messages</b>. Rien ne part sans toi : WhatsApp s'ouvre pré-rempli et <b>tu appuies sur Envoyer toi-même</b> ; le mail ne part pour de vrai que sur ton ordre explicite ; et la négociation — le prix, l'engagement — <b>n'existe pas dans la machine</b>, c'est ta table. Tout est gravé ici et dans <span class="dict">business\prospects.json</span> — carnet personnel, jamais publié.</div>
+</header>
+
+<main>
+  <section class="carte">
+    <h2>Niveau 0 — chercher dans les sources publiques</h2>
+    <label>Secteur d'activité — ex. garages, cliniques, restaurants, quincailleries, salons de coiffure</label>
+    <input id="secteur" placeholder="ex. garages automobiles" autocomplete="off">
+    <label>Ville</label>
+    <input id="ville" placeholder="ex. Abidjan, Yopougon, Grand-Bassam" value="Abidjan" autocomplete="off">
+    <div class="barre">
+      <button class="bout" id="chercher">Cherche des prospects</button>
+      <button class="bout sec" id="tout">État du pipeline</button>
+      <span id="info"></span>
+    </div>
+    <div id="resultat"></div>
+  </section>
+
+  <section class="carte">
+    <h2>Le carnet — chaque dossier, tel qu'il tourne</h2>
+    <div id="prospects"><div class="vide">Lecture…</div></div>
+  </section>
+
+  <div class="ligne">
+    <section class="carte">
+      <h2>L'échelle d'autonomie — gravée dans le serveur</h2>
+      <div class="garde" id="regles">—</div>
+    </section>
+    <section class="carte">
+      <h2>Ce qui n'existe pas ici</h2>
+      <div class="interdits">
+        <b>Pas de négociation, pas de prix, pas de signature.</b> Niveau 4 : Isaac seul à cette table. <b>Pas d'envoi automatique en masse, pas de campagne partie toute seule</b> — un seul « envoie » commandé = un seul message, et WhatsApp reste pré-rempli sous ton doigt. <b>Pas de récolte de numéros privés</b> : les contacts entrent par ta dictée ou par tes clics. <b>Pas d'attaque</b> : la qualification est une lecture de page publique, avec le même verrou que partout ailleurs dans la maison.
+      </div>
+    </section>
+  </div>
+
+  <section class="carte">
+    <h2>Journal du carnet (append-only)</h2>
+    <pre id="journal" class="vide">Aucune ligne pour l'instant.</pre>
+  </section>
+
+  <div class="carte">
+    <h2>Le fichier</h2>
+    <div class="file" id="fichier">—</div>
+    <div class="note" style="color:#6d6d6d;font-size:12px;margin-top:8px">Tout ceci se dicte : « <b>business, cherche des garages à Abidjan</b> », « <b>business, qualifie le prospect 2</b> », « <b>business, prépare un message pour le prospect 2</b> », « <b>business, envoie le message au prospect 2</b> », « <b>business, contact pour le prospect 2 : 07 12 34 56 78</b> », « <b>business, note pour le prospect 2 : il a appelé, intéressé</b> », « <b>business, relance le prospect 2 dans 3 jours</b> », « <b>business, liste mes prospects</b> ». Orchestration : Aelyra stratégie · BUSINESS prospection · Jeanette création · AEGIS contrôle · Isaac chef d'orchestre.</div>
+  </div>
+
+  <div class="pied"><a href="evolution.html">ÉVOLUTION →</a> · <a href="engagements.html">FICHES D'ENGAGEMENT →</a> · <a href="labo.html">LABO →</a> · <a href="cerveau.html">CERVEAU →</a></div>
+</main>
+
+<script>
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let ETAT = null;
+
+async function api(corps) {
+  const r = await fetch('/api/business', corps ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) } : {});
+  const j = await r.json();
+  return { http: r.status, j };
+}
+function info(t) { document.getElementById('info').textContent = t; }
+function classeStatut(s) {
+  if (s === 'A VALIDER') return 'attente';
+  if (s === 'MESSAGE_PRET') return 'pret';
+  if (s === 'ENVOYE' || s === 'CONTACTE') return 'envoye';
+  if (s === 'SIGNE') return 'signt';
+  if (s === 'ECARTE' || s === 'REFUSE') return 'mort';
+  return '';
+}
+function couleurScore(n) {
+  if (n == null) return '#6d6d6d';
+  return n >= 70 ? '#9be8b4' : n >= 45 ? '#d8d178' : '#8a8a8a';
+}
+const dateFr = (iso) => iso ? new Date(iso).toLocaleString('fr-FR') : '—';
+
+function rendu(e) {
+  ETAT = e;
+  document.getElementById('fichier').textContent = (e.dossier || '') + '\\prospects.json  —  ' + e.prospects.length + ' dossier(s)  —  sous-dossiers : ' + (e.sousDossiers || []).join(', ');
+  const rg = document.getElementById('regles');
+  if (e.regles) {
+    rg.innerHTML = '<b>Niveau 0 — recherche.</b> ' + esc(e.regles.niveau0) + '<br><b>Niveau 1 — message.</b> ' + esc(e.regles.niveau1) + '<br><b>Niveau 2 — envoi.</b> ' + esc(e.regles.niveau2) + '<br><b>Niveau 3 — suivis.</b> ' + esc(e.regles.niveau3) + '<br><b>Niveau 4.</b> ' + esc(e.regles.niveau4);
+  }
+  const jo = document.getElementById('journal');
+  jo.className = e.journal ? '' : 'vide';
+  jo.textContent = e.journal || 'Aucune ligne pour l\'instant.';
+  const v = document.getElementById('prospects');
+  if (!e.prospects.length) {
+    v.innerHTML = '<div class="vide">Le carnet est vide. Cherche un secteur en haut de page — ou dicte « business, cherche des garages à Abidjan ». Les dossiers arrivent en « À VALIDER » : c\'est toi qui tranches.</div>';
+    return;
+  }
+  v.innerHTML = e.prospects.map(p => `
+    <div class="prospects" data-ref="${esc(p.ref)}">
+      <h3>${esc(p.entreprise)} <span class="statut ${classeStatut(p.statut)}">${esc(p.statut)}</span> ${p.score != null ? '<span class="score" style="color:' + couleurScore(p.score) + '">' + p.score + '/100</span>' : ''}</h3>
+      <div class="champs">
+        <span class="champ"><span>ref</span>${esc(p.ref)}</span>
+        <span class="champ"><span>secteur</span>${esc(p.secteur || '—')}</span>
+        <span class="champ"><span>ville</span>${esc(p.ville || '—')}</span>
+        <span class="champ"><span>site</span>${p.site ? '<a href="' + esc(p.site) + '" target="_blank" rel="noopener" style="color:#cfcfcf">' + esc(p.site) + '</a>' : 'aucun trouvé'}</span>
+        <span class="champ"><span>contact pro</span>${esc(p.contact.tel || p.contact.mail || p.contact.facebook || 'non dicté')}</span>
+        <span class="champ"><span>dernier contact</span>${esc(dateFr(p.dernier_contact))}</span>
+      </div>
+      <div class="meta">source : ${esc(p.source || '—')}</div>
+      <div class="meta">besoin détecté : ${esc(p.besoin || 'non qualifié — « Qualifier » ci-dessous')}</div>
+      <div class="meta">prochaine action : <b>${esc(p.prochaine_action || '—')}</b></div>
+      ${p.message ? '<details><summary style="cursor:pointer;color:#8a8a8a;font-size:12px;margin-top:8px">le brouillon prêt à envoyer</summary><pre>' + esc(p.message) + '</pre></details>' : ''}
+      <details><summary style="cursor:pointer;color:#8a8a8a;font-size:12px;margin-top:6px">les ${ (p.evts || []).length } lignes du dossier</summary><pre>${(p.evts || []).map(x => x.t.slice(0, 16).replace('T', ' ') + '  ' + x.quoi).join('\n')}</pre></details>
+      <div class="barre" style="margin-top:10px">
+        <button class="bout mini qual">Qualifier</button>
+        <button class="bout mini prep">Préparer le message</button>
+        <button class="bout mini envoi">Valider → Envoyer</button>
+        <button class="bout mini sec valider">Garder</button>
+        <button class="bout mini sec ecarte">Écarter</button>
+      </div>
+      <div class="barre">
+        <input class="intr contact" placeholder="contact dicté : 07 12 34 56 78 / nom@gmail.com / facebook pseudo" autocomplete="off">
+        <button class="bout mini sec contactb">Graver le contact</button>
+      </div>
+      <div class="barre">
+        <input class="intr relance" placeholder="relance : « dans 3 jours », « demain matin »" autocomplete="off">
+        <button class="bout mini sec relanceb">Programmer la relance</button>
+        <input class="intr note" placeholder="note : « il a appelé, intéressé »" autocomplete="off">
+        <button class="bout mini sec noteb">Noter</button>
+        <button class="bout mini sec suppr">Supprimer</button>
+      </div>
+      <div class="sortie meta" style="margin-top:8px"></div>
+    </div>`).join('');
+
+  const postes = (el, txt) => { const s = el.closest('.prospects').querySelector('.sortie'); s.textContent = txt; };
+
+  v.querySelectorAll('.prospects').forEach(card => {
+    const ref = card.dataset.ref;
+    const POST = async (corps, ok) => {
+      const { http, j } = await api(Object.assign({ cible: ref }, corps));
+      if (j.ok) { info(ok || 'Fait.'); rendu(await (await fetch('/api/business')).json()); }
+      else { info('Refusé : ' + (j.erreur || ('HTTP ' + http))); postes(card, '✗ ' + (j.erreur || 'échec')); }
+    };
+    card.querySelector('.qual').onclick = (ev) => { postes(ev.target, 'Lecture de la page publique…'); POST({ action: 'qualifier' }, 'Dossier qualifié.'); };
+    card.querySelector('.prep').onclick = (ev) => { postes(ev.target, 'Rédaction du brouillon…'); POST({ action: 'message' }, 'Brouillon gravé — rien n\'est parti.'); };
+    card.querySelector('.envoi').onclick = (ev) => {
+      const p = ETAT.prospects.find(x => x.ref === ref);
+      if (!confirm('Niveau 2 : tu valides, elle envoie.\n\nDossier ' + ref + ' — ' + (p ? p.entreprise : '') + '\nCanal : ' + (p && p.contact.tel ? 'WhatsApp pré-rempli (tu appuies sur Entrée)' : p && p.contact.mail ? 'mail (peut partir pour de vrai via Gmail)' : 'AUCUN CONTACT dicté') + '\n\nConfirmer l\'envoi de CE message à CETTE entreprise ?')) return;
+      POST({ action: 'envoyer' }, 'Envoi lancé sous ton contrôle.');
+    };
+    card.querySelector('.valider').onclick = () => POST({ action: 'statut', statut: 'RETENU' }, 'Dossier gardé.');
+    card.querySelector('.ecarte').onclick = () => POST({ action: 'statut', statut: 'ECARTE' }, 'Dossier écarté — rien n\'a été contacté.');
+    card.querySelector('.contactb').onclick = () => { const c = card.querySelector('.contact').value.trim(); if (!c) { info('Dicte le contact d\'abord.'); return; } POST({ action: 'contact', contact: c }, 'Contact gravé.'); };
+    card.querySelector('.relanceb').onclick = () => { const d = card.querySelector('.relance').value.trim(); if (!d) { info('Dis quand : « dans 3 jours ».'); return; } POST({ action: 'relance', echeance: d }, 'Relance programmée (une seule à la fois).'); };
+    card.querySelector('.noteb').onclick = () => { const n = card.querySelector('.note').value.trim(); if (!n) { info('Rien à noter.'); return; } POST({ action: 'note', texte: n }, 'Notée au dossier.'); };
+    card.querySelector('.suppr').onclick = () => { if (!confirm('Retirer ' + ref + ' du carnet ? La ligne reste au journal.')) return; POST({ action: 'supprimer' }, 'Dossier retiré.'); };
+  });
+}
+
+async function rafraichir() {
+  const { j } = await api(null);
+  if (j && j.ok) rendu(j);
+}
+
+document.getElementById('chercher').onclick = async () => {
+  const secteur = document.getElementById('secteur').value.trim();
+  if (secteur.length < 3) { info('Donne le secteur — « garages », « cliniques », « restaurants »…'); return; }
+  const b = document.getElementById('chercher'); b.disabled = true; info('Recherche dans les sources publiques…');
+  const { j } = await api({ action: 'recherche', secteur, ville: document.getElementById('ville').value.trim() || 'Abidjan' });
+  b.disabled = false;
+  const r = document.getElementById('resultat');
+  if (j.ok && j.ajoutes && j.ajoutes.length) {
+    r.innerHTML = '<div class="garde" style="margin-top:14px"><b>' + j.ajoutes.length + ' dossier(s) « À VALIDER »</b> — ' + esc(j.resume) + '. Qualifie-les un par un : le score te dira où frapper en premier.</div>';
+    info('Sources publiques parcourues, carnets ouverts.');
+  } else if (j.ok) { r.innerHTML = '<div class="garde" style="margin-top:14px">' + esc(j.resume) + '</div>'; info('Rien de nouveau.'); }
+  else { r.innerHTML = '<div class="interdits" style="margin-top:14px"><b>Le serveur a refusé</b> — ' + esc(j.erreur || 'inconnu') + '</div>'; info('Refusé, et c\'est normal de le montrer.'); }
+  rafraichir();
+};
+document.getElementById('tout').onclick = () => rafraichir();
+rafraichir();
+setInterval(rafraichir, 15000);
+</script>
+</body>
+</html>
