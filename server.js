@@ -3464,6 +3464,13 @@ function lignesPorts(ports) {
 function lancerScanComplet(ip, agent) {
   const t0 = Date.now();
   const v = perimetreAutorise(ip);
+  // Garde en PROFONDEUR (audit rouges du 2026-10-02) : le périmètre est vérifié ici aussi, pas
+  // seulement chez l'appelant. frappe = refus écrit, jamais un scan qui part quand même.
+  if (!v.ok) {
+    tracerFrappe(ip, agent, 'SCAN COMPLET REFUSE — ' + (v.raison || 'hors perimetre'));
+    rappelsDuJour.push({ note: messageHorsPerimetre(ip, v) });
+    return;
+  }
   const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + ' — ' + v.fiche.objet + '. ' + mentionPreuveRapport(v.fiche)) : '';
   tracerFrappe(ip, agent, 'SCAN COMPLET 65 535 ports lance');
   scanComplet(ip).then(ports => {
@@ -3484,6 +3491,11 @@ function lancerScanComplet(ip, agent) {
 function lancerScanRapide(ip, agent) {
   const t0 = Date.now();
   const v = perimetreAutorise(ip);
+  if (!v.ok) {
+    tracerFrappe(ip, agent, 'SCAN RAPIDE REFUSE — ' + (v.raison || 'hors perimetre'));
+    rappelsDuJour.push({ note: messageHorsPerimetre(ip, v) });
+    return;
+  }
   const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + '. ' + mentionPreuveRapport(v.fiche)) : '';
   tracerFrappe(ip, agent, 'SCAN RAPIDE 1 000 ports lance');
   scanRapideNmap(ip).then(nmap => {
