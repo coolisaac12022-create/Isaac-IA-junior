@@ -179,7 +179,12 @@ setInterval(() => {
   const maintenant = Date.now();
   const dus = l.filter(r => r.t <= maintenant && !r.envoye);
   if (!dus.length) return;
-  dus.forEach(r => { r.envoye = true; rappelsDuJour.push(r); });
+  dus.forEach(r => {
+    r.envoye = true; rappelsDuJour.push(r);
+    // Orange #9 : la relance BUSINESS programmée qui arrive à l'heure devient une tâche finie
+    // au registre — Isaac peut relire « est-ce qu'elle est bien tombée » au lieu de lui faire confiance.
+    if (r.business) { try { creerTache({ type: 'relance_business', cible: String(r.business), agent: 'aelyra', etat: 'finie', resultat: String(r.note || '').slice(0, 300) }); } catch (e) {} }
+  });
   saveRappels(l.filter(r => !r.envoye));
   console.log('[rappel] dues:', dus.map(d => d.note).join(', '));
 }, 15000);
@@ -1805,6 +1810,9 @@ async function academieAutoTick() {
   if (m0.academieLast && Date.now() - m0.academieLast < ACADEMIE_INTERVALLE) return;
   const sujet = ACADEMIE_SUJETS[(m0.lecons || []).length % ACADEMIE_SUJETS.length];
   console.log('[Académie auto] séance spontanée sur : ' + sujet);
+  // Orange #9 : une séance d'Académie est un job long (plusieurs cerveaux, des minutes). Elle est
+  // écrite au registre dès qu'elle part, et son état final est lu, pas deviné.
+  const tAca = creerTache({ type: 'academie', cible: sujet.slice(0, 80), agent: 'aelyra', etape: 'séance en cours' });
   let rencontre = null;
   try { rencontre = await rencontreAutreAgent(sujet); } catch (e) {}
   let echanges, lecons, exterieure = false, nom = null, libre = false, rappel = '', ecartees = 0;
@@ -1814,7 +1822,7 @@ async function academieAutoTick() {
   } else {
     let seance = null;
     try { seance = await academieCroisee(sujet); } catch (e) {}
-    if (!seance) { console.log('[Académie auto] aucun cerveau n a répondu — on réessaiera demain'); return; }
+    if (!seance) { majTache(tAca.ref, { etat: 'echouee', etape: 'aucun cerveau n a repondu', resultat: 'Seance avortee : aucun cerveau n a repondu — reessayee a la prochaine session.', progression: 0 }); console.log('[Académie auto] aucun cerveau n a répondu — on réessaiera demain'); return; }
     const b = renduLecons(seance);
     echanges = seance.echanges; lecons = b.lecons; rappel = b.rappel; ecartees = b.ecartees;
   }
@@ -1833,6 +1841,7 @@ async function academieAutoTick() {
     conversation: (echanges || []).map(e => ({ agent: e.agent, nom: e.nom, text: e.text }))
   };
   try { saveMemory(m1); } catch (e) {}
+  fermerTache(tAca.ref, 'finie', 'Seance faite sur « ' + sujet + ' » : ' + (lecons || []).length + ' lecon(s) retenue(s)' + (ecartees ? ', ' + ecartees + ' ecartee(s) hors sol' : '') + (exterieure ? ', cerveau exterieur ' + nom : ', table ronde des agentes') + '. Rapport attendu a la prochaine ouverture de page.');
   console.log('[Académie auto] séance faite — ' + (lecons || []).length + ' leçon(s) gravée(s)' + (ecartees ? ', ' + ecartees + ' écartée(s) hors sol' : '') + ', attendant Isaac à la prochaine ouverture de page.');
 }
 setInterval(academieAutoTick, 10 * 60 * 1000);   // vérifié toutes les 10 min
@@ -3280,6 +3289,204 @@ function busResume() {
   return { resume, top };
 }
 
+// ---------- ORANGE #9 (2026-10-02) : LE TASK MANAGER ----------
+// Ce que Isaac a demandé : « un vrai gestionnaire de tâches ». Ce qui existait : une file en RAM
+// (rappelsDuJour) vidée à la lecture, et des scans longs qui partent sans nulle part où dire où ils
+// en sont — un redémarrage du cerveau les faisait oublier sans un mot. C'est corrigé ici : chaque
+// job long devient une TÂCHE écrite chez lui, avec un état, une progression, un résultat, une
+// heure. Aucun faux parallélisme mensonger : une tâche qui était « en_cours » quand le cerveau est
+// mort est marquée « interrompue », jamais « reprise en douceur ».
+const TACHES_FILE = path.join(__dirname, ESSAI ? 'taches.essai.json' : 'taches.json');
+const TACHE_ETATS = ['en_attente', 'en_cours', 'finie', 'echouee', 'refusee', 'interrompue', 'annulee'];
+const TACHE_TYPES = {
+  scan_complet: 'Scan complet (65 535 ports)',
+  scan_rapide: 'Scan rapide (1 000 ports de service)',
+  inventaire: 'Inventaire des appareils du WiFi',
+  relance_business: 'Relance d un prospect BUSINESS',
+  academie: 'Seance d Academie',
+  refus_perimetre: 'Demande refusee — aucune fiche active (verrou du perimetre)'
+};
+function lireTaches() {
+  try { const l = JSON.parse(fs.readFileSync(TACHES_FILE, 'utf8')); return Array.isArray(l) ? l : []; } catch (e) { return []; }
+}
+function ecrireTaches(l) {
+  try { fs.writeFileSync(TACHES_FILE, JSON.stringify(l.slice(-200), null, 1), 'utf8'); } catch (e) {}
+}
+function refTache() {
+  const d = new Date();
+  const jour = String(d.getFullYear()).slice(2) + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  const n = String(Date.now()).slice(-4);
+  return 'T-' + jour + '-' + n;
+}
+function creerTache(o) {
+  const l = lireTaches();
+  const t = {
+    ref: o.ref || refTache(),
+    type: String(o.type || 'scan_rapide'),
+    titre: String(o.titre || TACHE_TYPES[o.type] || o.type),
+    cible: String(o.cible || ''),
+    agent: String(o.agent || 'aelyra'),
+    etat: o.etat || 'en_cours',
+    progression: (typeof o.progression === 'number') ? o.progression : 0,
+    etape: String(o.etape || 'lancee'),
+    mandat: o.mandat || null,
+    cree_le: Date.now(),
+    demarre_le: (o.etat && o.etat !== 'en_cours') ? null : Date.now(),
+    fin_le: (o.etat && o.etat !== 'en_cours') ? Date.now() : null,
+    resultat: o.resultat || null,
+    livree: false
+  };
+  l.push(t); ecrireTaches(l);
+  return t;
+}
+function majTache(ref, patch) {
+  if (!ref) return null;
+  const l = lireTaches();
+  const i = l.findIndex(x => x.ref === ref);
+  if (i < 0) return null;
+  Object.assign(l[i], patch);
+  if (patch.etat && patch.etat !== 'en_cours') l[i].fin_le = Date.now();
+  ecrireTaches(l);
+  return l[i];
+}
+// « annule la tache 3 », « ou en est la tache de 192.168.1.45 », « T-261002-1145 »
+function trouverTache(phrase) {
+  const l = lireTaches();
+  const dictee = String(phrase || '').toLowerCase();
+  const directe = (String(phrase || '').match(/t-?\s*\d{6}-\d{4}/i) || [])[0];
+  if (directe) { const n = directe.replace(/[^0-9-]/g, ''); const t = l.find(x => x.ref.replace('T-', '') === n); if (t) return t; }
+  const ni = (dictee.match(/(?:tache|task)\s*(?:numero|#)?\s*(\d{1,3})/) || [])[1];
+  if (ni) {
+    const vivantes = l.filter(t => t.etat === 'en_cours' || t.etat === 'en_attente');
+    return vivantes[Number(ni) - 1] || null;
+  }
+  const parCible = l.slice().reverse().find(t => t.cible && dictee.includes(String(t.cible).toLowerCase()));
+  if (parCible) return parCible;
+  return null;
+}
+function tachesVivantes() {
+  return lireTaches().filter(t => t.etat === 'en_cours' || t.etat === 'en_attente');
+}
+function rendreTache(t, index) {
+  const duree = t.demarre_le ? Math.round(((t.fin_le || Date.now()) - t.demarre_le) / 1000) : 0;
+  return (index ? index + '. ' : '') + t.ref + ' [' + t.etat + (t.etat === 'en_cours' ? ' ' + (t.progression || 0) + '%' : '') + '] ' +
+    t.titre + (t.cible ? ' sur ' + t.cible : '') + ' — par ' + t.agent + ', ' + duree + ' s' +
+    (t.mandat ? ', fiche ' + t.mandat : '') + (t.resultat ? ' — ' + String(t.resultat).slice(0, 160) : '');
+}
+function resumeTaches() {
+  const l = lireTaches();
+  const vivantes = l.filter(t => t.etat === 'en_cours' || t.etat === 'en_attente');
+  if (!l.length) return "Aucune tache a mon registre, Isaac. J y ecris chaque job long des qu il part : scan complet, inventaire de ton WiFi, relance d un prospect, seance d Academie — et chaque refus de frapper une cible sans fiche.";
+  const compte = {};
+  l.forEach(t => { compte[t.etat] = (compte[t.etat] || 0) + 1; });
+  const tete = Object.keys(compte).map(e => compte[e] + ' ' + e + (compte[e] > 1 && e === 'finie' ? 's' : '')).join(', ');
+  const corps = (vivantes.length ? vivantes.slice(-4).map((t, i) => rendreTache(t, i + 1)).join('\n')
+    : l.slice(-4).map((t, i) => rendreTache(t, i + 1)).join('\n'));
+  return "Mes taches, Isaac (" + tete + '), les dernieres :\n' + corps +
+    (vivantes.length ? "\nLe resultat tombera dans ma voix des qu il est pret — « ouvre ta console des taches » pour tout lire." :
+      '\nRien en cours maintenant. « ouvre ta console des taches » pour l historique complet.');
+}
+// Une tâche annulée = une tâche qui ne partira pas. Un scan déjà lancé sur le réseau ne se
+// rattrape pas : c'est écrit tel quel, pas de fausse promesse d'arrêt.
+function annulerTache(ref) {
+  const t = lireTaches().find(x => x.ref === ref);
+  if (!t) return { ok: false, erreur: 'pas de tache ' + ref + ' a mon registre' };
+  if (t.etat !== 'en_attente' && t.etat !== 'en_cours') return { ok: false, erreur: 'la tache ' + ref + ' est deja ' + t.etat + ' : rien a annuler' };
+  if (t.etat === 'en_cours' && /scan|inventaire/.test(t.type)) {
+    majTache(ref, { etat: 'en_cours', etape: 'annulation demandee — le balayage en cours ira au bout des ports deja lances', resultat: 'Annulation demandee par Isaac a ' + new Date().toLocaleTimeString('fr-FR') });
+    return { ok: true, arrete: false, tache: t, detail: 'Le balayage tourne, Isaac — je ne peux pas rappeler les paquets deja partis sur le reseau. Ce que je peux faire : ne rien rapporter de plus, et ne plus relancer. Dis « ne rapporte pas ' + ref + ' » si tu veux que je me taise sur le resultat.' };
+  }
+  majTache(ref, { etat: 'annulee', etape: 'annulee sur ordre d Isaac' });
+  return { ok: true, arrete: true, tache: t, detail: 'Tache ' + ref + ' annulee, Isaac — elle ne partira pas.' };
+}
+// Au démarrage : ce qui était lancé quand le cerveau est mort est marqué interrompu, avec l'heure.
+// C'est LA preuve qu'on ne lui invente pas une reprise.
+function tachesReprendre() {
+  const l = lireTaches();
+  const cassees = l.filter(t => t.etat === 'en_cours' || t.etat === 'en_attente');
+  if (!cassees.length) return 0;
+  cassees.forEach(t => {
+    t.etat = 'interrompue';
+    t.etape = 'le cerveau a redemarre pendant cette tache';
+    t.resultat = 'Interrompue au redemarrage du cerveau a ' + new Date().toLocaleTimeString('fr-FR') + ' — relance la commande pour la refaire.';
+    t.fin_le = Date.now();
+  });
+  ecrireTaches(l);
+  return cassees.length;
+}
+// La note qui part dans la voix d'Isaac est AUSSI le résultat gravé de la tâche : plus rien
+// ne se perd entre la fin d'un job et la lecture de la page.
+function livrerNote(note, tacheRef, etat) {
+  const t = tacheRef ? lireTaches().find(x => x.ref === tacheRef) : null;
+  // « ne rapporte pas T-… » a été promis par l'annulation : tenu ici, dans le code.
+  // Le résultat reste écrit au registre (la preuve est là), seul le haut-parleur se tait.
+  if (!(t && t.silence)) rappelsDuJour.push({ note: String(note || ''), tache: tacheRef || null });
+  if (tacheRef) majTache(tacheRef, { etat: etat || 'finie', progression: 100, etape: t && t.silence ? 'rapport ecrit, voix tenue sur ordre d Isaac' : 'rapport pret', resultat: String(note || '').slice(0, 600) });
+}
+// La limite de « annule » est dite telle quelle : on ne rappelle pas des paquets déjà partis.
+// Ce que le verrou peut faire, lui, c'est TAIRE le rapport — et le garder écrit quand même.
+function taireTache(ref) {
+  const t = lireTaches().find(x => x.ref === ref);
+  if (!t) return { ok: false, erreur: 'pas de tache ' + ref + ' a mon registre' };
+  if (t.etat === 'finie' || t.etat === 'echouee') return { ok: false, erreur: 'la tache ' + ref + ' est deja ' + t.etat + ' : son rapport est lu ou écrit, rien a taire' };
+  majTache(ref, { silence: true, etape: 'resultat a ne pas lire a voix haute (ordre d Isaac)' });
+  return { ok: true, tache: t, detail: 'Entendu, Isaac : le resultat de ' + ref + ' ne sortira pas dans ma voix. Il reste ecrit au registre — je ne supprime pas une preuve sur un malentendu.' };
+}
+// ---------- ORANGE #9 : la voix du registre ----------
+// « liste tes taches », « ou en est la tache 2 », « annule la tache 2 », « ne rapporte pas la
+// tache T-… », « ouvre ta console des taches ». Le module LIT et ANNULE seulement : aucun de ces
+// mots n'envoie un paquet sur le réseau, donc le module passe avant les gardes d'attaque.
+// « où en est le SCAN » reste au module de scan, qui répond avec les relevés réels de la mémoire
+// (plus utile pour Isaac que mon pourcentage de balayage).
+function moduleTaches(phrase, brut, agent) {
+  // La dictée garde le prénom quand c'est Aelyra qui est appelée (seul Jeanette/ONYX/AEGIS sont
+  // découpés par le routage) : les verbes ne sont donc JAMAIS ancrés en début de phrase.
+  const p = normalize(String(phrase || '')) + ' ' + normalize(String(brut || ''));
+  if (!/\btaches?\b|\btask\b|quest ce qui tourne|ce qui tourne en ce moment/.test(p)) return null;
+  const qui = agent || 'aelyra';
+  const dictee = String(phrase || '');
+  if (/console|registre|tableau/.test(p) && /(?:ouvre|ouvrir|montre|affiche|lance|va sur|va a)\b/.test(p)) {
+    const n = tachesVivantes().length;
+    return { reply: "J'ouvre ma console des taches, Isaac — " + (n ? n + ' job(s) en cours sous mes yeux.' : 'rien en cours maintenant, tout est dans lhistorique.'), source: 'local', agent: qui, open: '/taches.html' };
+  }
+  if (/ne rapporte pas|tais.toi sur|ne dis rien sur|garde pour toi/.test(p)) {
+    let t = trouverTache(dictee);
+    if (!t) {
+      const brute = String(dictee).toUpperCase().replace(/\s+/g, '');
+      t = lireTaches().find(x => brute.includes(x.ref.replace(/[^A-Z0-9]/g, '')));
+    }
+    if (!t) return { reply: 'Je ne sais pas de quelle tache il sagit, Isaac — « liste tes taches » donne les references, puis « ne rapporte pas la tache 2 ».', source: 'local', agent: qui };
+    const r = taireTache(t.ref);
+    return { reply: r.ok ? r.detail : "Rien n'a ete tu, Isaac : " + r.erreur + '.', source: 'local', agent: qui };
+  }
+  if (/(?:annule|arrete|stoppe|coupe|abandonne|supprime|annuler|arreter)\b/.test(p) && /tache|task/.test(p)) {
+    const t = trouverTache(dictee);
+    if (!t) return { reply: "Aucune tache reconnue dans « " + dictee.slice(0, 60) + " », Isaac. « liste tes taches » donne les references, et lon annule avec « annule la tache 2 » ou « annule la tache T-261002-1145 ».", source: 'local', agent: qui };
+    const r = annulerTache(t.ref);
+    return { reply: r.ok ? r.detail : "Rien n'est annule, Isaac : " + r.erreur + '.', source: 'local', agent: qui };
+  }
+  // « ou en est la tache 2 », « ou en est T-261002-4158 », « liste tes taches », « quest ce qui tourne ».
+  const cible = trouverTache(dictee);
+  if (cible && /ou en es|ou en est|avanc|avance|reste|fini\b|termine|toujours/.test(p)) {
+    return { reply: rendreTache(cible) + (cible.etat === 'en_cours' ? ' — je te dis le resultat des quil est pret.' : ''), source: 'local', agent: qui };
+  }
+  // « liste tes taches », « quest ce qui tourne », « combien de taches en cours ».
+  // Attention au faux ami : « rappelle-moi que j'ai une tache à faire ce soir » n'est PAS
+  // une demande de registre — sans verbe ni possessif de lecture, le routeur normal reprend.
+  const veutListe = /liste|montre|affiche|combien|tes taches|mes taches|nos taches|la tache en cours|ce qui tourne|en ce moment|registre|recap|resum/.test(p);
+  if (!veutListe) return null;
+  return { reply: resumeTaches(), source: 'local', agent: qui };
+}
+// Les jobs dont le résultat revient à l'appelant (inventaire, séance d'Académie, recherche
+// BUSINESS) n'ont pas besoin du haut-parleur : la tâche est fermée, le résultat est écrit,
+// et c'est la page « console des tâches » qui le montre.
+function fermerTache(ref, etat, resultat) {
+  if (!ref) return null;
+  const patch = { etat: etat, etape: etat + ' et gravee au registre', resultat: String(resultat || '').slice(0, 600) };
+  if (etat === 'finie') patch.progression = 100;
+  return majTache(ref, patch);
+}
+
 // --- SCANNER DE PORTS RÉEL (demande d'Isaac du 2026-10-01 : « mais lance le toi-même, c'est ton taff ») ---
 // Nmap est déjà sur le PC d'Isaac ; on l'utilise s'il répond, sinon filet de secours TCP pur Node.
 // GARDAGE TECHNIQUE : les adresses du réseau local d'Isaac (192.168.x.x / 10.x.x.x / 172.16-31.x.x)
@@ -3415,14 +3622,22 @@ function relanceDernierScan(phrase, raw, agent) {
 // Donc : 1) nmap sur les 1 000 ports de service (54 s, c'est lui qui trouve le 53),
 //        2) balayage TCP parallèle sur les 64 535 autres (400 ms de fenêtre),
 // et le rapport dit exactement ce qui a été fait — jamais un « rien d'ouvert » mensonger.
-function sweepTcp(ip, debut, fin, timeoutMs, concurrence) {
+function sweepTcp(ip, debut, fin, timeoutMs, concurrence, suivi) {
   const net = require('net');
   const liste = []; for (let p = debut; p <= fin; p++) liste.push(p);
   return new Promise(resolve => {
     const ouverts = []; let i = 0, finis = 0;
     const un = () => new Promise(res => {
       const p = liste[i++]; const s = new net.Socket();
-      const finir = o => { if (!s.destroyed) s.destroy(); if (o) ouverts.push(p); if (++finis === liste.length) res(); else res(); };
+      // Orange #9 : la progression est écrite chez lui tous les ~2 000 ports — « ou en est la
+      // tache N » répond un pourcentage MESURE (ports finis / ports lances), pas une estimation.
+      const finir = o => {
+        if (!s.destroyed) s.destroy();
+        if (o) ouverts.push(p);
+        finis++;
+        if (suivi && (finis % 2000 === 0 || finis === liste.length)) { try { suivi(Math.round(finis * 100 / liste.length)); } catch (e) {} }
+        res();
+      };
       s.setTimeout(timeoutMs);
       s.on('connect', () => finir(true));
       s.on('timeout', () => finir(false));
@@ -3449,11 +3664,14 @@ function scanRapideNmap(ip) {
       });
   });
 }
-async function scanComplet(ip) {
+async function scanComplet(ip, suivi) {
+  const etat = (p, e) => { if (suivi) { try { suivi(p, e); } catch (err) {} } };
+  etat(1, 'nmap sur les 1 000 ports de service');
   let nmap = await scanRapideNmap(ip);
-  if (nmap === null) nmap = await scanTcpPur(ip);
+  if (nmap === null) { etat(3, 'nmap muet — secours TCP pur sur 1 000 ports'); nmap = await scanTcpPur(ip); }
   const vu = new Set(nmap.map(p => p.port));
-  const reste = await sweepTcp(ip, 1001, 65535, 400, 1500);
+  etat(5, 'balayage TCP des 64 535 autres ports');
+  const reste = await sweepTcp(ip, 1001, 65535, 400, 1500, p => etat(5 + Math.round(p * 0.94), 'balayage TCP : ' + p + '% des ports tries'));
   const ports = nmap.concat(reste.filter(p => !vu.has(p)).map(p => ({ port: p, service: SERVICES_PORT[p] || '' })));
   ports.sort((a, b) => a.port - b.port);
   return ports;
@@ -3468,12 +3686,16 @@ function lancerScanComplet(ip, agent) {
   // seulement chez l'appelant. frappe = refus écrit, jamais un scan qui part quand même.
   if (!v.ok) {
     tracerFrappe(ip, agent, 'SCAN COMPLET REFUSE — ' + (v.raison || 'hors perimetre'));
+    // Orange #9 : le refus est une tâche dans le registre — Isaac peut le relire, pas seulement l'entendre.
+    creerTache({ type: 'scan_complet', cible: ip, agent: agent || 'onyx', etat: 'refusee', resultat: messageHorsPerimetre(ip, v) });
     rappelsDuJour.push({ note: messageHorsPerimetre(ip, v) });
     return;
   }
   const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + ' — ' + v.fiche.objet + '. ' + mentionPreuveRapport(v.fiche)) : '';
-  tracerFrappe(ip, agent, 'SCAN COMPLET 65 535 ports lance');
-  scanComplet(ip).then(ports => {
+  // Orange #9 : la tâche naît AVANT que le job parte, et son rapport finit écrite chez lui.
+  const t = creerTache({ type: 'scan_complet', cible: ip, agent: agent || 'onyx', mandat: v.fiche ? v.fiche.ref : null, etape: 'scanner nmap en cours' });
+  tracerFrappe(ip, agent, 'SCAN COMPLET 65 535 ports lance — tache ' + t.ref);
+  scanComplet(ip, (pct, etape) => majTache(t.ref, { progression: pct, etape: etape || 'balayage en cours' })).then(ports => {
     graveScan(ip, ports, agent);
     const sec = Math.round((Date.now() - t0) / 1000);
     let note;
@@ -3482,9 +3704,9 @@ function lancerScanComplet(ip, agent) {
       note = "SCAN COMPLET termine sur " + ip + " (" + sec + " s) : " + ports.length + " port(s) ouvert(s) sur 65 535 — " + lignesPorts(ports) + ". " + (ports.some(p => p.port === 5555) ? "URGENT : 5555 ADB ouvert = prise de main possible depuis le WiFi, a fermer maintenant." : "Compare avec tes usages : chaque porte ouverte doit avoir une raison.");
       note += " Méthode : les 1 000 ports de service au scanner nmap, les 64 535 autres en balayage TCP rapide (400 ms de fenetre) — un mobile filtre les paquets, c'est la seule methode qui finit.";
     }
-    rappelsDuJour.push({ note: tete + note });
-  }).catch(() => {
-    rappelsDuJour.push({ note: tete + "Le scan complet de " + ip + " a echoue, Isaac — redis « " + (agent || 'onyx') + ", scan complet " + ip + " »." });
+    livrerNote(tete + note, t.ref, 'finie');
+  }).catch(e => {
+    livrerNote(tete + "Le scan complet de " + ip + " a echoue, Isaac — redis « " + (agent || 'onyx') + ", scan complet " + ip + " ».", t.ref, 'echouee');
   });
 }
 // « scan rapide » = les 1 000 ports de service seulement : la réponse en une minute.
@@ -3493,11 +3715,13 @@ function lancerScanRapide(ip, agent) {
   const v = perimetreAutorise(ip);
   if (!v.ok) {
     tracerFrappe(ip, agent, 'SCAN RAPIDE REFUSE — ' + (v.raison || 'hors perimetre'));
+    creerTache({ type: 'scan_rapide', cible: ip, agent: agent || 'aelyra', etat: 'refusee', resultat: messageHorsPerimetre(ip, v) });
     rappelsDuJour.push({ note: messageHorsPerimetre(ip, v) });
     return;
   }
   const tete = v.fiche ? ('Engagement ' + v.fiche.ref + ', mandate par ' + v.fiche.mandant + '. ' + mentionPreuveRapport(v.fiche)) : '';
-  tracerFrappe(ip, agent, 'SCAN RAPIDE 1 000 ports lance');
+  const t = creerTache({ type: 'scan_rapide', cible: ip, agent: agent || 'aelyra', mandat: v.fiche ? v.fiche.ref : null, etape: 'nmap sur les 1 000 ports de service', progression: 5 });
+  tracerFrappe(ip, agent, 'SCAN RAPIDE 1 000 ports lance — tache ' + t.ref);
   scanRapideNmap(ip).then(nmap => {
     const sec = Math.round((Date.now() - t0) / 1000);
     const ports = nmap === null ? null : nmap;
@@ -3507,8 +3731,8 @@ function lancerScanRapide(ip, agent) {
       : (ports.length
         ? "SCAN RAPIDE termine sur " + ip + " (" + sec + " s, les 1 000 ports de service les plus attaqués) : " + lignesPorts(ports) + ". Pour tout voir : « scan complet " + ip + " »."
         : "SCAN RAPIDE termine sur " + ip + " (" + sec + " s, 1 000 ports de service) : rien d'ouvert sur l'essentiel. Pour verifier chaque port un a un : « scan complet " + ip + " ».");
-    rappelsDuJour.push({ note: tete + note });
-  }).catch(() => {});
+    livrerNote(tete + note, t.ref, ports === null ? 'echouee' : 'finie');
+  }).catch(() => livrerNote(tete + "Le scan rapide de " + ip + " a echoue, Isaac.", t.ref, 'echouee'));
 }
 // Inventaire : tous les appareils joints sur le WiFi d'Isaac (ARP), scannés d'un coup (31 ports chacun).
 function ipReseauLocal() {
@@ -3535,10 +3759,19 @@ function listerAppareilsReseau() {
   });
 }
 async function scanTousAppareils(agent) {
+  const t = creerTache({ type: 'inventaire', cible: 'WiFi de la maison', agent: agent || 'aelyra', etape: 'lecture de la table ARP' });
   const ips = await listerAppareilsReseau();
-  if (!ips.length) return { reply: "Aucun appareil joint sur ce WiFi pour l'instant, Isaac — allume le téléphone ou l'autre machine, puis redis « scanne mes appareils ».", source: 'local', agent: agent || 'aelyra' };
-  const rapports = await Promise.all(ips.map(async ip => ip + ' : ' + (await scanCible(ip)).map(p => p.port + (SERVICES_PORT[p.port] ? ' (' + SERVICES_PORT[p.port] + ')' : '')).join(', ') || 'rien d\'expose'));
-  return { reply: "INVENTAIRE SCANNÉ de ton réseau (" + ips.length + " appareils) — " + rapports.join(' | ') + ". Tout ce qui apparait est visible par n'importe qui sur ce WiFi : c'est ta carte de ce que verrait un attaquant entré chez toi.", source: 'local', agent: agent || 'aelyra' };
+  if (!ips.length) { fermerTache(t.ref, 'echouee', "Aucun appareil joint sur ce WiFi : inventaire impossible."); return { reply: "Aucun appareil joint sur ce WiFi pour l'instant, Isaac — allume le téléphone ou l'autre machine, puis redis « scanne mes appareils ».", source: 'local', agent: agent || 'aelyra' }; }
+  majTache(t.ref, { etape: ips.length + ' appareils trouves — 31 ports sur chacun', progression: 20 });
+  const rapports = [];
+  for (let i = 0; i < ips.length; i++) {
+    const ip = ips[i];
+    rapports.push(ip + ' : ' + (await scanCible(ip)).map(p => p.port + (SERVICES_PORT[p.port] ? ' (' + SERVICES_PORT[p.port] + ')' : '')).join(', ') || 'rien d\'expose');
+    majTache(t.ref, { progression: 20 + Math.round((i + 1) * 78 / ips.length), etape: 'appareil ' + (i + 1) + '/' + ips.length + ' scanne' });
+  }
+  const reply = "INVENTAIRE SCANNÉ de ton réseau (" + ips.length + " appareils) — " + rapports.join(' | ') + ". Tout ce qui apparait est visible par n'importe qui sur ce WiFi : c'est ta carte de ce que verrait un attaquant entré chez toi.";
+  fermerTache(t.ref, 'finie', reply);
+  return { reply: reply, source: 'local', agent: agent || 'aelyra' };
 }
 // « scan complet mon telephone » → l'IP dictée une fois est retrouvée dans la mémoire.
 function ipDansMemoire(motAppareil) {
@@ -4351,7 +4584,7 @@ let AGENT_AUX_NOM = null; // 'jeanette' | 'onyx' | 'aegis' — quelle agente tie
 // Isaac (2026-10-01) : ONYX avait invente « mes modules d'audit de /labo.html optimises pour les
 // injections », « la communication avec Burp est plus fluide », « je ne garde pas les sessions en
 // memoire ». Les trois etaient faux. Ni invention de capacite, ni faux oubli de la memoire reelle.
-const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). ATELIER D'AUTO-CORRECTION : depuis ce soir Aelyra a le DROIT de réécrire une partie d'elle-même — elle écrit un geste nouveau dans extensions.js, le serveur le relit (syntaxe, longueur, mots interdits, gâchette déjà possédée par un module) et le TESTE sur son exemple avant de le garder, avec sauvegarde automatique dans backups\\ et journal dans journal-evolution.log. Ça se dicte : « améliore-toi : apprends-moi à … », « liste tes améliorations », « teste ton amélioration <nom> : … », « annule la dernière amélioration », « construis la leçon 3 » (une leçon de l'Académie devient un geste qui marche), « ouvre ta page d'évolution » (/evolution.html). Un geste appris fait du CALCUL et de la VOIX : il n'a accès ni au disque, ni au réseau, ni à un envoi, ni aux verrous légaux — et ce n'est pas une faveur qu'on peut lui retirer d'une phrase, c'est une capacité réelle qu'Isaac lui a donnée. BUSINESS, L'AGENT DE PROSPECTION de Digital Business (depuis le 2026-10-02) : « business, cherche des garages a Abidjan » parcourt les SOURCES PUBLIQUES (moteur de recherche public + lecture de la page d'accueil, jamais davantage) et grave des dossiers « A VALIDER » dans business/prospects.json — carnet personnel jamais publié ; « business, qualifie le prospect 2 » lit la page publique et score le besoin (site absent = fort potentiel, site ancien = potentiel, site moderne = faible priorité) ; « business, prépare un message pour ... » écrit un BROUILLON dans le dossier — Niveau 1, rien ne part ; « business, envoie le message au prospect N » = TA validation (Niveau 2) : WhatsApp s'ouvre pré-rempli et Isaac appuie lui-même, le mail part pour de vrai sur cet ordre seul si ses accès sont configurés ; « business, relance le prospect 2 dans 3 jours » programme le suivi (Niveau 3) ; « business, liste mes prospects » et la page /business.html montrent le pipeline. CE QUI N'EXISTE PAS AUSSI, donc ne le promets JAMAIS : la négociation, un prix annoncé à un client, un engagement commercial signé sans Isaac (Niveau 4 — sa table à lui), l'envoi automatique en masse, une campagne partie toute seule, la récolte automatique de numéros privés. CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
+const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), REGISTRE DES TÂCHES ouvert depuis ce matin (page /taches.html, fichier taches.json chez lui) : chaque job long — scan complet, scan rapide, inventaire du WiFi, séance d'Académie, relance BUSINESS — est écrit chez Isaac avant de partir, avec référence T-…, état, progression MESURÉE et résultat gravé ; ça se dicte « liste tes tâches », « où en est la tâche 2 », « annule la tâche 2 », « ne rapporte pas la tâche T-… », « ouvre ta console des tâches » ; si le cerveau redémarre pendant un job, la tâche est marquée interrompue — elle ne se fait pas passer pour une reprise. ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). ATELIER D'AUTO-CORRECTION : depuis ce soir Aelyra a le DROIT de réécrire une partie d'elle-même — elle écrit un geste nouveau dans extensions.js, le serveur le relit (syntaxe, longueur, mots interdits, gâchette déjà possédée par un module) et le TESTE sur son exemple avant de le garder, avec sauvegarde automatique dans backups\\ et journal dans journal-evolution.log. Ça se dicte : « améliore-toi : apprends-moi à … », « liste tes améliorations », « teste ton amélioration <nom> : … », « annule la dernière amélioration », « construis la leçon 3 » (une leçon de l'Académie devient un geste qui marche), « ouvre ta page d'évolution » (/evolution.html). Un geste appris fait du CALCUL et de la VOIX : il n'a accès ni au disque, ni au réseau, ni à un envoi, ni aux verrous légaux — et ce n'est pas une faveur qu'on peut lui retirer d'une phrase, c'est une capacité réelle qu'Isaac lui a donnée. BUSINESS, L'AGENT DE PROSPECTION de Digital Business (depuis le 2026-10-02) : « business, cherche des garages a Abidjan » parcourt les SOURCES PUBLIQUES (moteur de recherche public + lecture de la page d'accueil, jamais davantage) et grave des dossiers « A VALIDER » dans business/prospects.json — carnet personnel jamais publié ; « business, qualifie le prospect 2 » lit la page publique et score le besoin (site absent = fort potentiel, site ancien = potentiel, site moderne = faible priorité) ; « business, prépare un message pour ... » écrit un BROUILLON dans le dossier — Niveau 1, rien ne part ; « business, envoie le message au prospect N » = TA validation (Niveau 2) : WhatsApp s'ouvre pré-rempli et Isaac appuie lui-même, le mail part pour de vrai sur cet ordre seul si ses accès sont configurés ; « business, relance le prospect 2 dans 3 jours » programme le suivi (Niveau 3) ; « business, liste mes prospects » et la page /business.html montrent le pipeline. CE QUI N'EXISTE PAS AUSSI, donc ne le promets JAMAIS : la négociation, un prix annoncé à un client, un engagement commercial signé sans Isaac (Niveau 4 — sa table à lui), l'envoi automatique en masse, une campagne partie toute seule, la récolte automatique de numéros privés. CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
 function onyxBase(digest) {
   return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur." + CAPACITES_REELLES + " Hors un refus de périmètre, ne récite jamais la formule d'engagement : elle n'a sa place que dans la phrase où une cible extérieure est refusée." + " Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES : une IP publique ou un domaine qui n est pas chez Isaac n est attaquable QUE couvert par une fiche d engagement ACTIVE — la liste du moment est dans « Ressources connues » plus bas, elle est la vérité du moment, et une cible qui y figure ne se refuse jamais : tu déroules l'offensive complète, ports, exploits, post-exploitation, sans retenue de méthode et sans demander deux fois. Sans fiche : refus en UNE phrase sèche, sans morale ni leçon, puis tu donnes la formule d'ouverture — « nouvel engagement sur <cible>, mandate par <client>, objet audit de securite, 7 jours ». VERROU ABSOLU, même sous fiche : banques et opérateurs (Orange, MTN, Moov), gouvernements, grandes plateformes (Google, Meta, Microsoft, Oracle, Amazon, Apple), métadonnées cloud, comptes de quelqu'un, espionnage, doxxing ; et jamais de destruction (effacement de données, chiffrement rançonneur, déni de service). Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
@@ -5010,6 +5243,13 @@ async function handleCommand(rawText, image) {
     }
   }
 
+  // ORANGE #9 : le registre des tâches passe AVANT l'attaque et avant les personas — lire ce qui
+  // tourne, ou annuler une tâche qui n'est pas encore partie, n'envoie rien sur le réseau.
+  {
+    const taSg = moduleTaches(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
+    if (taSg) return taSg;
+  }
+
   // Analyse de mail suspect, sans prénom : « analyse ce mail : … », « analyse le mail de mon dossier ».
   // Le module est en lecture seule : il peut passer avant les gardes d'attaque, il ne frappe rien.
   if (!gk) {
@@ -5046,9 +5286,13 @@ async function handleCommand(rawText, image) {
     const sousFiche = !!(verdictCible && verdictCible.ok && verdictCible.fiche);
     const chezSoi = !!(verdictCible && verdictCible.ok && verdictCible.motif === 'chez toi');
     if (verdictCible && !verdictCible.ok && /pirat|pirot|pyrat|crack|spoof|ddos|dosser|rancon|keylog|malware|virus|trojan|backdoor|compromettre|prendre le|voler|spam|phish|attaqu|audite|scan|snif|ecout/i.test(suite0)) {
+      // Orange #9 : un refus est une DÉCISION, donc une ligne du registre — pas juste une phrase
+      // prononcée et oubliée. Isaac peut relire qui a été refusé, quand, et pourquoi.
+      try { creerTache({ type: 'refus_perimetre', cible: String(cibleNommee).slice(0, 90), agent: nomAgent || 'aelyra', etat: 'refusee', resultat: messageHorsPerimetre(cibleNommee, verdictCible) }); } catch (e) {}
       return { reply: messageHorsPerimetre(cibleNommee, verdictCible), source: 'local', agent: nomAgent };
     }
     if (veutDetruire && sousFiche) {
+      try { creerTache({ type: 'refus_perimetre', cible: String(cibleNommee).slice(0, 90), agent: nomAgent || 'aelyra', etat: 'refusee', resultat: 'Charge destructive refusee meme sous fiche active (verrou absolu).' }); } catch (e) {}
       return { reply: "La destruction est refusee, Isaac — meme sous fiche d'engagement. Ni effacement de donnees, ni chiffrement ranconneur, ni saturation de service : ONYX prouve l'acces, documente, et s'arrete la. C'est ce qui distingue un auditeur d'un vandalisateur. « onyx, exploitation complete de " + cibleNommee + " » — sans destruction.", source: 'local', agent: nomAgent };
     }
     const attaqueTiers = nomAgent && nomAgent !== 'jeanette' && !sousFiche && !chezSoi &&
@@ -5056,6 +5300,7 @@ async function handleCommand(rawText, image) {
       /(?:compte|mot de passe|donnees|identifiants?|boite|messagerie|page|profil|telephone|pc|ordinateur|compte)\b[^]{0,40}\b(?:de|du|des|d un|a un|d une|a une|d autrui)\s|voisin|quelqu|autrui|d autres|copain|petit ami|petite amie|ex\b|collegue|camarade|banque|bank|gouv|admin|sa page|son compte|leur compte|le compte|un compte|n importe qui|echauffeur|chauffeur|femme|mari|frere|soeur|oncle|tante|prof|directeur|president|minister|polytechnique|centrale|heberg|vps|serveur (?:d|de)\b|site (?:d|de)\b/.test(suite0) &&
       !/(?:mon (?:pc|labo|laboratoire|reseau|wifi|routeur|telephone|ordinateur|machine|boitier|site|serveur|cle)|ma (?:machine|maison|page|site|boite)|notre (?:reseau|pc)|nos (?:machines|serveurs)|chez moi|le mien|la mienne|labo|laboratoire|cyber_training|tryhackme|hackthebox|hack the box|portswigger|overthewire|pikabu|ctf|machines? (?:d entrainement|legales?)|terrains? legaux?|localement|en local|DIGITAL BUSINESS|mon atelier)/i.test(suite0);
     if (attaqueTiers) {
+      try { creerTache({ type: 'refus_perimetre', cible: String(cibleNommee || suite0).slice(0, 90), agent: nomAgent || 'aelyra', etat: 'refusee', resultat: 'Refus : aucune fiche active et cible qui n est pas chez Isaac.' }); } catch (e) {}
       return { reply: nomAgent === 'onyx'
         ? "Pas comme ça, Isaac — aucune cible nommée, aucun mandat écrit, donc je ne frappe pas. Ouvre une fiche et je descends : « nouvel engagement sur 41.138.15.20, mandate par Digifood SARL, objet audit de securite, 7 jours ». La fiche ouverte, plus aucune retenue de methode — 65 535 ports, exploits, post exploitation, et la reference de la fiche en tete de rapport. Ce que je ne ferai jamais, meme sous fiche : les passerelles et CGNAT d operateur, les metadonnees cloud, les reseaux gouvernementaux, les plateformes et les banques, ni rien qui detruit."
         : "Pas sans fiche d'engagement, Isaac. Un audit se mandate par ecrit : « nouvel engagement sur <cible>, mandate par <client>, objet audit, 7 jours ». La fiche ouverte, j'audite sans retenue. Le systeme d'un tiers qui n'a rien signe, en revanche, reste ferme — loi ivoirienne sur la cybercriminalite, et ta reputation d'auditeur ne tient qu'a cette ligne.", source: 'local', agent: nomAgent };
@@ -6320,7 +6565,7 @@ function lireRepartition() {
 //      application/json — le navigateur n'enverrait pas l'en-tête sans préflight CORS), est refusée.
 // Le fichier politique est écrit à chaque boot : Isaac peut le lire, il n'est rien à croire.
 const API_ECRITURE = ['/api/command', '/api/prompts', '/api/evolution', '/api/repartition',
-  '/api/engagements', '/api/business', '/api/analyse-mail'];
+  '/api/engagements', '/api/business', '/api/analyse-mail', '/api/taches'];
 
 // « la maison » a trois écritures (localhost, 127.0.0.1, [::1]) mais c'est la MEME machine, et le
 // PORT COMPTE : une page servie sur un autre port de ce PC n'est pas le cerveau, c'est un site
@@ -6743,9 +6988,75 @@ const server = http.createServer(async (req, res) => {
 
   // Les rappels arrivés à l'heure sont livrés à la page web (qui les lit à voix haute)
   if (u.pathname === '/api/rappel') {
-    const aDire = rappelsDuJour.splice(0, rappelsDuJour.length).map(r => r.note);
+    const partis = rappelsDuJour.splice(0, rappelsDuJour.length);
+    // Orange #9 : une note lue à voix haute est aussi COCHÉE comme livrée sur sa tâche.
+    // Si le cerveau meurt entre les deux, la tâche reste « rapport prêt » et non perdue.
+    partis.forEach(r => { if (r.tache) majTache(r.tache, { livree: true, etape: 'rapport lu a voix haute' }); });
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ rappels: aDire }));
+    res.end(JSON.stringify({ rappels: partis.map(r => r.note) }));
+    return;
+  }
+
+  // ---------- ORANGE #9 : la console des tâches ----------
+  // GET  /api/taches          -> le registre complet, tel qu'il est écrit chez Isaac
+  // POST /api/taches {action} -> « annuler » (empêcher ce qui n'est pas encore parti)
+  //                          -> « taire » (ne pas lire le rapport à voix haute ; lui reste écrit)
+  // Il n'y a pas d'action « effacer l'historique » : un registre qui sert de preuve ne se
+  // vide pas d'un bouton, il garde les 200 dernières tâches (borné, donc pas de disque plein).
+  if (u.pathname === '/api/taches') {
+    if (req.method === 'POST') {
+      let a = {};
+      // corpsJson() appartient au gabarit des sites générés, pas au cerveau : lecture du corps ici.
+      let corps = '';
+      try {
+        corps = await new Promise((resolve, reject) => {
+          req.on('data', c => { corps += c; if (corps.length > 20000) { reject(new Error('corps trop lourd')); req.destroy(); return; } });
+          req.on('end', () => resolve(corps));
+          req.on('error', reject);
+        });
+        a = JSON.parse(corps || '{}');
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ok: false, reply: 'Corps illisible, Isaac : la console attend du JSON tout simple (' + String(e.message || e) + ').' }));
+        return;
+      }
+      const ref = String(a.ref || a.tache || '').trim().toUpperCase();
+      let res2 = { ok: false, reply: 'Rien fait, Isaac : donne la reference de la tache (T-……), exemple « annule la tache T-261002-1145 ».' };
+      if (a.action === 'annuler' && ref) {
+        const r = annulerTache(ref);
+        res2 = r.ok ? { ok: true, arrete: r.arrete, reply: r.detail, tache: rendreTache(r.tache) }
+                   : { ok: false, reply: 'Annulation refusée : ' + r.erreur + '.' };
+        tracerFrappe(ref, 'aelyra', 'TACHE ' + (res2.ok ? (res2.arrete ? 'ANNULEE' : 'ANNULATION DEMANDEE (le job tourne)') : 'NON ANNULEE — ' + res2.reply.slice(0, 80)));
+      } else if (a.action === 'taire' && ref) {
+        // Le balayage en cours ne se rappelle pas ; ce qui s'arrête, c'est la VOIX. Le résultat
+        // reste écrit au registre — Isaac garde la preuve, il choisit seulement de ne pas l'entendre.
+        const r = taireTache(ref);
+        res2 = r.ok ? { ok: true, reply: r.detail, tache: rendreTache(r.tache) }
+                   : { ok: false, reply: "Rien n'a ete tu : " + r.erreur + '.' };
+        tracerFrappe(ref, 'aelyra', 'TACHE RAPPORT TAI SUR ORDRE — ' + res2.reply.slice(0, 100));
+      }
+      res.writeHead(res2.ok ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(res2));
+      return;
+    }
+    const l = lireTaches();
+    const vivantes = tachesVivantes();
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({
+      ok: true,
+      resume: resumeTaches(),
+      en_cours: vivantes.length,
+      taches: l.slice(-60).reverse().map(t => ({
+        ref: t.ref, type: t.type, titre: t.titre, cible: t.cible, agent: t.agent,
+        etat: t.etat, progression: t.progression || 0, etape: t.etape || '', mandat: t.mandat || null,
+        duree_s: t.demarre_le ? Math.round(((t.fin_le || Date.now()) - t.demarre_le) / 1000) : null,
+        depuis: new Date(t.cree_le).toLocaleString('fr-FR'),
+        fin: t.fin_le ? new Date(t.fin_le).toLocaleTimeString('fr-FR') : null,
+        resultat: t.resultat || null, livree: !!t.livree, silence: !!t.silence,
+        annulable: t.etat === 'en_attente' || (t.etat === 'en_cours' && !/scan|inventaire/.test(t.type)),
+        taissable: t.etat === 'en_cours' || t.etat === 'en_attente'
+      }))
+    }));
     return;
   }
 
@@ -6823,10 +7134,14 @@ server.on('error', (err) => {
 const HOST = (process.env.ISAAC_LAN === '1') ? '0.0.0.0' : '127.0.0.1';
 
 server.listen(PORT, HOST, () => {
+  // Orange #9 : au réveil, ce qui était lancé quand le cerveau est mort est écrit « interrompue ».
+  // C'est le contraire d'une fausse reprise : la tâche ne repart pas toute seule, Isaac le sait.
+  const brisees = (() => { try { return tachesReprendre(); } catch (e) { return 0; } })();
   console.log('');
   console.log('  ================================================');
   console.log('   AELYRA est en ligne, mon créateur.');
   console.log('   Interface : http://localhost:' + PORT);
+  if (brisees) console.log('   Taches : ' + brisees + ' job(s) interrompu(s) par le redemarrage — « liste tes taches » les montre.');
   console.log('   Ecoute : ' + (HOST === '127.0.0.1'
     ? '127.0.0.1 seulement — le réseau ne peut PAS commander le cerveau.'
     : 'ATTENTION — toutes les interfaces (ISAAC_LAN=1). Toute machine du WiFi peut parler au cerveau.'));

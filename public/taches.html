@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Console des tâches — ce qui tourne, ce qui est fini, ce qui a échoué</title>
+<style>
+  :root { --bl: #e8e8e8; --gr: #8a8a8a; --line: #1e1e1e; --rouge: #ef4444; --vert: #34d399; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; color: var(--bl); font: 14px/1.55 "Segoe UI", system-ui, sans-serif; }
+  header { padding: 18px 22px 12px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 17px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; }
+  .sous { color: var(--gr); font-size: 12.5px; margin-top: 5px; max-width: 1040px; }
+  main { padding: 18px 22px 60px; max-width: 1160px; }
+  .carte { border: 1px solid var(--line); background: #050505; padding: 16px; margin-bottom: 18px; }
+  .carte h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--gr); font-weight: 600; }
+  #resume { color: #cfcfcf; font-size: 13px; white-space: pre-wrap; }
+  .barre { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .bout { background: #fff; color: #000; border: 0; padding: 10px 18px; font: 600 12.5px/1 "Segoe UI", sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+  .bout.sec { background: transparent; color: var(--bl); border: 1px solid #3a3a3a; }
+  .bout.mini { padding: 6px 11px; font-size: 10.5px; }
+  .bout:hover, .bout.sec:hover { opacity: .82; }
+  #info { color: var(--gr); font-size: 12px; }
+  .tache { border: 1px solid var(--line); background: #040404; padding: 13px 15px; margin-bottom: 12px; }
+  .tache.encours { border-left: 2px solid #dcdcdc; }
+  .tache.finie { border-left: 2px solid var(--vert); }
+  .tache.echouee, .tache.refusee, .tache.interrompue { border-left: 2px solid var(--rouge); }
+  .tache.annulee, .tache.en_attente { border-left: 2px solid #4a4a4a; }
+  .entete { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .ref { font: 600 12px/1 Consolas, monospace; color: #c9c9c9; letter-spacing: .08em; }
+  .titre { font-size: 14.5px; margin-top: 3px; }
+  .meta { color: var(--gr); font-size: 12px; margin-top: 5px; }
+  .meta b { color: #dcdcdc; font-weight: 600; }
+  .etat { font: 600 10.5px/1 "Segoe UI", sans-serif; letter-spacing: .14em; text-transform: uppercase; padding: 5px 9px; border: 1px solid #333; color: #cfcfcf; }
+  .jauge { height: 6px; background: #101010; border: 1px solid #242424; margin-top: 9px; }
+  .jauge span { display: block; height: 100%; background: #d8d8d8; width: 0; }
+  .resultat { margin-top: 10px; color: #9d9d9d; font: 12px/1.6 Consolas, monospace; white-space: pre-wrap; word-break: break-word; background: #000; border: 1px solid #191919; padding: 9px; }
+  .dict { color: #fff; font-family: Consolas, monospace; font-size: 12.5px; background: #0d0d0d; border: 1px solid #222; padding: 3px 7px; }
+  .vide { color: #5c5c5c; font-size: 13px; padding: 12px 4px; }
+  .pied { text-align: center; margin-top: 26px; }
+  .pied a { color: #777; font-size: 11px; letter-spacing: 3px; text-transform: uppercase; text-decoration: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Console des tâches · le registre de la maison</h1>
+  <div class="sous">Depuis le 2 octobre 2026, chaque <b>job long</b> est écrit chez toi avant de partir : scan complet des 65 535 ports, scan rapide, inventaire du WiFi, séance d'Académie, relance d'un prospect — et chaque <b>refus</b> de frapper une cible sans fiche d'engagement. Il y a une référence, un état, une <b>progression mesurée</b> (pas devinée), un résultat, une heure. Registre dans <span class="dict">taches.json</span>, les 200 dernières tâches — jamais publié, jamais effacé d'un bouton. Si le cerveau redémarre pendant un scan, la tâche est marquée <b>interrompue</b> : on ne te feint pas une reprise.</div>
+</header>
+<main>
+  <section class="carte">
+    <h2>État du registre</h2>
+    <div id="resume">Lecture…</div>
+    <div class="barre">
+      <button class="bout mini" id="rafraichir">Rafraîchir</button>
+      <button class="bout sec mini" id="tout">Tout afficher</button>
+      <button class="bout sec mini" id="vivantes"> Seulement ce qui tourne</button>
+      <a href="/" class="bout sec mini" style="text-decoration:none">Retour au cerveau</a>
+      <span id="info"></span>
+    </div>
+  </section>
+  <section class="carte">
+    <h2>Les tâches</h2>
+    <div id="liste"><div class="vide">Lecture du registre…</div></div>
+  </section>
+</main>
+<div class="pied"><a href="/engagements.html">fiches d'engagement</a> · <a href="/business.html">prospection</a> · <a href="/evolution.html">auto-correction</a></div>
+<script>
+let MONDE = [];
+let FILTRE = 'tout';
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function info(t) { document.getElementById('info').textContent = t; }
+async function lire() {
+  try {
+    const r = await fetch('/api/taches', { headers: { 'Accept': 'application/json' } });
+    const j = await r.json();
+    MONDE = j.taches || [];
+    document.getElementById('resume').textContent = j.resume || 'Registre vide.';
+    afficher();
+    info('relu à ' + new Date().toLocaleTimeString('fr-FR') + ' · ' + (j.en_cours || 0) + ' en cours');
+  } catch (e) { info('Le cerveau ne répond pas : ' + e.message); }
+}
+function enteteTache(t) {
+  const col = { finie: '#34d399', echouee: '#ef4444', refusee: '#ef4444', interrompue: '#ef4444', annulee: '#8a8a8a', en_attente: '#8a8a8a', en_cours: '#e8e8e8' }[t.etat] || '#cfcfcf';
+  return '<div class="tache ' + esc(t.etat) + '">' +
+    '<div class="entete"><div><span class="ref">' + esc(t.ref) + '</span>' + (t.mandat ? ' <span class="ref">fiche ' + esc(t.mandat) + '</span>' : '') +
+    '<div class="titre">' + esc(t.titre) + (t.cible ? ' — <b>' + esc(t.cible) + '</b>' : '') + '</div></div>' +
+    '<span class="etat" style="border-color:' + col + ';color:' + col + '">' + esc(t.etat) + (t.etat === 'en_cours' ? ' ' + (t.progression || 0) + '%' : '') + '</span></div>' +
+    '<div class="meta">par <b>' + esc(t.agent) + '</b> · lancée ' + esc(t.depuis) + (t.fin ? ' · finie ' + esc(t.fin) : '') +
+    (t.duree_s != null ? ' · ' + t.duree_s + ' s' : '') + ' · ' + esc(t.etape || '') + (t.livree ? ' · <b>rapport lu à voix haute</b>' : '') + '</div>' +
+    (t.etat === 'en_cours' ? '<div class="jauge"><span style="width:' + (t.progression || 0) + '%"></span></div>' : '') +
+    (t.silence ? '<div class="meta"><b>Rapport tu sur ton ordre</b> — il reste écrit ci-dessous, il ne passera pas dans la voix.</div>' : '') +
+    (t.resultat ? '<div class="resultat">' + esc(t.resultat) + '</div>' : '') +
+    (t.annulable || t.taissable ? '<div class="barre">' +
+      (t.annulable ? '<button class="bout sec mini" data-annule="' + esc(t.ref) + '">Annuler</button>' : '') +
+      (t.taissable ? '<button class="bout sec mini" data-taire="' + esc(t.ref) + '">Ne me le dis pas</button>' : '') + '</div>' : '') +
+    '</div>';
+}
+function afficher() {
+  const l = FILTRE === 'vivantes' ? MONDE.filter(t => t.etat === 'en_cours' || t.etat === 'en_attente') : MONDE;
+  document.getElementById('liste').innerHTML = l.length ? l.map(enteteTache).join('')
+    : '<div class="vide">' + (MONDE.length ? 'Rien dans ce filtre — « Tout afficher » montre l\'historique.' : 'Aucune tâche au registre. Lance « onyx, scan complet 192.168.1.1 » : la tâche naît avant que le premier paquet parte.') + '</div>';
+}
+document.getElementById('liste').addEventListener('click', async e => {
+  const attr = e.target && e.target.getAttribute && e.target.getAttribute.bind(e.target);
+  if (!attr) return;
+  const ref = attr('data-annule') || attr('data-taire');
+  if (!ref) return;
+  const action = attr('data-annule') ? 'annuler' : 'taire';
+  if (action === 'annuler' && !confirm('Annuler la tâche ' + ref + " ?\n\nUne tâche déjà partie sur le réseau ne se rappelle pas : le serveur te dira honnêtement ce qu'il peut arrêter et ce qu'il ne peut pas.")) return;
+  info(action === 'annuler' ? 'Annulation…' : 'Le rapport sera tu…');
+  try {
+    const r = await fetch('/api/taches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ref }) });
+    const j = await r.json();
+    info(j.reply || 'Refusé.');
+  } catch (err) { info('Le cerveau a refusé la requête : ' + err.message); }
+  lire();
+});
+document.getElementById('rafraichir').onclick = lire;
+document.getElementById('tout').onclick = () => { FILTRE = 'tout'; afficher(); };
+document.getElementById('vivantes').onclick = () => { FILTRE = 'vivantes'; afficher(); };
+lire();
+setInterval(lire, 5000);
+</script>
+</body>
+</html>

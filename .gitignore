@@ -43,6 +43,11 @@ isaac-rappels.essai.json
 # Analyses de courriels suspects — le contenu des messages recus par Isaac ne sort pas du PC
 analyses-mail.json
 
+# Registre des taches : il nomme les cibles scannees, les IP de ses appareils et ses clients.
+# C'est une preuve de travail, pas un fichier a publier.
+taches.json
+taches.essai.json
+
 # Carnet de prospection BUSINESS : listes d'entreprises, contacts, messages, contrats —
 # c'est le fichier commercial d'Isaac, jamais publié (le code, lui, est dans server.js).
 business/
