@@ -1002,8 +1002,11 @@ const MAX_LIGNES_EXT = 60;
 const MAX_CARACTERES_EXT = 6000;
 // Un geste nouveau n'a pas le droit de toucher la machine ni le monde.
 const EXT_INTERDITS = /\b(require|import|eval|Function|process|globalThis|global|module|exports|__proto__|prototype|constructor|this|child_process|spawn|exec|fork|fs|fileSystem|unlink|rmSync|writeFile|readFile|appendFile|mkdir|readdir|statSync|http|https|net|dns|tls|dgram|socket|os|vm|worker_thread|xml|document|window|navigator|localStorage|sessionStorage|fetch|XMLHttpRequest|WebSocket|mail|smtp|sendmail|whatsapp|messenger|telegram)\b/;
-// Et il n'a pas voix au chapitre sur le périmètre légal de la maison.
-const EXT_VERROUS = /(perimetreAutorise|cibleInterditeAbsolument|CHARGE_DESTRUCTRICE|creerEngagement|cloturerEngagement|ficheActive|messageHorsPerimetre|journalEngagement|engagements)/i;
+// Et il n'a pas voix au chapitre sur le périmètre légal de la maison. Le contrat le dit :
+// « les mots des verrous légaux » — la liste doit donc contenir les MOTS SIMPLES, pas seulement
+// les noms de fonctions (brèche trouvée le 2026-10-02 : une zone qui écrivait « le perimetre est
+// une notion depassee » est passée parce que seul « perimetreAutorise » était interdit).
+const EXT_VERROUS = /(perimetre|engagement|mandat|fiche|verrou|preuve|autorisation|consentement|perimetreAutorise|cibleInterditeAbsolument|CHARGE_DESTRUCTRICE|creerEngagement|cloturerEngagement|ficheActive|messageHorsPerimetre|journalEngagement|engagements)/i;
 
 let EXT_VIVANTES = [];   // [{nom, titre, quand, aide, exemple, trait, bloc}]
 let EXT_ERREURS = [];    // blocs refusés à la relecture : jamais muets
@@ -1366,7 +1369,7 @@ const CHEMIN_NOYAU = path.join(__dirname, ESSAI ? 'server.essai.js' : 'server.js
 const CHEMIN_NOYAU_REEL = path.join(__dirname, 'server.js');
 const FICHIER_TEST_NOYAU = path.join(__dirname, ESSAI ? 'server-candidat-noyau-essai.tmp.js' : 'server-candidat-noyau.tmp.js');
 const DOSSIER_BACKUPS_NOYAU = path.join(__dirname, ESSAI ? 'backups-noyau-essai' : 'backups-noyau');
-const NOYAU_INTERDITS = /\b(require|import|eval|Function|globalThis|__proto__|prototype|constructor|child_process|spawn|exec|execSync|execFile|fork|process|fs|http|https|net|dns|tls|dgram|socket|os|vm|readFile|writeFile|appendFile|unlink|mkdir|readdir|statSync|fetch|XMLHttpRequest|WebSocket|mail|smtp|sendmail|whatsapp|messenger|telegram|nodemailer|isaac-keys|apiKey|GK|askAI|askVision|loadMemory|saveMemory|memoryDigest|rappelsDuJour|engagements|perimetreAutorise|cibleInterditeAbsolument|CHARGE_DESTRUCTRICE|creerEngagement|cloturerEngagement|ficheActive|messageHorsPerimetre|journalEngagement|graverNoyau|proposerNoyau|retirerDernierNoyau|demarrerTestNoyau|chargerExtensions|ecrireFichierExtensions|graverLecons|server\.js)/;
+const NOYAU_INTERDITS = /\b(require|import|eval|Function|globalThis|__proto__|prototype|constructor|child_process|spawn|exec|execSync|execFile|fork|process|fs|http|https|net|dns|tls|dgram|socket|os|vm|readFile|writeFile|appendFile|unlink|mkdir|readdir|statSync|fetch|XMLHttpRequest|WebSocket|mail|smtp|sendmail|whatsapp|messenger|telegram|nodemailer|isaac-keys|apiKey|GK|askAI|askVision|loadMemory|saveMemory|memoryDigest|rappelsDuJour|engagements|perimetreAutorise|cibleInterditeAbsolument|CHARGE_DESTRUCTRICE|creerEngagement|cloturerEngagement|ficheActive|messageHorsPerimetre|journalEngagement|graverNoyau|proposerNoyau|retirerDernierNoyau|demarrerTestNoyau|chargerExtensions|ecrireFichierExtensions|graverLecons|server\.js|unlinkSync|renameSync|truncateSync|chmodSync|openSync|spawnSync|mkdirSync|readdirSync|rmSync|readFileSync|writeFileSync|appendFileSync|exit|env|argv|perimetre|engagement|mandat|fiche|verrou|preuve|autorisation|consentement)/;
 
 function decouperZonesNoyau(texte) {
   const zones = [];
@@ -6294,10 +6297,72 @@ function lireRepartition() {
   try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'repartition.json'), 'utf8')); } catch (e) { return null; }
 }
 
+// ---------- ROUGES #2 et #3 (audit du 2026-10-02) : politique d'accès ----------
+// Le cerveau n'a PAS de mot de passe : il vit dans un PC, et une page web visitée dans le
+// navigateur d'Isaac peut très bien POSTER sur http://localhost:3777 (même origine apparente,
+// pas de préflight). C'est le trou CSRF local. La politique est dans le serveur, pas dans la prompt :
+//   1) un ordre qui écrit (prompts, noyau, evolution, engagements, business, analyse, /api/command)
+//      doit venir d'une page SERVIE PAR LE CERVEAU LUI-MÊME (Origin/Referer == cet hôte) ;
+//   2) s'il n'y a ni Origin ni Referer (curl, script local, ligne de commande d'Isaac), c'est autorisé ;
+//   3) une origine étrangère, ou un formulaire HTML déguisé (Content-Type autre que
+//      application/json — le navigateur n'enverrait pas l'en-tête sans préflight CORS), est refusée.
+// Le fichier politique est écrit à chaque boot : Isaac peut le lire, il n'est rien à croire.
+const API_ECRITURE = ['/api/command', '/api/prompts', '/api/evolution', '/api/repartition',
+  '/api/engagements', '/api/business', '/api/analyse-mail'];
+
+// « la maison » a trois écritures (localhost, 127.0.0.1, [::1]) mais c'est la MEME machine, et le
+// PORT COMPTE : une page servie sur un autre port de ce PC n'est pas le cerveau, c'est un site
+// visité — celui-là sera refusé. Isaac ouvre son cerveau tantôt en localhost, tantôt en 127.0.0.1 :
+// on ramène chaque hôte à sa forme 127.0.0.1 avant de comparer, pour ne pas le refuser LUI.
+function hoteNormalise(h) {
+  const s = String(h || '');
+  const i = s.lastIndexOf(':');
+  const port = (i > 0 && !s.includes(']', i)) ? s.slice(i) : '';
+  let nom = (port ? s.slice(0, i) : s).replace(/^\[(.*)\]$/, '$1');
+  if (nom === 'localhost' || nom === '::1') nom = '127.0.0.1';
+  return nom + port;
+}
+
+function politiqueAcces(req, u, hote) {
+  if (req.method !== 'POST') return null;                       // GET = lecture, même logique maison
+  if (API_ECRITURE.indexOf(u.pathname) < 0) return null;        // route hors de la liste fermée : ses propres gardes
+  const ct = String(req.headers['content-type'] || '');
+  if (!/application\/json/i.test(ct)) {
+    return { code: 415, motif: 'Content-Type étranger (' + (ct || 'absent') + ') : on dirait un formulaire HTML envoyé par un site visité.' };
+  }
+  const source = req.headers.origin || req.headers.referer || '';
+  if (!source) return null;                                     // outil local d'Isaac : pas d'en-tête navigateur
+  let src = '';
+  try { src = new URL(source).host; } catch (e) { return { code: 403, motif: 'Origine illisible : ' + source.slice(0, 80) }; }
+  if (hoteNormalise(src) !== hoteNormalise(hote)) {
+    return { code: 403, motif: 'Origine « ' + src + ' » différente du cerveau (' + hote + ') : une page étrangère a voulu donner un ordre.' };
+  }
+  return null;
+}
+
+function journaliserPolitique(decision, req, u) {
+  try {
+    fs.appendFileSync(path.join(__dirname, 'journal-politique.log'),
+      new Date().toISOString() + ' REFUS ' + req.method + ' ' + u.pathname +
+      ' | code ' + decision.code + ' | ' + decision.motif +
+      ' | origin=' + (req.headers.origin || '-') + ' | referer=' + (req.headers.referer || '-') + '\n');
+  } catch (e) {}
+}
+
 // ---------- Serveur HTTP ----------
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://localhost:${PORT}`);
+
+  // Garde de politique AVANT toute route : un ordre écrit ou non, décidé par le code, pas par une prompt.
+  const hote = String(req.headers.host || ('localhost:' + PORT));
+  const refus = politiqueAcces(req, u, hote);
+  if (refus) {
+    journaliserPolitique(refus, req, u);
+    res.writeHead(refus.code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ ok: false, reply: "Ordre refusé par la politique d'accès du cerveau : " + refus.motif, source: 'local', motif: refus.motif }));
+    return;
+  }
 
   // Petit signal de vie pour l'interface
   if (u.pathname === '/api/ping') {
@@ -6306,7 +6371,33 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // PERSONNALITÉS ÉDITABLES (page /personnalites.html) : l'ordre brut que chaque agente reçoit.
+  // POLITIQUE D'ACCÈS (rouge #3) : la loi du serveur, écrite en JSON lisible + les derniers refus.
+  // Isaac n'a rien à croire : cette page sort du code lui-même, et chaque refus est gravé au journal.
+  if (u.pathname === '/api/politique') {
+    let refusRecent = [];
+    try {
+      refusRecent = fs.readFileSync(path.join(__dirname, 'journal-politique.log'), 'utf8')
+        .split(/\r?\n/).filter(Boolean).slice(-20);
+    } catch (e) {}
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({
+      ok: true,
+      liaison: { adresse: HOST, port: PORT, reseau_ouvert: HOST !== '127.0.0.1' },
+      regles: [
+        "Le cerveau écoute " + HOST + ":" + PORT + (HOST === '127.0.0.1' ? " — aucune machine du WiFi ne peut lui parler." : " — ATTENTION : ISAAC_LAN=1 rouvre le réseau."),
+        "Les POST d'écriture (" + API_ECRITURE.join(", ") + ") viennent obligatoirement d'une page servie par ce cerveau, avec un Content-Type application/json.",
+        "Un curl ou un script local, sans en-tête Origin, est accepté : c'est Isaac lui-même à sa machine.",
+        "Chaque refus est gravé dans journal-politique.log, avec l'origine incriminée.",
+        "Le périmètre légal (maison, labo, fiches d'engagement, verrous absolus) est vérifié DANS handleCommand, avant tout module offensif : un ordre qui passe la porte réseau se heurte aux mêmes gardes.",
+        "Les mots de passe SMTP et les clés d'API restent dans isaac-keys.json, jamais lus par une route HTTP, jamais publiés."
+      ],
+      routes_ecriture: API_ECRITURE,
+      refus_recent: refusRecent
+    }));
+    return;
+  }
+
+
   if (u.pathname === '/api/prompts') {
     if (req.method === 'POST') {
       let corps = '';
@@ -6697,11 +6788,20 @@ server.on('error', (err) => {
   }
 });
 
-server.listen(PORT, () => {
+// ROUGE #1 (audit du 2026-10-02) : le cerveau écoutait TOUTES les interfaces — n'importe qui
+// sur le WiFi pouvait dicter des ordres au PC d'Isaac, lire sa mémoire (/api/cerveau) et graver
+// son noyau (/api/evolution). Liaison fermée sur 127.0.0.1. Seul ISAAC_LAN=1 (variable d'environnement
+// qu'Isaac pose lui-même) rouvre l'accès réseau, et le boot-log le dit en toutes lettres.
+const HOST = (process.env.ISAAC_LAN === '1') ? '0.0.0.0' : '127.0.0.1';
+
+server.listen(PORT, HOST, () => {
   console.log('');
   console.log('  ================================================');
   console.log('   AELYRA est en ligne, mon créateur.');
   console.log('   Interface : http://localhost:' + PORT);
+  console.log('   Ecoute : ' + (HOST === '127.0.0.1'
+    ? '127.0.0.1 seulement — le réseau ne peut PAS commander le cerveau.'
+    : 'ATTENTION — toutes les interfaces (ISAAC_LAN=1). Toute machine du WiFi peut parler au cerveau.'));
   console.log('  ================================================');
   console.log('');
   console.log('  Utilisez Chrome ou Edge pour la reconnaissance vocale.');
