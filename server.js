@@ -3980,6 +3980,63 @@ function moduleVoixEtat(phrase, brut, agent) {
     source: 'local', agent: qui
   };
 }
+// ---------- JARVIS COMMAND CENTER : la page de pilotage + l'état du PC dit à voix haute ----------
+// « ouvre le command center », « ouvre le centre de commande », « affiche le hud »  → navigation
+// « état du système », « comment va mon pc », « état de la machine »                 → récitation
+// Les deux sont en LECTURE SEULE : rien n'est exécuté, rien n'est inventé. La récitation vient
+// des mêmes fonctions que /api/systeme — si une mesure manque, la voix dit « non mesuré »
+// au lieu d'inventer un chiffre, exactement comme l'écran.
+function moduleCommandCenter(phrase, brut, agent) {
+  const p = normalize(String(phrase || '')) + ' ' + normalize(String(brut || ''));
+  const qui = agent || 'aelyra';
+
+  const ouvre = /(ouvre|affiche|montre|lance|demarre).{0,24}(command center|command-center|centre de commande|centre de pilotage|cockpit|\bjarvis\b|le hud|tableau de bord|poste de commande)/.test(p)
+    || /(command center|centre de commande|tableau de bord).{0,12}(ouvre|affiche|montre)/.test(p);
+  if (ouvre) {
+    return {
+      reply: "J ouvre le JARVIS COMMAND CENTER, Isaac : le noyau holographique au centre, l etat reel de ta machine a gauche, l agente active a droite, et le flux d activite en bas. Chaque chiffre vient d une mesure de ce PC — ce qui ne se mesure pas est ecrit « non mesure », jamais invente.",
+      source: 'local', agent: qui, open: '/command-center.html'
+    };
+  }
+
+  const etat = /(etat|sante|comment va).{0,16}(du|de ton|de mon|le|la)?.{0,10}(systeme|système|machine|pc|ordinateur|serveur)/.test(p)
+    || /(comment va (mon|ton) pc|comment va la machine|ca tourne comment|tu as combien de ram|memoire libre|espace disque|charge (cpu|processeur))/.test(p);
+  if (!etat) return null;
+
+  const s = etatSysteme();
+  const go = (o) => (typeof o === 'number' && isFinite(o)) ? (Math.round(o / 1073741824 * 100) / 100) + ' Go' : null;
+  const mo = (o) => (typeof o === 'number' && isFinite(o)) ? Math.round(o / 1048576) + ' Mo' : null;
+  const morceaux = [];
+  if (s.cpu && s.cpu.charge_pct !== null && s.cpu.charge_pct !== undefined) {
+    morceaux.push('processeur a ' + s.cpu.charge_pct + ' % sur ' + s.cpu.coeurs + ' coeur(s), mesure par ' + (s.cpu.methode || 'une methode non precisee'));
+  } else {
+    morceaux.push('processeur non mesure pour l instant — ' + ((s.cpu && s.cpu.etat) || 'aucune lecture disponible'));
+  }
+  if (s.ram && typeof s.ram.utilisee_pct === 'number') {
+    morceaux.push('memoire ' + s.ram.utilisee_pct + ' % occupee, ' + mo(s.ram.libre_octets) + ' de libre sur ' + go(s.ram.totale_octets));
+  }
+  if (s.disque && typeof s.disque.libre_octets === 'number') {
+    morceaux.push('disque ' + s.disque.lettre + ' : ' + go(s.disque.libre_octets) + ' de libre (' + s.disque.libre_pct + ' %)');
+  } else {
+    morceaux.push('disque non mesure');
+  }
+  if (s.gpu && s.gpu.cartes && s.gpu.cartes.length) {
+    morceaux.push('carte graphique ' + s.gpu.cartes.map(c => c.nom).join(' et ') + ' — charge non mesurable sur ce PC, je ne l invente pas');
+  }
+  if (s.reseau && s.reseau.debit) {
+    morceaux.push('reseau ' + s.reseau.debit.descendant_ko_s + ' Ko/s descendant, ' + s.reseau.debit.montant_ko_s + ' Ko/s montant');
+  }
+  const min = Math.floor((s.uptime && s.uptime.machine_s || 0) / 60);
+  if (min > 0) morceaux.push('machine allumee depuis ' + (min >= 60 ? Math.floor(min / 60) + ' h ' + (min % 60) : min) + ' min, mon cerveau relance depuis ' + Math.round((s.uptime && s.uptime.cerveau_s || 0) / 60) + ' min');
+  morceaux.push('instance ' + (s.instance || '?') + ' sur le port ' + (s.port || '?'));
+
+  return {
+    reply: "Etat reel de ta machine, Isaac : " + morceaux.join(' ; ') + ". " +
+      (s.voie_occupee ? "La voie tient un job lourd (" + s.voie_occupee + ") : les mesures affichees viennent du cache, aucune sonde couteuse n a ete lancee. " : "") +
+      "Tout est mesure sur ce PC, rien n est simule — l ecran complet : « ouvre le command center ».",
+    source: 'local', agent: qui
+  };
+}
 // ---------- ORANGE #10 : la voix de la voie ----------
 // « qui tient la voie », « stoppe la voie », « relance la voie », « passe la tache 2 en premier »,
 // « recule la tache 3 », « ouvre ta console des taches ». Les verbes ne sont jamais ancrés : la
@@ -5915,6 +5972,12 @@ async function handleCommand(rawText, image) {
   {
     const vxSg = moduleVoixEtat(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
     if (vxSg) return vxSg;
+  }
+  // JARVIS COMMAND CENTER : « ouvre le command center » (navigation) et « état du système »
+  // (récitation des mesures RÉELLES). Lecture seule, avant les personas — comme l'état de voix.
+  {
+    const ccSg = moduleCommandCenter(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
+    if (ccSg) return ccSg;
   }
   // ORANGE #10 : l'orchestrateur passe AVANT le registre — « qui tient la voie », « stoppe la voie »,
   // « passe la tache 2 en premier » sont des ordres sur la file, pas sur le contenu du registre.

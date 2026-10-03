@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS COMMAND CENTER — Isaac</title>
+<link rel="stylesheet" href="ui/command-center.css">
+</head>
+<body data-core-etat="IDLE" data-core-agent="aelyra">
+
+<div class="cc-fond"></div>
+<div class="cc-grille"></div>
+<div class="cc-balayage"></div>
+
+<!-- Le bandeau d'erreur ne ment jamais : il n'apparaît que sur un échec HTTP réel,
+     avec le code ou la raison exacte, et il se retire dès que le cerveau répond. -->
+<div class="cc-bandeau" id="bandeau"></div>
+
+<div class="cc">
+
+  <!-- ============================== EN-TÊTE ============================== -->
+  <header class="cc-top">
+    <div class="cc-marque">
+      <div class="cc-titre">JARVIS COMMAND CENTER</div>
+      <div class="cc-sous" id="sousTitre">cerveau local — lecture en cours…</div>
+    </div>
+    <div class="cc-top-espace"></div>
+    <span class="cc-pastille" title="Le cerveau répond-il vraiment ?"><i class="cc-point" id="ptServeur"></i><span id="txtServeur">SERVEUR —</span></span>
+    <span class="cc-pastille" id="pastilleVoie" title="Un seul job lourd à la fois : c'est la règle de la voie">VOIE —</span>
+    <span class="cc-pastille" id="pastilleVoix" title="Le moteur qui parle réellement">VOIX —</span>
+    <span class="cc-heure" id="heure">--:--:--</span>
+    <a class="cc-lien" href="index.html" title="Revenir à l'interface de conversation">INTERFACE</a>
+  </header>
+
+  <!-- =============================== MILIEU ============================== -->
+  <main class="cc-milieu">
+
+    <!-- ---------------------------- SYSTÈME ---------------------------- -->
+    <section class="cc-panneau cc-gauche">
+      <div class="cc-tete">
+        <h2>System</h2>
+        <div class="cc-outils"><span class="cc-badge info" id="badgeFraicheur">—</span></div>
+      </div>
+      <div class="cc-corps" id="panneauSysteme">
+        <div class="cc-ligne"><b>ÉTAT</b><span class="non">première mesure en cours…</span></div>
+      </div>
+      <div class="cc-mini" id="noteSysteme">Mesures réelles de ce PC. Ce qui ne se mesure pas est écrit « non mesuré » — jamais un chiffre décoratif.</div>
+    </section>
+
+    <!-- ------------------------- CORE + PAROLE -------------------------- -->
+    <section class="cc-centre">
+      <div class="cc-core" id="core">
+        <div class="cc-core-legende">
+          <div class="cc-core-etat" id="coreEtat">EN ATTENTE</div>
+          <div class="cc-core-agent" id="coreAgent">AELYRA</div>
+          <div class="cc-core-detail" id="coreDetail">moteur —</div>
+        </div>
+      </div>
+      <div class="cc-panneau cc-parole">
+        <div class="cc-tete">
+          <h2>Communication</h2>
+          <div class="cc-outils">
+            <button class="cc-petit" id="btnCouper" title="Couper la voix immédiatement">COUPER LA VOIX</button>
+            <button class="cc-petit" id="btnVider" title="Vider l'affichage de cette conversation (le journal du serveur, lui, reste gravé)">VIDER</button>
+          </div>
+        </div>
+        <div class="cc-log" id="log"></div>
+      </div>
+    </section>
+
+    <!-- -------------------------- AGENTE ACTIVE ------------------------- -->
+    <section class="cc-panneau cc-droite">
+      <div class="cc-tete">
+        <h2>Active agent</h2>
+        <div class="cc-outils"><button class="cc-petit" id="btnChanger" title="Changer l'agente active">CHANGER</button></div>
+      </div>
+      <div class="cc-corps" id="panneauAgent">
+        <div class="cc-ligne"><b>ÉTAT</b><span class="non">chargement…</span></div>
+      </div>
+      <div class="cc-mini" id="noteAgent">Les droits affichés viennent de la table écrite dans le serveur (/api/droits) — pas d'une promesse.</div>
+    </section>
+
+  </main>
+
+  <!-- ============================== ACTIVITÉ ============================= -->
+  <section class="cc-panneau cc-activite">
+    <div class="cc-tete">
+      <h2>Activity</h2>
+      <div class="cc-outils">
+        <span class="cc-badge" id="badgeFlux">—</span>
+        <button class="cc-petit" id="btnFluxPause" title="Figer le flux pour le lire">FIGER</button>
+      </div>
+    </div>
+    <div class="cc-corps"><div class="cc-flux" id="flux"></div></div>
+    <div class="cc-mini" id="noteFlux">Flux réel : journaux gravés par le cerveau + requêtes HTTP de cette session. Les jetons longs sont masqués avant affichage.</div>
+  </section>
+
+  <!-- ============================ BARRE DU BAS =========================== -->
+  <footer class="cc-barre">
+    <button class="cc-btn" id="btnParler" title="Parler (reconnaissance vocale du navigateur)">🎙 <span class="txt">TALK</span></button>
+    <div class="cc-saisie">
+      <input id="saisie" type="text" autocomplete="off"
+             placeholder="⌨ COMMAND — écris un ordre : « état du système », « ouvre ta console des taches », « scanne mes appareils »…">
+      <button class="cc-envoi" id="btnEnvoyer" title="Envoyer">➤</button>
+    </div>
+    <button class="cc-btn" id="btnAgents" title="Les quatre agentes et leurs droits réels">👥 <span class="txt">AGENTS</span></button>
+    <button class="cc-btn" id="btnMissions" title="Les missions : le registre réel des tâches">🎯 <span class="txt">MISSIONS</span></button>
+    <button class="cc-btn" id="btnOutils" title="Les outils réellement disponibles">🧰 <span class="txt">TOOLS</span></button>
+    <button class="cc-btn" id="btnReglages" title="Réglages du JARVIS : interface, IA, voix">⚙ <span class="txt">SETTINGS</span></button>
+  </footer>
+
+</div>
+
+<!-- ================================ MODALES ============================== -->
+<div class="cc-voile" id="voile">
+  <div class="cc-modale">
+    <div class="cc-modale-tete">
+      <h3 id="modaleTitre">—</h3>
+      <button class="cc-x" id="modaleFermer" title="Fermer">✕</button>
+    </div>
+    <div class="cc-modale-corps" id="modaleCorps"></div>
+  </div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="ui/core.js"></script>
+<script src="voice/voiceClient.js"></script>
+<script src="ui/hud.js"></script>
+</body>
+</html>

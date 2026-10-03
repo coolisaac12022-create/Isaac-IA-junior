@@ -250,6 +250,7 @@ body.speaking .core-center { animation: speakWave .35s ease-in-out infinite; }
   border-radius: 6px; width: 28px; height: 24px; cursor: pointer; font-size: 13px; line-height: 1;
 }
 .zoom-btn:hover { border-color: var(--cyan); box-shadow: 0 0 10px var(--cyan-soft); }
+a.zoom-btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .wake-toggle { display: flex; align-items: center; gap: 7px; cursor: pointer; letter-spacing: 1px; color: rgba(255,255,255,.75); }
 .wake-toggle input { accent-color: var(--cyan); cursor: pointer; }
 
