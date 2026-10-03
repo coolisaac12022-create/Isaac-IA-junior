@@ -3,6 +3,31 @@
    Reconnaissance + synthèse vocale en français
    ============================================ */
 
+// ---------- ÉCRAN NOIR INTERDIT (2026-10-02) ----------
+// Isaac a vécu une fenêtre noire et muette : le cerveau répondait, la page, elle, ne disait RIEN.
+// Désormais toute erreur JavaScript s'affiche À L'ÉCRAN, en rouge, avec sa ligne exacte — et le
+// démarrage a un garde-fou : si la séquence de boot meurt en route (un bip refusé, un AudioContext
+// saturé, n'importe quoi), l'écran noir est arraché de force et la page dit ce qui s'est passé.
+// Rien n'est deviné : c'est l'erreur réelle, telle que le navigateur la donne.
+window.addEventListener('error', (e) => {
+  try {
+    const msg = String((e && e.message) || 'erreur inconnue').slice(0, 200);
+    const src = String((e && e.filename) || '').split('/').pop();
+    const ou = src + ':' + ((e && e.lineno) || '?');
+    const b = document.getElementById('boot');
+    if (b && !b.classList.contains('done')) b.classList.add('done');
+    let bande = document.getElementById('bandeErreur');
+    if (!bande) {
+      bande = document.createElement('div');
+      bande.id = 'bandeErreur';
+      bande.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;background:#2b0000;color:#ffb0b0;border-bottom:2px solid #ff4040;padding:10px 14px;font:13px/1.5 monospace;white-space:pre-wrap';
+      document.body.appendChild(bande);
+    }
+    bande.textContent = 'ERREUR DANS LA PAGE (le cerveau, lui, répond) : ' + msg + '  [' + ou + ']' +
+      ' — recharge avec Ctrl+F5. Si elle revient, copie cette ligne à ton créateur.';
+  } catch (err) {}
+});
+
 const statusEl = document.getElementById('status');
 const logEl = document.getElementById('log');
 const cmdForm = document.getElementById('cmdForm');
@@ -594,6 +619,106 @@ function decouper(t, max) {
   return out.length ? out : [String(t)];
 }
 
+// ---------- VOIX NEURONALE : le VOICE MANAGER du cerveau ----------
+// L'architecture dessinée par Isaac :
+//   ISAAC -> (reconnaissance vocale | IA texte) -> VOICE MANAGER -> TTS neuronal -> haut-parleur
+// Ce côté-ci ne décide PAS tout seul : il demande au cerveau (POST /api/voix), qui répond soit
+//   { moteur:'neuronal', url:'/voix/<empreinte>.wav', lecture:1.05 } -> on joue le WAV local ;
+//   { moteur:'repli', raison:'...' }                                 -> la voix Windows lit.
+// Le repli n'est jamais silencieux ni honteux : la raison VRAIE est gardée et affichée dans le
+// panneau 🗣. Rien n'est annoncé comme neuronal si le cerveau ne l'a pas dit.
+let MOTEUR_VOIX = { ok: false, raison: 'pas encore demandé au cerveau', etat: null, maj: 0 };
+const NEURONAL_STATS = { phrases: 0, replis: 0, dernierRepli: '', dernierModele: '' };
+let NEURONAL_ECHECS = 0;                 // 3 échecs de lecture de suite : on arrête de demander
+const NEURONAL_EN_ATTENTE = new Map();   // cle -> Promise (préchargement du morsceau suivant)
+let audioNeuronal = null;
+
+function rafraichirMoteurVoix(force) {
+  const maintenant = Date.now();
+  if (!force && MOTEUR_VOIX.maj && (maintenant - MOTEUR_VOIX.maj) < 120000) return Promise.resolve(MOTEUR_VOIX);
+  return fetch('/api/voix/etat', { cache: 'no-store' })
+    .then(r => r.json())
+    .then(e => { MOTEUR_VOIX = { ok: !!(e && e.installe), raison: String((e && e.raison) || ''), etat: e || null, maj: Date.now() }; return MOTEUR_VOIX; })
+    .catch(err => { MOTEUR_VOIX = { ok: false, raison: 'le cerveau ne répond pas sur /api/voix/etat (' + err.message + ')', etat: null, maj: Date.now() }; return MOTEUR_VOIX; });
+}
+
+function cleNeuronale(morceau, qui, cfg, langue) {
+  return [qui, langue, Number(cfg.hauteur || 1).toFixed(2), Number(cfg.debit || 1).toFixed(2), morceau].join('|');
+}
+
+// Demande une phrase au voice manager. Résout sur la réponse neuronal, ou null si le cerveau
+// a choisi le repli (la raison est gardée dans NEURONAL_STATS.dernierRepli — Isaac voit POURQUOI).
+// `silencieux` = appel de préchargement : il ne doit pas compter un repli à la place de l'appel réel.
+// Les refus « moteur pas encore connu » ne sont JAMAIS mis en cache : sinon une phrase dite avant
+// la réponse de /api/voix/etat resterait bloquée sur la voix Windows pour toute la session.
+function demanderNeuronal(morceau, qui, cfg, langue, silencieux) {
+  if (!MOTEUR_VOIX.ok || NEURONAL_ECHECS >= 3) return Promise.resolve(null);
+  if (!/^fr/i.test(String(langue || ''))) {
+    if (!silencieux) {
+      NEURONAL_STATS.replis++;
+      NEURONAL_STATS.dernierRepli = 'phrase en ' + (langue || 'langue inconnue') + ' — le seul modèle neuronal installé est français, la voix du navigateur la lit mieux';
+    }
+    return Promise.resolve(null);
+  }
+  const cle = cleNeuronale(morceau, qui, cfg, langue);
+  if (NEURONAL_EN_ATTENTE.has(cle)) return NEURONAL_EN_ATTENTE.get(cle);
+  const p = fetch('/api/voix', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      texte: morceau, parlence: qui, langue: 'fr',
+      hauteur: borner(cfg.hauteur, 0.7, 1.6, 1),
+      debit: borner(cfg.debit, 0.7, 1.6, 1),
+      qualite: 'rapide'
+    })
+  }).then(r => r.json())
+    .then(r => {
+      if (r && r.moteur === 'neuronal' && r.url) return r;
+      if (!silencieux) {
+        NEURONAL_STATS.replis++;
+        NEURONAL_STATS.dernierRepli = String((r && r.raison) || 'raison inconnue');
+      }
+      return null;
+    })
+    .catch(err => {
+      if (!silencieux) { NEURONAL_STATS.replis++; NEURONAL_STATS.dernierRepli = 'demande refusée par le réseau : ' + err.message; }
+      return null;
+    });
+  NEURONAL_EN_ATTENTE.set(cle, p);
+  if (NEURONAL_EN_ATTENTE.size > 60) NEURONAL_EN_ATTENTE.delete(NEURONAL_EN_ATTENTE.keys().next().value);
+  return p;
+}
+
+// Lecture du WAV neuronal. Le modèle ne sait pas changer son propre timbre : le cerveau allonge la
+// synthèse (length_scale = timbre / débit) et on rejoue le fichier plus vite. preservesPitch doit
+// rester FAUX pour que la vitesse transpose aussi la hauteur — les deux effets se compensent et
+// Isaac entend exactement le timbre et le débit qu'il a réglés.
+function lireNeuronal(r, session) {
+  return new Promise(resolve => {
+    let a = null;
+    try {
+      if (audioNeuronal) { try { audioNeuronal.pause(); } catch (e) {} audioNeuronal = null; }
+      a = new Audio(r.url);
+      a.playbackRate = borner(r.lecture, 0.6, 1.8, 1);
+      try { a.preservesPitch = false; } catch (e) {}
+      audioNeuronal = a;
+      let fini = false;
+      const terminer = (etat) => {
+        if (fini) return; fini = true;
+        if (audioNeuronal === a) audioNeuronal = null;
+        resolve(etat);
+      };
+      // Garde-fou : un fichier qui ne se charge jamais ne doit pas laisser « PARLE… » à l'écran.
+      const garde = setTimeout(() => { NEURONAL_ECHECS++; terminer('erreur'); }, 90000);
+      a.onended = () => { clearTimeout(garde); terminer(session === VOIX_SESSION ? 'fini' : 'coupe'); };
+      a.onerror = () => { clearTimeout(garde); NEURONAL_ECHECS++; terminer('erreur'); };
+      const jouer = () => { try { a.play().catch(() => { clearTimeout(garde); NEURONAL_ECHECS++; terminer('erreur'); }); } catch (e) { clearTimeout(garde); NEURONAL_ECHECS++; terminer('erreur'); } };
+      if (a.readyState >= 3) jouer();
+      else { a.oncanplaythrough = () => { a.oncanplaythrough = null; jouer(); }; try { a.load(); } catch (e) { jouer(); } }
+    } catch (e) { NEURONAL_ECHECS++; resolve('erreur'); }
+  });
+}
+
 // ---------- La file de parole ----------
 let VOIX_SESSION = 0;
 let VOIX_GARDIEN = null;
@@ -601,6 +726,10 @@ function couperVoix() {
   VOIX_SESSION++;
   if (VOIX_GARDIEN) { clearInterval(VOIX_GARDIEN); VOIX_GARDIEN = null; }
   try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch (e) {}
+  // Le WAV neuronal en cours s'arrête lui aussi : barge-in valable quel que soit le moteur.
+  try {
+    if (audioNeuronal) { audioNeuronal.onended = null; audioNeuronal.onerror = null; audioNeuronal.oncanplaythrough = null; audioNeuronal.pause(); audioNeuronal = null; }
+  } catch (e) {}
   isSpeaking = false;
 }
 function borner(v, min, max, defaut) {
@@ -615,20 +744,29 @@ function dire(texte, parlence, opts) {
       setState(null, wakeMode ? veilleMsg(qui) : 'En attente de vos ordres, Isaac');
       resolve();
     };
-    if (!sonOn || !('speechSynthesis' in window)) return finirSilencieusement();
+    if (!sonOn) return finirSilencieusement();
     const brut = String(texte || '').replace(/<[^>]*>/g, ' ').trim();
     if (!brut) return finirSilencieusement();
     const cfg = CONF_VOIX[qui] || CONF_VOIX.aelyra;
-    const morsaux = decouper(textePrononçable(brut), (opts && opts.max) || 210);
+    // Taille des morsceaux : le neuronal doit être découpé PLUS COURT que la voix Windows.
+    // Mesuré sur ce PC (RTF 0,35) : un morsceau de 210 caractères demande ~8 s de synthèse avant
+    // la première seconde de son — Isaac croirait la page morte. À 130 caractères, le son arrive
+    // en ~2 s et la suite est préchargée pendant qu'il parle.
+    const neuronalActif = MOTEUR_VOIX.ok && ((cfg.langue || 'auto') === 'auto' || /^fr/i.test(cfg.langue));
+    const morsaux = decouper(textePrononçable(brut), (opts && opts.max) || (neuronalActif ? 130 : 210));
     couperVoix();
     const session = ++VOIX_SESSION;
     let i = 0;
+    NEURONAL_ECHECS = 0;
+    // L'état du moteur est demandé sans attendre : la première phrase peut tomber sur un état
+    // vieux de deux minutes, la suivante aura le vrai. (Rien n'est annoncé neuronal sans preuve.)
+    rafraichirMoteurVoix().catch(() => {});
     isSpeaking = true;
     setState('speaking', qui === 'autre' ? 'LE CERVEAU INVITÉ PARLE…'
       : ((AGENT_LABEL[qui] || (PARLENCE_LABEL[qui] || 'Aelyra').split(' —')[0]).toUpperCase() + ' PARLE…'));
     // Chromium peut endormir une longue lecture sans raison : un resume périodique la tient éveillée.
     VOIX_GARDIEN = setInterval(() => {
-      try { if (speechSynthesis.speaking && !speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {}
+      try { if ('speechSynthesis' in window && speechSynthesis.speaking && !speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {}
     }, 8000);
     function cloturer(coupee) {
       if (VOIX_GARDIEN) { clearInterval(VOIX_GARDIEN); VOIX_GARDIEN = null; }
@@ -636,12 +774,12 @@ function dire(texte, parlence, opts) {
       if (coupee) resolve();
       else finirSilencieusement();
     }
-    function suivant() {
+    // Le repli : la voix du navigateur. C'est elle qui parlait avant le voice manager, et c'est
+    // elle qui reprend dès que le neuronal refuse (autre langue, scan en cours, mémoire basse).
+    function parlerWindows(morceau, langue) {
       if (session !== VOIX_SESSION || !sonOn) return cloturer(true);
-      if (i >= morsaux.length) return cloturer(false);
-      const morceau = morsaux[i++];
+      if (!('speechSynthesis' in window)) return cloturer(false);
       const u = new SpeechSynthesisUtterance(morceau);
-      const langue = (cfg.langue && cfg.langue !== 'auto') ? cfg.langue : detecterLangue(morceau);
       u.lang = langue;
       const v = voixPour(langue, qui);
       if (v) u.voice = v;
@@ -657,6 +795,31 @@ function dire(texte, parlence, opts) {
         else uneFois(suivant, 140);
       };
       try { speechSynthesis.speak(u); } catch (e) { uneFois(suivant, 140); }
+    }
+    function suivant() {
+      if (session !== VOIX_SESSION || !sonOn) return cloturer(true);
+      if (i >= morsaux.length) return cloturer(false);
+      const morceau = morsaux[i++];
+      const langue = (cfg.langue && cfg.langue !== 'auto') ? cfg.langue : detecterLangue(morceau);
+      // Préchargement : pendant que ce morsceau parle, le cerveau synthétise le suivant.
+      // Sans ça, chaque phrase paierait sa latence (~1 s) à découvert.
+      if (i < morsaux.length) { try { demanderNeuronal(morsaux[i], qui, cfg, langue, true).catch(() => {}); } catch (e) {} }
+      let demande;
+      try { demande = demanderNeuronal(morceau, qui, cfg, langue); } catch (e) { demande = Promise.resolve(null); }
+      Promise.resolve(demande).then(r => {
+        if (session !== VOIX_SESSION || !sonOn) return cloturer(true);
+        if (r && r.moteur === 'neuronal' && r.url) {
+          NEURONAL_STATS.phrases++;
+          NEURONAL_STATS.dernierModele = String(r.modele || '');
+          return lireNeuronal(r, session).then(etat => {
+            if (session !== VOIX_SESSION) return cloturer(true);
+            if (etat === 'coupe') return cloturer(true);
+            if (etat === 'erreur') return parlerWindows(morceau, langue);   // le WAV n'a pas joué : on ne laisse pas Isaac sans voix
+            setTimeout(suivant, 80);
+          });
+        }
+        return parlerWindows(morceau, langue);
+      }).catch(() => parlerWindows(morceau, langue));
     }
     suivant();
   });
@@ -717,8 +880,45 @@ function infoVoixRetenue(parlence) {
       alerte = ' · ALERTE : aucune voix d’' + (attendu === 'm' ? 'homme' : 'femme') + ' en ' + base + ' sur ce navigateur — la voix de remplacement n a pas le bon genre, choisissez-en une ou ajoutez une voix dans Windows.';
     }
   }
-  return 'retient : ' + v.name + ' [' + v.lang + ' · ' + (genreDe(v) === 'm' ? 'homme' : genreDe(v) === 'f' ? 'femme' : 'genre inconnu') + ']'
+  // Ce qui parle EN PREMIER : le moteur neuronal local, si le cerveau dit qu'il est installé et
+  // que cette agente a un modèle français. La voix du navigateur n'est plus annoncée comme la
+  // voix principale dans ce cas — elle est le repli, et elle est nommée comme telle.
+  let neuronal = '';
+  try {
+    const e = MOTEUR_VOIX.etat;
+    if (MOTEUR_VOIX.ok && e && /^fr/i.test(base)) {
+      const a = (e.agentes || []).find(x => x.parlence === parlence);
+      if (a && a.installee) {
+        neuronal = 'PARLE EN NEURONAL LOCAL : ' + String(a.modele_rapide).replace('fr_FR-', '').replace('.onnx', '')
+          + (a.au_repos ? ' (au repos après des échecs — le repli lit)' : '') + ' · repli navigateur → ';
+      }
+    }
+  } catch (e) {}
+  return neuronal + 'retient : ' + v.name + ' [' + v.lang + ' · ' + (genreDe(v) === 'm' ? 'homme' : genreDe(v) === 'f' ? 'femme' : 'genre inconnu') + ']'
     + (estNeuronale(v) ? ' · neuronal' : ' · voix classique') + ' — ' + fixe + alerte;
+}
+// Le bloc MOTEUR du panneau : uniquement des chiffres qui sortent du cerveau (/api/voix/etat)
+// et de ce que la page a réellement joué. Aucune ligne ici ne peut prétendre à un neuronal absent.
+function moteurVoixHTML() {
+  const e = MOTEUR_VOIX.etat;
+  let h = '';
+  if (!MOTEUR_VOIX.ok || !e) {
+    h += '<span class="voix-tag warn">MOTEUR NEURONAL : absent — ' + (MOTEUR_VOIX.raison || 'le cerveau ne répond pas') + '</span>';
+    h += '<span class="voix-tag">c est donc la voix du navigateur qui lit toutes les réponses</span>';
+    return h;
+  }
+  const c = e.compteurs || {};
+  const s = (e.seuils_ram_mo) || { chauffe: '?', moteur_chaud: '?' };
+  h += '<span class="voix-chiffre">MOTEUR NEURONAL : ' + String(e.moteur || 'Piper') + ' — installé, tourne sur ce PC</span>';
+  h += '<span class="voix-tag ok">modèles français : ' + (e.modeles_installes || []).map(m => String(m).replace('fr_FR-', '').replace('.onnx', '')).join(', ') + '</span>';
+  h += '<span class="voix-tag">voix par agente : ' + (e.agentes || []).map(a => a.parlence + ' = ' + String(a.modele_rapide).replace('fr_FR-', '').replace('.onnx', '') + ' (' + a.genre + ')' + (a.au_repos ? ' AU REPOS' : '')).join(' · ') + '</span>';
+  h += '<span class="voix-tag">depuis le démarrage du cerveau : ' + (c.phrases || 0) + ' phrase(s) synthétisée(s), ' + (c.caches || 0) + ' servie(s) du cache, ' + (c.replis || 0) + ' repli(s) sur Windows, ' + (c.echecs || 0) + ' échec(s), ' + (c.ms_moyen_par_phrase || 0) + ' ms en moyenne</span>';
+  h += '<span class="voix-tag">cette page : ' + NEURONAL_STATS.phrases + ' phrase(s) neuronale(s) jouée(s)' + (NEURONAL_STATS.dernierModele ? ' · dernier modèle ' + String(NEURONAL_STATS.dernierModele).replace('fr_FR-', '').replace('.onnx', '') : '') + (NEURONAL_STATS.replis ? ' · ' + NEURONAL_STATS.replis + ' repli(s) — dernier : ' + NEURONAL_STATS.dernierRepli : '') + '</span>';
+  h += '<span class="voix-tag ' + ((e.ram_libre_mo || 0) < s.chauffe ? 'warn' : 'ok') + '">mémoire libre : ' + (e.ram_libre_mo || 0) + ' Mo — il en faut ' + s.chauffe + ' pour charger une voix, ' + s.moteur_chaud + ' pour parler sur un moteur déjà chaud</span>';
+  h += '<span class="voix-tag">moteurs chauds : ' + ((e.processus || []).length ? e.processus.map(p => String(p.modele).replace('fr_FR-', '').replace('.onnx', '') + (p.charge ? ' chargé' : ' en chargement') + (p.en_file ? ', ' + p.en_file + ' en file' : '')).join(' · ') : 'aucun — la première phrase paie le chargement (~3 s), les suivantes ~1 s') + '</span>';
+  h += '<span class="voix-tag">cache : ' + ((e.cache && e.cache.nb) || 0) + ' phrase(s), ' + Math.round((((e.cache && e.cache.octets) || 0) / 1048576) * 10) / 10 + ' Mo sur ' + Math.round(((e.cache && e.cache.limite) || 0) / 1048576) + ' Mo</span>';
+  h += '<span class="voix-tag">le neuronal s efface tout seul (et la voix Windows reprend) quand la voie tient un scan, quand la mémoire manque, ou dans une langue autre que le français</span>';
+  return h;
 }
 function rendrePanneauVoix() {
   if (!voixPanneau) return;
@@ -729,10 +929,11 @@ function rendrePanneauVoix() {
   let h = '';
   h += '<div class="voix-tete"><span class="voix-titre">LA VOIX — ce que ce navigateur expose réellement</span>'
     + '<button type="button" class="voix-x" id="voixFermer" title="Fermer">✕</button></div>';
+  h += '<div class="voix-etat">' + moteurVoixHTML() + '</div>';
   h += '<div class="voix-etat">';
-  h += '<span class="voix-chiffre">' + voices.length + ' voix · ' + langues.length + ' langue' + (langues.length > 1 ? 's' : '') + '</span>';
-  h += '<span class="voix-tag ' + (neuronales.length ? 'ok' : 'warn') + '">voix neuronales : '
-    + (neuronales.length ? neuronales.length + ' disponibles (' + neuronales.slice(0, 3).map(v => v.name).join(', ') + ')' : 'AUCUNE sur cette machine') + '</span>';
+  h += '<span class="voix-chiffre">VOIX DU NAVIGATEUR (le repli) : ' + voices.length + ' voix · ' + langues.length + ' langue' + (langues.length > 1 ? 's' : '') + '</span>';
+  h += '<span class="voix-tag ' + (neuronales.length ? 'ok' : 'warn') + '">voix neuronales EXPOSÉES PAR CE NAVIGATEUR : '
+    + (neuronales.length ? neuronales.length + ' disponibles (' + neuronales.slice(0, 3).map(v => v.name).join(', ') + ')' : 'AUCUNE — c est pour ça que le moteur neuronal local (ci-dessus) existe') + '</span>';
   h += '<span class="voix-tag">hommes disponibles : ' + (voices.filter(v => genreDe(v) === 'm').length) + ' · femmes : ' + (voices.filter(v => genreDe(v) === 'f').length) + '</span>';
   h += '<span class="voix-tag">meilleure pour le français : ' + (meilleure ? meilleure.name + ' [' + meilleure.lang + ']' + (estNeuronale(meilleure) ? ' · neuronal' : ' · classique') : 'rien') + '</span>';
   h += '</div>';
@@ -812,16 +1013,25 @@ function rendrePanneauVoix() {
   if (stop) stop.onclick = () => { couperVoix(); setState(null, wakeMode ? veilleMsg(agentActif) : 'En attente de vos ordres, Isaac'); };
 }
 if (voixBtn) {
-  voixBtn.title = 'La voix de chaque agente : la liste réelle, le réglage, l’écoute';
+  voixBtn.title = 'La voix de chaque agente : le moteur neuronal local, le repli navigateur, le réglage, l’écoute';
   voixBtn.onclick = () => {
     voixPanneau.hidden = !voixPanneau.hidden;
-    if (!voixPanneau.hidden) { rafraichirVoix(); rendrePanneauVoix(); }
+    if (!voixPanneau.hidden) {
+      rafraichirVoix();
+      rendrePanneauVoix();
+      // L'état du moteur est redemandé AU CERVEAU à chaque ouverture, puis le panneau est repeint :
+      // ce qu'Isaac lit sort du disque et de la RAM de l'instant, pas d'un état vieux de deux minutes.
+      rafraichirMoteurVoix(true).then(() => { if (voixPanneau && !voixPanneau.hidden) rendrePanneauVoix(); }).catch(() => {});
+    }
   };
 }
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && voixPanneau && !voixPanneau.hidden) voixPanneau.hidden = true;
 });
 appliquerLangueDictee();
+// Le cerveau est interrogé dès l'ouverture de la page : la première phrase d'Aelyra peut déjà
+// partir en neuronal, et le panneau 🗣 affiche un état vrai sans qu'Isaac ait à le rouvrir.
+rafraichirMoteurVoix(true).catch(() => {});
 
 // ---------- Surveillance de la connexion au serveur ----------
 const serverDot = document.getElementById('serverDot');
@@ -1052,7 +1262,7 @@ async function processCommand(text) {
     const detail = String((e && (e.message || e)) || 'erreur inconnue').slice(0, 140);
     const reseau = /fetch|networkerror|failed to fetch|load(ing)? failed/i.test(detail);
     const msg = location.protocol === 'file:'
-      ? 'Isaac, vous avez ouvert le fichier index.html directement. Fermez cet onglet, double-cliquez sur ISAAC-IJ.bat, et laissez-vous guider — la bonne adresse est http://localhost:3777'
+      ? 'Isaac, vous avez ouvert le fichier index.html directement. Fermez cet onglet, double-cliquez sur ISAAC-IJ.bat, et laissez-vous guider — la bonne adresse est http://127.0.0.1:3777'
       : (reseau
           ? 'Impossible de contacter mon serveur, Isaac. Vérifiez que la fenêtre noire ISAAC-IJ.bat est toujours ouverte, puis rechargez cette page (F5).'
           : 'Une erreur dans cette page m empêche de finir, Isaac — le cerveau répond, lui (' + detail + '). Rechargez la page avec F5 et redites l ordre.');
@@ -1285,26 +1495,43 @@ const bootLines = [
 (function boot() {
   const box = document.getElementById('bootLines');
   let i = 0;
+  // Garde-fou : un écran noir n'a plus le droit de rester muet. Si la séquence meurt en route
+  // (un bip refusé par le navigateur, un AudioContext saturé, une exception n'importe où),
+  // l'écran noir est arraché au bout de 12 s et la page dit pourquoi, au lieu de faire semblant.
+  const arracher = (pourquoi) => {
+    const b = document.getElementById('boot');
+    if (b && !b.classList.contains('done')) b.classList.add('done');
+    setState(null, 'DÉMARRAGE INTERROMPU — ' + String(pourquoi).slice(0, 90));
+    addMsg('Isaac IA Juniors', 'Isaac, mon démarrage s\'est arrêté en route (' + String(pourquoi).slice(0, 120) + '). Je suis quand même là : rechargez la page avec Ctrl+F5 pour un démarrage propre.');
+  };
+  const garde = setTimeout(() => arracher('la séquence de démarrage ne s\'est pas terminée toute seule'), 12000);
   const timer = setInterval(() => {
-    const div = document.createElement('div');
-    div.textContent = bootLines[i];
-    box.appendChild(div);
-    beep(600 + i * 120, .05);
-    i++;
-    if (i >= bootLines.length) {
+    try {
+      const div = document.createElement('div');
+      div.textContent = bootLines[i];
+      box.appendChild(div);
+      beep(600 + i * 120, .05);
+      i++;
+      if (i >= bootLines.length) {
+        clearInterval(timer);
+        clearTimeout(garde);
+        setTimeout(() => {
+          document.getElementById('boot').classList.add('done');
+          if (location.protocol === 'file:') {
+            setState(null, 'OUVERTURE INCORRECTE — UTILISEZ Isaac IA Juniors.BAT');
+            addMsg('Isaac IA Juniors', 'Isaac, vous m\'avez ouvert en double-cliquant sur index.html : je ne peux pas fonctionner ainsi. Fermez cet onglet, double-cliquez sur le fichier ISAAC-IJ.bat (il se trouve juste à côté), et une fenêtre noire restera ouverte : c\'est mon serveur. La page s\'ouvrira alors toute seule à la bonne adresse.');
+            speak('Isaac, pour m\'utiliser, double-cliquez sur Isaac IA Juniors point bat, pas sur la page.');
+          } else {
+            setState(null, wakeMode ? veilleMsg(agentActif) : 'En attente de vos ordres, Isaac');
+            addMsg('Aelyra', 'Bonjour Isaac, mon créateur. Je suis en mode système : cliquez n\'importe où dans cette fenêtre une première fois pour que je vous écoute en permanence. Appelez-moi ensuite d\'un simple « Aelyra, ... ». Dites « aide » pour mes capacités, ou lancez INSTALL-ISAAC.bat pour que je démarre tout seul avec Windows.');
+            speak('Bonjour Isaac, mon créateur. Je m\'appelle Aelyra. Je suis en veille permanente. Cliquez une fois dans la fenêtre, puis appelez-moi : Aelyra.');
+          }
+        }, 700);
+      }
+    } catch (e) {
       clearInterval(timer);
-      setTimeout(() => {
-        document.getElementById('boot').classList.add('done');
-        if (location.protocol === 'file:') {
-          setState(null, 'OUVERTURE INCORRECTE — UTILISEZ Isaac IA Juniors.BAT');
-          addMsg('Isaac IA Juniors', 'Isaac, vous m\'avez ouvert en double-cliquant sur index.html : je ne peux pas fonctionner ainsi. Fermez cet onglet, double-cliquez sur le fichier ISAAC-IJ.bat (il se trouve juste à côté), et une fenêtre noire restera ouverte : c\'est mon serveur. La page s\'ouvrira alors toute seule à la bonne adresse.');
-          speak('Isaac, pour m\'utiliser, double-cliquez sur Isaac IA Juniors point bat, pas sur la page.');
-        } else {
-          setState(null, wakeMode ? veilleMsg(agentActif) : 'En attente de vos ordres, Isaac');
-          addMsg('Aelyra', 'Bonjour Isaac, mon créateur. Je suis en mode système : cliquez n\'importe où dans cette fenêtre une première fois pour que je vous écoute en permanence. Appelez-moi ensuite d\'un simple « Aelyra, ... ». Dites « aide » pour mes capacités, ou lancez INSTALL-ISAAC.bat pour que je démarre tout seul avec Windows.');
-          speak('Bonjour Isaac, mon créateur. Je m\'appelle Aelyra. Je suis en veille permanente. Cliquez une fois dans la fenêtre, puis appelez-moi : Aelyra.');
-        }
-      }, 700);
+      clearTimeout(garde);
+      arracher(String((e && e.message) || e));
     }
   }, 380);
 })();

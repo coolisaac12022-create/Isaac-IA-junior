@@ -48,5 +48,8 @@ If Not serverUp Then
 End If
 
 ' --- Fenêtre d'application dédiée (profil Isaac séparé, hors navigateur normal) ---
-shell.Run """" & browser & """ --new-window --app=http://localhost:3777 " & _
+' Adresse en 127.0.0.1 et non "localhost" : le cerveau est fermé sur 127.0.0.1 (rouge #1),
+' et sur ce PC "localhost" résout d'abord ::1 (IPv6) — un aller-retour mort à chaque
+' bascule réseau. 127.0.0.1 ne dépend d'aucune résolution de nom.
+shell.Run """" & browser & """ --new-window --app=http://127.0.0.1:3777 " & _
           "--user-data-dir=""" & proj & "\isaac-profile"" --window-size=1024,780", 1, False

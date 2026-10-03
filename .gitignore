@@ -68,3 +68,17 @@ backups-noyau-essai/
 backups/
 # Sauvegardes de l instance d essai — artifacts de lecture, jamais publiés
 backups-essai/
+
+# ---------- VOIX NEURONALE (voice manager, 2026-10-02) ----------
+# Le binaire Piper et les modeles .onnx pesent ~250 Mo : ce sont des artefacts telecharges,
+# pas du code. VOIX-NEURONALE.bat les repose sur n'importe quelle machine d'Isaac.
+tts/piper/
+tts/voix/
+# Le cache de synthese : des WAV nommes par leur empreinte, regenerables a volonte.
+tts/cache/
+# Journal des decisions de voix — local, il nomme ce qu'Isaac a fait dire a ses agentes.
+journal-voix.log
+journal-voix.essai.log
+
+# Capture d'ecran de diagnostic : elle montre l'ecran d'Isaac, jamais publiee.
+capture-ecran.png

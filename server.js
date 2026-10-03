@@ -3909,6 +3909,38 @@ function etatVoie() {
     resume: resumeVoie()
   };
 }
+// ---------- VOIX NEURONALE : l'état du moteur, dit vrai ----------
+// « quel est ton moteur de voix », « ta voix est neuronale ? », « état de ta voix ».
+// LECTURE SEULE : cette intent ne synthétise rien, elle récite ce que le voice manager mesure
+// sur le disque et en RAM. Si Piper n'est pas installé, la réponse le dit — elle ne prétend
+// jamais à un neuronal qui n'existe pas (règle de la maison : une promesse d'interface doit
+// être vraie dans le code).
+function moduleVoixEtat(phrase, brut, agent) {
+  const p = normalize(String(phrase || '')) + ' ' + normalize(String(brut || ''));
+  const qui = agent || 'aelyra';
+  const parle = /(moteur de voix|moteur vocal|voice manager|gestionnaire de voix|voix neuronale|voix neural|neurone.{0,12}voix|voix.{0,12}neuronal|\btts\b|piper|synthese vocale|etat de (ta|la) voix|ouvre (ta|la) page (de|des) voix)/.test(p);
+  if (!parle) return null;
+  const e = voixEtat();
+  if (e && e.installe) {
+    const c = e.compteurs || {};
+    return {
+      reply: "Mon moteur de voix est reel, Isaac : Piper, un reseau de neurones qui tourne ici, sur ton PC — rien ne part sur Internet. " +
+        (e.modeles_installes || []).length + " modele(s) francais installe(s) : " + ((e.modeles_installes || []).map(m => String(m).replace('fr_FR-', '').replace('.onnx', '')).join(', ') || 'aucun') + ". " +
+        "Chaque agente a sa voix : Aelyra, Jeanette et Business sont des femmes, Onyx et Aegis des hommes. " +
+        "Une phrase deja dite n'est jamais resynthetisee : " + ((e.cache && e.cache.nb) || 0) + " en cache. " +
+        (c.phrases ? c.phrases + " phrase(s) synthetisee(s) depuis le demarrage, " + (c.ms_moyen_par_phrase || 0) + " ms en moyenne. " : '') +
+        "Memoire libre " + (e.ram_libre_mo || 0) + " Mo : sous " + (e.seuil_ram_mo || 0) + " Mo, le neuronal s'efface et rend la voix a Windows plutot que de geler ton ecran. " +
+        "Si la voie tient un scan, pareil : la voix cede le CPU. Etat complet sur /api/voix/etat, decisions dans journal-voix" + (ESSAI ? '.essai' : '') + ".log.",
+      source: 'local', agent: qui
+    };
+  }
+  return {
+    reply: "Mon moteur neuronal n'est pas installe sur ce PC, Isaac — c'est donc la voix de Windows qui parle, et je ne te le cache pas. " +
+      "Raison reelle : " + ((e && (e.raison || e.moteur)) || 'le voice manager ne repond pas') + ". " +
+      "L'installateur est VOIX-NEURONALE.bat dans jarvis\\ : il pose Piper et les modeles francais (~250 Mo), et /api/voix/etat dira ce qui est vrai apres.",
+    source: 'local', agent: qui
+  };
+}
 // ---------- ORANGE #10 : la voix de la voie ----------
 // « qui tient la voie », « stoppe la voie », « relance la voie », « passe la tache 2 en premier »,
 // « recule la tache 3 », « ouvre ta console des taches ». Les verbes ne sont jamais ancrés : la
@@ -5839,6 +5871,12 @@ async function handleCommand(rawText, image) {
     const drSg = moduleDroits(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
     if (drSg) return drSg;
   }
+  // VOICE MANAGER : « quel est ton moteur de voix » — lecture seule, avant les personas, pour que
+  // la réponse sorte de l'état mesuré du disque et jamais d'une prose qui se croit vraie.
+  {
+    const vxSg = moduleVoixEtat(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
+    if (vxSg) return vxSg;
+  }
   // ORANGE #10 : l'orchestrateur passe AVANT le registre — « qui tient la voie », « stoppe la voie »,
   // « passe la tache 2 en premier » sont des ordres sur la file, pas sur le contenu du registre.
   {
@@ -7176,7 +7214,8 @@ function lireRepartition() {
 //      application/json — le navigateur n'enverrait pas l'en-tête sans préflight CORS), est refusée.
 // Le fichier politique est écrit à chaque boot : Isaac peut le lire, il n'est rien à croire.
 const API_ECRITURE = ['/api/command', '/api/prompts', '/api/evolution', '/api/repartition',
-  '/api/engagements', '/api/business', '/api/analyse-mail', '/api/taches', '/api/orchestrateur'];
+  '/api/engagements', '/api/business', '/api/analyse-mail', '/api/taches', '/api/orchestrateur',
+  '/api/voix'];
 
 // « la maison » a trois écritures (localhost, 127.0.0.1, [::1]) mais c'est la MEME machine, et le
 // PORT COMPTE : une page servie sur un autre port de ce PC n'est pas le cerveau, c'est un site
@@ -7230,6 +7269,31 @@ function journaliserPolitique(decision, req, u) {
       ' | code ' + decision.code + ' | ' + decision.motif +
       ' | origin=' + (req.headers.origin || '-') + ' | referer=' + (req.headers.referer || '-') + '\n');
   } catch (e) {}
+}
+
+// ---------- VOICE MANAGER — le TTS neuronal local ----------
+// L'architecture qu'Isaac a dessinée :
+//   ISAAC -> (reconnaissance vocale | IA texte) -> VOICE MANAGER -> TTS neuronal -> voix
+// Le cerveau ne choisit pas sa voix dans une prompt : il demande au manager, qui tranche entre
+// le réseau de neurones local (Piper, 100 % hors ligne) et le repli sur les voix Windows.
+// Rien n'est annoncé sans preuve sur le disque : si piper.exe ou les modèles .onnx manquent,
+// /api/voix/etat le dit en toutes lettres et la page garde la voix Windows. Le manager refuse
+// aussi de parler quand la voie tient un job lourd ou quand la mémoire libre tombe — c'est lui
+// qui s'efface, jamais Isaac qui subit un écran gelé.
+const CACHE_VOIX_DIR = path.join(__dirname, 'tts', 'cache');
+let VOIX_MGR = null;
+try {
+  const creerVoixManager = require('./tts/voix-manager.js');
+  VOIX_MGR = creerVoixManager({
+    ESSAI: ESSAI,
+    voieGenante: () => { try { return voieGenante('synthese vocale'); } catch (e) { return null; } }
+  });
+} catch (e) {
+  console.log('[voix] voice manager indisponible au chargement :', e.message, '— la page reste sur les voix Windows.');
+}
+function voixEtat() {
+  if (!VOIX_MGR) return { ok: false, installe: false, raison: 'le voice manager ne s est pas charge dans ce cerveau (voir la console)', moteur: 'voix Windows du navigateur' };
+  try { return VOIX_MGR.etat(); } catch (e) { return { ok: false, installe: false, raison: 'etat du manager illisible : ' + e.message }; }
 }
 
 // ---------- Serveur HTTP ----------
@@ -7771,6 +7835,85 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ reply: 'Erreur interne, Isaac. ' + e.message, source: 'local' }));
       }
+    });
+    return;
+  }
+
+  // ---------- VOIX NEURONALE (voice manager) ----------
+  // GET  /api/voix/etat : ce qui est VRAIMENT installé (modèles, cache, RAM, processus chauds).
+  // POST /api/voix      : { texte, parlence, langue, hauteur, debit, qualite } ->
+  //                       { moteur:'neuronal', url:'/voix/<sha>.wav', lecture } ou
+  //                       { moteur:'repli', raison } — le client lit alors la voix Windows.
+  // La route est dans API_ECRITURE : elle passe par la politique d'accès comme les autres POST.
+  if (u.pathname === '/api/voix/etat' || u.pathname === '/api/voix') {
+    if (u.pathname === '/api/voix/etat' || req.method !== 'POST') {
+      const e = voixEtat();
+      if (u.pathname === '/api/voix' && req.method !== 'GET' && req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ok: false, reply: 'Methode refusee : /api/voix ne prend que POST (demander une voix) — l etat est sur /api/voix/etat.' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(e));
+      return;
+    }
+    let corps = '', lourd = false;
+    req.on('data', c => { corps += c; if (corps.length > 40000) { lourd = true; req.destroy(); } });
+    req.on('end', async () => {
+      if (lourd) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ moteur: 'repli', raison: 'texte trop lourd pour une seule demande de voix' }));
+        return;
+      }
+      let recu = {};
+      try { recu = JSON.parse(corps || '{}'); } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ok: false, moteur: 'repli', raison: 'JSON illisible' }));
+        return;
+      }
+      if (!VOIX_MGR) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ moteur: 'repli', raison: 'le voice manager ne tourne pas dans ce cerveau' }));
+        return;
+      }
+      try {
+        const r = await VOIX_MGR.dire({
+          texte: recu.texte, parlence: recu.parlence, langue: recu.langue,
+          hauteur: recu.hauteur, debit: recu.debit, qualite: recu.qualite
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(r));
+      } catch (e) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ moteur: 'repli', raison: 'voice manager en erreur : ' + String(e.message || e).slice(0, 90) }));
+      }
+    });
+    return;
+  }
+
+  // Le WAV synthétisé, servi sous un nom strict : 64 hexadécimaux = l'empreinte du cache.
+  // Aucun chemin construit depuis la requête ne peut sortir de tts/cache : le regex verrouille
+  // le nom, et ces fichiers ne sont pas dans PUBLIC_DIR (jamais servis par la route statique).
+  if (/^\/voix\/[a-f0-9]{64}\.wav$/.test(u.pathname)) {
+    const cle = u.pathname.slice(6, -4);
+    const fichier = path.join(CACHE_VOIX_DIR, cle + '.wav');
+    if (!fichier.startsWith(CACHE_VOIX_DIR)) { res.writeHead(403); res.end(); return; }
+    fs.stat(fichier, (err, st) => {
+      if (err || !st.isFile() || st.size < 45) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Voix absente du cache — redemande la phrase, Isaac.');
+        return;
+      }
+      // immutable : le nom EST le contenu (sha256 du texte+modèle+réglage), il ne change jamais.
+      res.writeHead(200, {
+        'Content-Type': 'audio/wav',
+        'Content-Length': st.size,
+        'Cache-Control': 'public, max-age=604800, immutable',
+        'Accept-Ranges': 'bytes'
+      });
+      const flux = fs.createReadStream(fichier);
+      flux.on('error', () => { try { res.end(); } catch (e) {} });
+      flux.pipe(res);
     });
     return;
   }
