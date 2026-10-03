@@ -112,22 +112,100 @@
   }
 
   // --------------------------------- Découpe -------------------------------
-  function morceaux(texte, taille) {
-    const brut = String(texte || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!brut) return [];
-    const out = [];
-    let reste = brut;
-    while (reste.length > taille) {
-      let coupe = reste.lastIndexOf(' ', taille);
-      if (coupe < taille * 0.55) {
-        coupe = Math.max(reste.lastIndexOf('. ', taille), reste.lastIndexOf('! ', taille), reste.lastIndexOf('? ', taille), reste.lastIndexOf('; ', taille), reste.lastIndexOf(', ', taille));
-      }
-      if (coupe < taille * 0.4) coupe = taille;
-      out.push(reste.slice(0, coupe).trim());
-      reste = reste.slice(coupe).trim();
+  // ------------------- Ce qui doit être PRONONCÉ, pas affiché ---------------
+  // Porté tel quel de l'interface historique (app.js, prouvé le 2026-10-02) :
+  // une IP se lit par blocs, un port sans « /tcp », une empreinte jamais lettre
+  // par lettre. Avant la Phase 3, seule index.html en bénéficiait : le Command
+  // Center lisait les adresses brut. Un seul moteur de voix = un seul shaping.
+  function speechClean(t) {
+    return String(t || '')
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/([0-9])\s*[*xX]\s*([0-9])/g, '$1 fois $2')
+      .replace(/(\d)\s*\/\s*(\d)/g, '$1 sur $2')
+      .replace(/[*_~`]+/g, '')
+      .replace(/(#{1,6})\s*/g, ' ')
+      .replace(/^\s*[-•●▪◦]+\s+/gm, '')
+      .replace(/[—–]/g, ', ')
+      .replace(/\|/g, ' ')
+      .replace(/https?:\/\/\S+/g, 'le site indiqué')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+  function textePrononçable(t) {
+    let s = speechClean(t);
+    s = s.replace(/\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b/gi, function () { return 'une adresse reseau'; });
+    s = s.replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, '$1, $2, $3, $4');
+    s = s.replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, '$1, $2, $3');
+    s = s.replace(/\b\d+[-.]\d+[-.]\d+\.\d+\b/g, 'une plage d adresses');
+    s = s.replace(/\b(\d+)\/(?:tcp|udp)\b/gi, '$1');
+    s = s.replace(/sha-?\s?256/gi, 'cha');
+    s = s.replace(/\b([0-9a-f]{12,})\b/gi, 'une empreinte');
+    s = s.replace(/\b(\d+),(\d+)\b/g, '$1 virgule $2');
+    s = s.replace(/[«»]/g, ' ');
+    s = s.replace(/\\/g, ' ');
+    s = s.replace(/\blocalhost\b/gi, 'lo kal host');
+    s = s.replace(/\s{2,}/g, ' ').trim();
+    return s;
+  }
+
+  // ------------------------- La langue, PAR PHRASE -------------------------
+  // Un rapport peut mêler français et anglais : chaque phrase est lue dans SA
+  // langue, jamais un paragraphe anglais noyé dans une voix française.
+  const MOTS_LANGUE = {
+    'fr-FR': ['le', 'la', 'les', 'des', 'une', 'un', 'est', 'sont', 'vous', 'nous', 'pour', 'avec', 'sur', 'dans', 'votre', 'notre', 'cette', 'ce', 'je', 'que', 'qui', 'quoi', 'comment', 'voici', 'apres', 'avant', 'tres', 'bien', 'aussi', 'toujours', 'jamais', 'fait', 'porte', 'adresse', 'fiche', 'scan', 'rapport', 'd’Isaac', 'Isaac'],
+    'en-US': ['the', 'and', 'is', 'are', 'you', 'your', 'with', 'for', 'that', 'this', 'from', 'have', 'has', 'not', 'will', 'would', 'could', 'about', 'there', 'their', 'which', 'what', 'when', 'where', 'please', 'report', 'server', 'found', 'risk', 'open', 'host'],
+    'es-ES': ['el', 'los', 'las', 'una', 'que', 'por', 'con', 'para', 'esta', 'son', 'muy', 'como', 'tiene', 'nuestro', 'gracias'],
+    'de-DE': ['der', 'die', 'das', 'und', 'ist', 'nicht', 'mit', 'auch', 'werden', 'kann', 'dieses', 'sie'],
+    'it-IT': ['il', 'gli', 'che', 'per', 'con', 'questa', 'sono', 'molto', 'come', 'grazie'],
+    'pt-BR': ['uma', 'que', 'com', 'para', 'esta', 'sao', 'muito', 'como', 'nao', 'obrigado']
+  };
+  function detecterLangue(t) {
+    const mots = String(t || '').toLowerCase().split(/[^a-zà-ÿ’]+/).filter(Boolean);
+    if (!mots.length) return 'fr-FR';
+    const scores = {};
+    for (const code in MOTS_LANGUE) scores[code] = 0;
+    for (const w of mots) { for (const code in MOTS_LANGUE) { if (MOTS_LANGUE[code].indexOf(w) !== -1) scores[code]++; } }
+    let best = 'fr-FR', bestN = scores['fr-FR'] || 0;
+    for (const code in scores) {
+      if (code === 'fr-FR') continue;
+      if (scores[code] >= 3 && scores[code] > bestN) { best = code; bestN = scores[code]; }
     }
-    if (reste) out.push(reste);
-    return out;
+    return best;
+  }
+
+  // ------------------------------- Découpe ---------------------------------
+  // Découpe sur les vraies respirations, jamais au milieu d'un mot, et jamais
+  // une phrase d'une langue collée à une phrase d'une autre. Porté de app.js :
+  // c'est ce qui a remplacé la lecture coupée nette au bout de quinze secondes.
+  function decouper(t, max) {
+    const phrases = String(t).match(/[^.!?…\n]+[.!?…]*/g) || [];
+    const out = [];
+    let courant = '';
+    let langueCourante = null;
+    const pousser = function () { if (courant) { out.push(courant); courant = ''; langueCourante = null; } };
+    for (let ph of phrases) {
+      ph = String(ph || '').trim();
+      if (!ph) continue;
+      const languePhrase = detecterLangue(ph);
+      if (courant && langueCourante && languePhrase !== langueCourante) pousser();
+      let garde = 0;
+      while (ph.length > max && garde++ < 40) {
+        let coupe = ph.lastIndexOf(',', max);
+        if (coupe < Math.floor(max * 0.45)) coupe = ph.lastIndexOf(' ', max);
+        if (coupe < Math.floor(max * 0.45)) coupe = max;
+        const tete = ph.slice(0, coupe + 1).trim();
+        pousser();
+        if (tete) out.push(tete);
+        ph = ph.slice(coupe + 1).trim();
+      }
+      if (!ph) continue;
+      if (courant && (courant + ' ' + ph).length > max) pousser();
+      courant = (courant ? courant + ' ' : '') + ph;
+      if (!langueCourante) langueCourante = languePhrase;
+    }
+    pousser();
+    return out.length ? out : [String(t)];
   }
 
   // ------------------------------- Lecture ---------------------------------
@@ -189,6 +267,40 @@
     });
   }
 
+  // Le saut de qualité s'appelle « natural » : les voix neuronales de
+  // Windows/Edge portent ce mot dans leur nom. Rien n'est inventé — si aucune
+  // n'est là, on prend la mieux notée des voix locales. GENRE : Onyx et Aegis
+  // sont des hommes, Aelyra et Jeanette des femmes ; une voix ne porte son
+  // genre que dans son nom, et si le navigateur n'a qu'une voix de femme on le
+  // DIT (infoVoixRetenue) au lieu de faire semblant.
+  const GENRE_MASCU = /(?:^|[^\p{L}])(paul|henri|thomas|antoine|rene|renee|claude|bernard|marc|jean|nicolas|david|mark|james|daniel|georges?|fred|conrad|erwan|matteo|diego|carlos|michel|pablo|remy|male|homme|man|guy)(?![\p{L}])/iu;
+  const GENRE_FEMIN = /(?:^|[^\p{L}])(julie|denise|audrey|amelie|virginie|celine|marie|vivienne|charline|eloise|suzette|chantal|nadia|hortense|zira|colette|marta|ines|inés|leah|heidi|aria|jenny|susan|linda|sandy|kate|catherine|sonia|female|femme|woman|amethyst)(?![\p{L}])/iu;
+  function genreDe(v) {
+    const n = String((v && v.name) || '');
+    const m = GENRE_MASCU.test(n), f = GENRE_FEMIN.test(n);
+    if (m && !f) return 'm';
+    if (f && !m) return 'f';
+    return '?';
+  }
+  function noteVoix(v, baseLangue, attendu) {
+    const n = String(v.name || '');
+    let s = 0;
+    if (/natural|neural|neuronal/i.test(n)) s += 25;   // une voix neuronale passe devant une classique
+                                                       // DU MÊME genre : un homme ne prend pas une voix de femme
+    if (/^(?:Microsoft\s+)?(?:julie|paul|denise|henri|eloise|audrey|michelle|thomas|nicole|vivienne|sylvie|remy|jacques|alfred|serge|colette|marta|leah|conrad|catarina|aria|guy)/i.test(n)) s += 16;
+    if (/hortense|zira|david|mark|hector|pablo|linda|carlos/i.test(n)) s -= 6;
+    if (v.localService) s += 5;
+    if (String(v.lang || '').toLowerCase().indexOf(baseLangue) === 0) s += 14;
+    if (/^fr/i.test(String(v.lang || ''))) s += 2;
+    if (v.default) s += 3;
+    if (attendu && attendu !== '?') {
+      const g = genreDe(v);
+      if (g === attendu) s += 22;
+      else if (g !== '?') s -= 18;
+    }
+    return s;
+  }
+
   function voixNavigateur(p, langue) {
     if (!('speechSynthesis' in window)) return null;
     let liste = [];
@@ -196,26 +308,15 @@
     if (!liste.length) return null;
     if (p.voixNavigateur) {
       const choisie = liste.filter(function (v) { return (v.voiceURI || v.name) === p.voixNavigateur; })[0];
-      if (choisie) return choisie;
+      if (choisie) return choisie;   // la voix choisie a peut-être disparu : on retombe sur l'automatique
     }
-    const base = String(langue || 'fr-FR').slice(0, 2).toLowerCase();
+    const base = String(langue || 'fr').toLowerCase().slice(0, 2);
+    const dansLaLangue = liste.filter(function (v) { return String(v.lang || '').toLowerCase().indexOf(base) === 0; });
+    const repli = dansLaLangue.length ? dansLaLangue : liste.filter(function (v) { return String(v.lang || '').toLowerCase().indexOf('fr') === 0; });
+    const pool = repli.length ? repli : liste;
+    if (!pool.length) return null;
     const attendu = GENRE_ATTENDU[p.agent] || '?';
-    const GENRE_M = /paul|henri|thomas|antoine|claude|bernard|marc|jean|nicolas|david|mark|james|daniel|georges|fred|conrad|erwan|matteo|diego|carlos|michel|pablo|remy|male|homme|man|guy|tom|gilles/i;
-    const GENRE_F = /julie|denise|audrey|amelie|virginie|celine|marie|vivienne|charline|eloise|suzette|chantal|nadia|hortense|zira|colette|marta|ines|leah|heidi|aria|jenny|susan|linda|sandy|kate|catherine|sonia|female|femme|woman|siwis/i;
-    function genre(v) {
-      const n = String(v.name || '');
-      const m = GENRE_M.test(n), f = GENRE_F.test(n);
-      return (m && !f) ? 'm' : (f && !m) ? 'f' : '?';
-    }
-    function note(v) {
-      let s = 0;
-      if (String(v.lang || '').toLowerCase().indexOf(base) === 0) s += 100;
-      if (attendu !== '?' && genre(v) === attendu) s += 50;
-      if (/natural|neural|neuronal/i.test(String(v.name || ''))) s += 30;
-      if (v.localService) s += 10;
-      return s;
-    }
-    return liste.slice().sort(function (a, b) { return note(b) - note(a); })[0] || null;
+    return pool.slice().sort(function (a, b) { return noteVoix(b, base, attendu) - noteVoix(a, base, attendu); })[0] || null;
   }
 
   function parlerNavigateur(morceau, p, langue, maSession) {
@@ -235,22 +336,45 @@
       u.pitch = Math.max(0, Math.min(2, Number(p.hauteur) || 1));
       u.volume = Math.max(0, Math.min(1, Number(p.volume) || 1));
       let fini = false;
-      const terminer = function (pourquoi) { if (fini) return; fini = true; clearTimeout(chien); resolve(pourquoi); };
+      const terminer = function (pourquoi) { if (fini) return; fini = true; clearTimeout(chien); clearInterval(gardien); resolve(pourquoi); };
       const chien = setTimeout(function () { terminer('erreur'); }, 60000);
+      // Chromium peut endormir une longue lecture sans raison : un resume
+      // périodique la tient éveillée. Porté de app.js (2026-10-02), où son
+      // absence faisait taire les rapports au bout de quinze secondes.
+      const gardien = setInterval(function () {
+        try { if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) window.speechSynthesis.resume(); } catch (e) {}
+      }, 8000);
       u.onend = function () { terminer('fini'); };
       u.onerror = function () { terminer('erreur'); };
       try { window.speechSynthesis.speak(u); } catch (e) { terminer('erreur'); }
     });
   }
 
-  function langueDe(morceau, p) {
-    if (p.langue && p.langue !== 'auto') return p.langue;
-    // Détection PAR PHRASE : un rapport peut mêler français et anglais.
-    const t = String(morceau || '').toLowerCase();
-    if (/[a-z]{3,}/.test(t) === false) return 'fr-FR';
-    const fr = (t.match(/\b(le|la|les|des|une|est|dans|pour|avec|sur|mon|votre|je|vous|c'est|mais|donc|scan|reseau)\b/g) || []).length;
-    const en = (t.match(/\b(the|and|for|with|this|that|have|from|your|are|was|not|scan|network)\b/g) || []).length;
-    return en > fr ? 'en-US' : 'fr-FR';
+  // Ce que CETTE PAGE a réellement joué : le panneau 🗣 d'index.html et celui
+  // du Command Center lisent les mêmes chiffres, aucun des deux ne les invente.
+  const STATS = { phrases: 0, replis: 0, echecs: 0, dernierRepli: '', dernierModele: '' };
+
+  // --------------------- Le catalogue du navigateur ------------------------
+  // Rien n'est inventé : la liste vient de speechSynthesis.getVoices() du
+  // navigateur OUVERT. Ce que la page voit est ce que la machine peut faire —
+  // et ce qu'elle ne peut pas (aucune voix neuronale exposée sur ce PC).
+  let voices = [];
+  function rafraichirVoix() {
+    try { voices = (window.speechSynthesis ? window.speechSynthesis.getVoices() : []) || []; } catch (e) { voices = []; }
+    return voices;
+  }
+  rafraichirVoix();
+  if ('speechSynthesis' in window) { try { window.speechSynthesis.onvoiceschanged = rafraichirVoix; } catch (e) {} }
+  function estNeuronale(v) { return /natural|neural|neuronal/i.test(String((v && v.name) || '')); }
+  function languesDisponibles() {
+    rafraichirVoix();
+    const set = {};
+    for (const v of voices) { const c = String(v.lang || '').slice(0, 5); if (c) set[c] = (set[c] || 0) + 1; }
+    return Object.keys(set).sort().map(function (c) { return { code: c, nb: set[c] }; });
+  }
+  function voixPour(langue, agent) {
+    rafraichirVoix();
+    return voixNavigateur(profilEffectif(agent), langue);
   }
 
   // ------------------------------ L'API publique ---------------------------
@@ -272,7 +396,11 @@
 
     let neurOk = neuronalDispo();
     const taille = neurOk ? 130 : 210;
-    const liste = morceaux(texte, taille);
+    // Le texte est PRONONÇABLE avant d'être découpé : une IP, un port, une
+    // empreinte ne se lisent pas comme ils s'écrivent. opts.dejaPrononce pour
+    // un appelant qui a déjà fait le travail lui-même.
+    const brut = o.dejaPrononce ? String(texte || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : textePrononçable(texte);
+    const liste = decouper(brut, taille);
     if (!liste.length) return { lu: false, raison: 'rien a lire' };
 
     enTrain = true; agentEnTrain = agent; publierParole();
@@ -290,21 +418,27 @@
           ? demanderNeuronal(liste[i + 1], agent, p).catch(function (e) { derniereRaison = 'requete vocale en echec : ' + (e && e.message || e); return null; })
           : Promise.resolve(null);
       }
-      const langue = langueDe(liste[i], p);
+      const langue = (p.langue && p.langue !== 'auto') ? p.langue : detecterLangue(liste[i]);
       if (rep && rep.moteur === 'neuronal') {
         const r = await jouerWav(rep, p, maSession);
-        if (r === 'fini') { neuronal++; echecs = 0; derniereRaison = null; continue; }
+        if (r === 'fini') {
+          neuronal++; echecs = 0; derniereRaison = null;
+          STATS.phrases++; STATS.dernierModele = String(rep.modele || rep.fournisseur || '');
+          continue;
+        }
         if (r === 'coupe') { enTrain = false; agentEnTrain = null; publierParole(); return { lu: false, raison: 'coupe', morceaux: i }; }
-        echecs++; derniereRaison = 'le WAV neuronal n a pas pu etre joue (' + r + ') — repli sur la voix du navigateur';
+        echecs++; STATS.echecs++; derniereRaison = 'le WAV neuronal n a pas pu etre joue (' + r + ') — repli sur la voix du navigateur';
       } else if (rep && rep.moteur === 'repli') {
         echecs++;
         derniereRaison = String(rep.raison || 'le moteur neuronal a laisse la place a Windows');
+        STATS.replis++; STATS.dernierRepli = derniereRaison;
       } else if (neurOk) {
         echecs++;
+        STATS.replis++; STATS.dernierRepli = derniereRaison || 'requete vocale sans reponse';
       }
       if (echecs >= 3) { neurOk = false; }
       const r2 = await parlerNavigateur(liste[i], p, langue, maSession);
-      if (r2 === 'fini') repli++; else echoue++;
+      if (r2 === 'fini') repli++; else { echoue++; STATS.echecs++; }
     }
 
     enTrain = false; agentEnTrain = null; publierParole();
@@ -338,7 +472,18 @@
       return JSON.parse(JSON.stringify(profils[agent]));
     },
     moteurEtat: moteurEtat,
+    moteurBrut: function () { return MOTEUR; },
     neuronalDispo: neuronalDispo,
+    stats: function () { return Object.assign({}, STATS); },
+    textePrononçable: textePrononçable,
+    detecterLangue: detecterLangue,
+    decouper: decouper,
+    voixPour: voixPour,
+    genreDe: genreDe,
+    noteVoix: noteVoix,
+    estNeuronale: estNeuronale,
+    languesDisponibles: languesDisponibles,
+    rafraichirVoix: rafraichirVoix,
     parler: parler,
     couper: couper,
     parle: function () { return enTrain; },

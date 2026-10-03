@@ -424,23 +424,6 @@ function slugJsFichier(n) {
   return String(n || 'film').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'film';
 }
-// Le texte lu à voix haute : plus jamais de symboles markdown (« astérisque », « dièse »),
-// des maths prononcées, des liens réduits à leur libellé. L'affichage à l'écran garde le formatage.
-function speechClean(t) {
-  return String(t || '')
-    .replace(/```[\s\S]*?```/g, ' ')                        // blocs de code
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')                 // liens markdown → libellé
-    .replace(/([0-9])\s*[*xX]\s*([0-9])/g, '$1 fois $2')     // 7 * 8 → « 7 fois 8 » (avant suppression des *)
-    .replace(/(\d)\s*\/\s*(\d)/g, '$1 sur $2')               // 1/2 → « 1 sur 2 »
-    .replace(/[*_~`]+/g, '')                                 // gras, italique, titres, code inline
-    .replace(/(#{1,6})\s*/g, ' ')                            // dièses de titres
-    .replace(/^\s*[-•●▪◦]+\s+/gm, '')                        // puces de listes
-    .replace(/[—–]/g, ', ')                                  // tirets longs → pause
-    .replace(/\|/g, ' ')
-    .replace(/https?:\/\/\S+/g, 'le site indiqué')           // URL brute
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
 
 // ---------- Voix : catalogue vivant, langues, respiration ----------
 // Isaac (2026-10-02) : « change la voix, et rends-la capable de bien gérer la langue et la
@@ -484,11 +467,13 @@ function saveConfVoix() { try { localStorage.setItem('ij-voix', JSON.stringify(C
 
 let voices = [];
 function rafraichirVoix() {
-  try { voices = (window.speechSynthesis ? speechSynthesis.getVoices() : []) || []; } catch (e) { voices = []; }
+  // Phase 3 : UN SEUL catalogue de voix — celui du Voice Client partagé avec le
+  // JARVIS COMMAND CENTER. Cette page ne liste que ce que le navigateur expose
+  // vraiment, et c'est le même objet des deux côtés.
+  voices = window.VoiceClient ? VoiceClient.rafraichirVoix() : [];
   return voices;
 }
 rafraichirVoix();
-if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = rafraichirVoix;
 
 // Le saut de qualité s'appelle « natural » : les voix neuronales de Windows/Edge portent ce mot
 // dans leur nom. Rien n'est inventé — si aucune n'est là, on prend la mieux notée des voix locales.
@@ -496,249 +481,64 @@ if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = rafraichirVoi
 // genre que dans son nom ; si le navigateur n'a qu'une voix de femme, on le DIT au lieu de faire
 // semblant que le poste d'attaque a une voix d'homme.
 const GENRE_ATTENDU = { aelyra: 'f', jeanette: 'f', onyx: 'm', aegis: 'm', business: 'f', autre: '?' };
-const GENRE_MASCU = /(?:^|[^\p{L}])(paul|henri|thomas|antoine|rene|renee|claude|bernard|marc|jean|nicolas|david|mark|james|daniel|georges?|fred|conrad|erwan|matteo|diego|carlos|michel|pablo|remy|male|homme|man|guy)(?![\p{L}])/iu;
-const GENRE_FEMIN = /(?:^|[^\p{L}])(julie|denise|audrey|amelie|virginie|celine|marie|vivienne|charline|eloise|suzette|chantal|nadia|hortense|zira|colette|marta|ines|inés|leah|heidi|aria|jenny|susan|linda|sandy|kate|catherine|sonia|female|femme|woman|amethyst)(?![\p{L}])/iu;
-function genreDe(v) {
-  const n = String((v && v.name) || '');
-  const m = GENRE_MASCU.test(n), f = GENRE_FEMIN.test(n);
-  if (m && !f) return 'm';
-  if (f && !m) return 'f';
-  return '?';
-}
-function noteVoix(v, baseLangue, attendu) {
-  const n = String(v.name || '');
-  let s = 0;
-  if (/natural|neural|neuronal/i.test(n)) s += 25;   // une voix neuronale passe devant une classique
-                                                     // DU MÊME genre : un homme ne prend pas une voix de femme
-  if (/^(?:Microsoft\s+)?(?:julie|paul|denise|henri|eloise|audrey|michelle|thomas|nicole|vivienne|sylvie|remy|jacques|alfred|serge|colette|marta|leah|conrad|catarina|aria|guy)/i.test(n)) s += 16;
-  if (/hortense|zira|david|mark|hector|pablo|linda|carlos/i.test(n)) s -= 6;
-  if (v.localService) s += 5;
-  if (String(v.lang || '').toLowerCase().indexOf(baseLangue) === 0) s += 14;
-  if (/^fr/i.test(String(v.lang || ''))) s += 2;
-  if (v.default) s += 3;
-  if (attendu && attendu !== '?') {
-    const g = genreDe(v);
-    if (g === attendu) s += 22;
-    else if (g !== '?') s -= 18;
-  }
-  return s;
-}
-function voixPour(langue, parlence) {
-  rafraichirVoix();
-  const cfg = CONF_VOIX[parlence] || CONF_VOIX.aelyra;
-  const cle = String(cfg.voix || '');
-  if (cle) {
-    const exacte = voices.find(v => (v.voiceURI === cle) || (v.name === cle));
-    if (exacte) return exacte;   // la voix choisie a peut-être disparu : on retombe sur l'automatique
-  }
-  const base = String(langue || 'fr').toLowerCase().slice(0, 2);
-  const dansLaLangue = voices.filter(v => String(v.lang || '').toLowerCase().indexOf(base) === 0);
-  const repli = dansLaLangue.length ? dansLaLangue : voices.filter(v => String(v.lang || '').toLowerCase().indexOf('fr') === 0);
-  const pool = repli.length ? repli : voices;
-  if (!pool.length) return null;
-  const attendu = GENRE_ATTENDU[parlence] || '?';
-  return pool.slice().sort((a, b) => noteVoix(b, base, attendu) - noteVoix(a, base, attendu))[0];
-}
+// Phase 3 : le genre, la note et le choix de la voix vivent dans le Voice
+// Client — cette page affiche, elle ne recalcule pas dans son coin.
+function genreDe(v) { return window.VoiceClient ? VoiceClient.genreDe(v) : '?'; }
+function noteVoix(v, baseLangue, attendu) { return window.VoiceClient ? VoiceClient.noteVoix(v, baseLangue, attendu) : 0; }
+function voixPour(langue, parlence) { return window.VoiceClient ? VoiceClient.voixPour(langue, parlence) : null; }
 
-// ---------- Gestion de la langue ----------
-const MOTS_LANGUE = {
-  'fr-FR': ['le', 'la', 'les', 'des', 'une', 'un', 'est', 'sont', 'vous', 'nous', 'pour', 'avec', 'sur', 'dans', 'votre', 'notre', 'cette', 'ce', 'je', 'que', 'qui', 'quoi', 'comment', 'voici', 'apres', 'avant', 'tres', 'bien', 'aussi', 'toujours', 'jamais', 'fait', 'porte', 'adresse', 'fiche', 'scan', 'rapport', 'd’Isaac', 'Isaac'],
-  'en-US': ['the', 'and', 'is', 'are', 'you', 'your', 'with', 'for', 'that', 'this', 'from', 'have', 'has', 'not', 'will', 'would', 'could', 'about', 'there', 'their', 'which', 'what', 'when', 'where', 'please', 'report', 'server', 'found', 'risk', 'open', 'host'],
-  'es-ES': ['el', 'los', 'las', 'una', 'que', 'por', 'con', 'para', 'esta', 'son', 'muy', 'como', 'tiene', 'nuestro', 'gracias'],
-  'de-DE': ['der', 'die', 'das', 'und', 'ist', 'nicht', 'mit', 'auch', 'werden', 'kann', 'dieses', 'sie'],
-  'it-IT': ['il', 'gli', 'che', 'per', 'con', 'questa', 'sono', 'molto', 'come', 'grazie'],
-  'pt-BR': ['uma', 'que', 'com', 'para', 'esta', 'sao', 'muito', 'como', 'nao', 'obrigado']
-};
-function detecterLangue(t) {
-  const mots = String(t || '').toLowerCase().split(/[^a-zà-ÿ’]+/).filter(Boolean);
-  if (!mots.length) return 'fr-FR';
-  const scores = {};
-  for (const code in MOTS_LANGUE) scores[code] = 0;
-  for (const w of mots) { for (const code in MOTS_LANGUE) { if (MOTS_LANGUE[code].indexOf(w) !== -1) scores[code]++; } }
-  let best = 'fr-FR', bestN = scores['fr-FR'] || 0;
-  for (const code in scores) {
-    if (code === 'fr-FR') continue;
-    if (scores[code] >= 3 && scores[code] > bestN) { best = code; bestN = scores[code]; }
-  }
-  return best;
-}
-function languesDisponibles() {
-  rafraichirVoix();
-  const set = {};
-  for (const v of voices) { const c = String(v.lang || '').slice(0, 5); if (c) set[c] = (set[c] || 0) + 1; }
-  return Object.keys(set).sort().map(c => ({ code: c, nb: set[c] }));
-}
+// ---------- Gestion de la langue : déléguée au Voice Client ----------
+// Le dictionnaire de mots par langue et la détection PAR PHRASE vivent dans
+// public/voice/voiceClient.js : une seule implémentation pour les deux pages.
+function detecterLangue(t) { return window.VoiceClient ? VoiceClient.detecterLangue(t) : 'fr-FR'; }
+function languesDisponibles() { return window.VoiceClient ? VoiceClient.languesDisponibles() : []; }
 
-// ---------- Ce qui doit être PRONONCÉ, pas affiché ----------
-function textePrononçable(t) {
-  let s = speechClean(t);
-  s = s.replace(/\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b/gi, (m) => m ? 'une adresse reseau' : m);
-  s = s.replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, '$1, $2, $3, $4');
-  s = s.replace(/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g, '$1, $2, $3');
-  s = s.replace(/\b\d+[-.]\d+[-.]\d+\.\d+\b/g, 'une plage d adresses');
-  s = s.replace(/\b(\d+)\/(?:tcp|udp)\b/gi, '$1');
-  s = s.replace(/sha-?\s?256/gi, 'cha');
-  s = s.replace(/\b([0-9a-f]{12,})\b/gi, 'une empreinte');
-  s = s.replace(/\b(\d+),(\d+)\b/g, '$1 virgule $2');
-  s = s.replace(/[«»]/g, ' ');
-  s = s.replace(/\\/g, ' ');
-  s = s.replace(/\blocalhost\b/gi, 'lo kal host');
-  s = s.replace(/\s{2,}/g, ' ').trim();
-  return s;
-}
-// Découpe sur les vraies respirations, jamais au milieu d'un mot : c'est ce qui remplace la
-// lecture coupée nette au bout de quinze secondes. Une phrase n'est JAMAIS collée à une phrase
-// d'une autre langue : sinon un paragraphe anglais noie le français et la voix se trompe.
-function decouper(t, max) {
-  const phrases = String(t).match(/[^.!?…\n]+[.!?…]*/g) || [];
-  const out = [];
-  let courant = '';
-  let langueCourante = null;
-  const pousser = () => { if (courant) { out.push(courant); courant = ''; langueCourante = null; } };
-  for (let ph of phrases) {
-    ph = String(ph || '').trim();
-    if (!ph) continue;
-    const languePhrase = detecterLangue(ph);
-    if (courant && langueCourante && languePhrase !== langueCourante) pousser();
-    let garde = 0;
-    while (ph.length > max && garde++ < 40) {
-      let coupe = ph.lastIndexOf(',', max);
-      if (coupe < Math.floor(max * 0.45)) coupe = ph.lastIndexOf(' ', max);
-      if (coupe < Math.floor(max * 0.45)) coupe = max;
-      const tete = ph.slice(0, coupe + 1).trim();
-      pousser();
-      if (tete) out.push(tete);
-      ph = ph.slice(coupe + 1).trim();
-    }
-    if (!ph) continue;
-    if (courant && (courant + ' ' + ph).length > max) pousser();
-    courant = (courant ? courant + ' ' : '') + ph;
-    if (!langueCourante) langueCourante = languePhrase;
-  }
-  pousser();
-  return out.length ? out : [String(t)];
-}
+// Le texte lu à voix haute (shaping des adresses, ports, empreintes, markdown)
+// vit désormais dans public/voice/voiceClient.js : une seule implémentation
+// pour index.html ET le JARVIS COMMAND CENTER. L'affichage à l'écran garde, lui,
+// son formatage.
+function textePrononçable(t) { return window.VoiceClient ? VoiceClient.textePrononçable(t) : String(t || ''); }
+function decouper(t, max) { return window.VoiceClient ? VoiceClient.decouper(t, max) : [String(t)]; }
 
-// ---------- VOIX NEURONALE : le VOICE MANAGER du cerveau ----------
-// L'architecture dessinée par Isaac :
-//   ISAAC -> (reconnaissance vocale | IA texte) -> VOICE MANAGER -> TTS neuronal -> haut-parleur
-// Ce côté-ci ne décide PAS tout seul : il demande au cerveau (POST /api/voix), qui répond soit
-//   { moteur:'neuronal', url:'/voix/<empreinte>.wav', lecture:1.05 } -> on joue le WAV local ;
-//   { moteur:'repli', raison:'...' }                                 -> la voix Windows lit.
-// Le repli n'est jamais silencieux ni honteux : la raison VRAIE est gardée et affichée dans le
-// panneau 🗣. Rien n'est annoncé comme neuronal si le cerveau ne l'a pas dit.
+// ---------- VOIX : une seule file, un seul moteur — le Voice Client ----------
+// Phase 3 (2026-10-03) : cette page ne possède PLUS son propre moteur de voix.
+// Tout passe par public/voice/voiceClient.js, le MÊME que le JARVIS COMMAND
+// CENTER : une seule file de morsceaux, un seul shaping des adresses, une seule
+// table de profils, un seul repli navigateur avec la vraie raison. Avant ça,
+// deux copies du moteur vivaient côte à côte et dérivaient forcément.
+// Ce qui reste ici est l'habit d'Isaac : l'état visuel (« AELYRA PARLE… »), la
+// coupure du son en veille, et le panneau 🗣 qui montre ce que CE navigateur
+// expose réellement.
 let MOTEUR_VOIX = { ok: false, raison: 'pas encore demandé au cerveau', etat: null, maj: 0 };
-const NEURONAL_STATS = { phrases: 0, replis: 0, dernierRepli: '', dernierModele: '' };
-let NEURONAL_ECHECS = 0;                 // 3 échecs de lecture de suite : on arrête de demander
-const NEURONAL_EN_ATTENTE = new Map();   // cle -> Promise (préchargement du morsceau suivant)
-let audioNeuronal = null;
 
 function rafraichirMoteurVoix(force) {
   const maintenant = Date.now();
   if (!force && MOTEUR_VOIX.maj && (maintenant - MOTEUR_VOIX.maj) < 120000) return Promise.resolve(MOTEUR_VOIX);
-  return fetch('/api/voix/etat', { cache: 'no-store' })
-    .then(r => r.json())
-    .then(e => { MOTEUR_VOIX = { ok: !!(e && e.installe), raison: String((e && e.raison) || ''), etat: e || null, maj: Date.now() }; return MOTEUR_VOIX; })
-    .catch(err => { MOTEUR_VOIX = { ok: false, raison: 'le cerveau ne répond pas sur /api/voix/etat (' + err.message + ')', etat: null, maj: Date.now() }; return MOTEUR_VOIX; });
-}
-
-function cleNeuronale(morceau, qui, cfg, langue) {
-  return [qui, langue, Number(cfg.hauteur || 1).toFixed(2), Number(cfg.debit || 1).toFixed(2), morceau].join('|');
-}
-
-// Demande une phrase au voice manager. Résout sur la réponse neuronal, ou null si le cerveau
-// a choisi le repli (la raison est gardée dans NEURONAL_STATS.dernierRepli — Isaac voit POURQUOI).
-// `silencieux` = appel de préchargement : il ne doit pas compter un repli à la place de l'appel réel.
-// Les refus « moteur pas encore connu » ne sont JAMAIS mis en cache : sinon une phrase dite avant
-// la réponse de /api/voix/etat resterait bloquée sur la voix Windows pour toute la session.
-function demanderNeuronal(morceau, qui, cfg, langue, silencieux) {
-  if (!MOTEUR_VOIX.ok || NEURONAL_ECHECS >= 3) return Promise.resolve(null);
-  if (!/^fr/i.test(String(langue || ''))) {
-    if (!silencieux) {
-      NEURONAL_STATS.replis++;
-      NEURONAL_STATS.dernierRepli = 'phrase en ' + (langue || 'langue inconnue') + ' — le seul modèle neuronal installé est français, la voix du navigateur la lit mieux';
-    }
-    return Promise.resolve(null);
+  if (!window.VoiceClient) {
+    MOTEUR_VOIX = { ok: false, raison: 'le module voice/voiceClient.js n a pas pu etre charge', etat: null, maj: maintenant };
+    return Promise.resolve(MOTEUR_VOIX);
   }
-  const cle = cleNeuronale(morceau, qui, cfg, langue);
-  if (NEURONAL_EN_ATTENTE.has(cle)) return NEURONAL_EN_ATTENTE.get(cle);
-  const p = fetch('/api/voix', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      texte: morceau, parlence: qui, langue: 'fr',
-      hauteur: borner(cfg.hauteur, 0.7, 1.6, 1),
-      debit: borner(cfg.debit, 0.7, 1.6, 1),
-      qualite: 'rapide'
-    })
-  }).then(r => r.json())
-    .then(r => {
-      if (r && r.moteur === 'neuronal' && r.url) return r;
-      if (!silencieux) {
-        NEURONAL_STATS.replis++;
-        NEURONAL_STATS.dernierRepli = String((r && r.raison) || 'raison inconnue');
-      }
-      return null;
-    })
-    .catch(err => {
-      if (!silencieux) { NEURONAL_STATS.replis++; NEURONAL_STATS.dernierRepli = 'demande refusée par le réseau : ' + err.message; }
-      return null;
-    });
-  NEURONAL_EN_ATTENTE.set(cle, p);
-  if (NEURONAL_EN_ATTENTE.size > 60) NEURONAL_EN_ATTENTE.delete(NEURONAL_EN_ATTENTE.keys().next().value);
-  return p;
-}
-
-// Lecture du WAV neuronal. Le modèle ne sait pas changer son propre timbre : le cerveau allonge la
-// synthèse (length_scale = timbre / débit) et on rejoue le fichier plus vite. preservesPitch doit
-// rester FAUX pour que la vitesse transpose aussi la hauteur — les deux effets se compensent et
-// Isaac entend exactement le timbre et le débit qu'il a réglés.
-function lireNeuronal(r, session) {
-  return new Promise(resolve => {
-    let a = null;
-    try {
-      if (audioNeuronal) { try { audioNeuronal.pause(); } catch (e) {} audioNeuronal = null; }
-      a = new Audio(r.url);
-      a.playbackRate = borner(r.lecture, 0.6, 1.8, 1);
-      try { a.preservesPitch = false; } catch (e) {}
-      audioNeuronal = a;
-      let fini = false;
-      const terminer = (etat) => {
-        if (fini) return; fini = true;
-        if (audioNeuronal === a) audioNeuronal = null;
-        resolve(etat);
-      };
-      // Garde-fou : un fichier qui ne se charge jamais ne doit pas laisser « PARLE… » à l'écran.
-      const garde = setTimeout(() => { NEURONAL_ECHECS++; terminer('erreur'); }, 90000);
-      a.onended = () => { clearTimeout(garde); terminer(session === VOIX_SESSION ? 'fini' : 'coupe'); };
-      a.onerror = () => { clearTimeout(garde); NEURONAL_ECHECS++; terminer('erreur'); };
-      const jouer = () => { try { a.play().catch(() => { clearTimeout(garde); NEURONAL_ECHECS++; terminer('erreur'); }); } catch (e) { clearTimeout(garde); NEURONAL_ECHECS++; terminer('erreur'); } };
-      if (a.readyState >= 3) jouer();
-      else { a.oncanplaythrough = () => { a.oncanplaythrough = null; jouer(); }; try { a.load(); } catch (e) { jouer(); } }
-    } catch (e) { NEURONAL_ECHECS++; resolve('erreur'); }
+  return VoiceClient.moteurEtat(force).then(function () {
+    const e = VoiceClient.moteurBrut() || {};
+    MOTEUR_VOIX = { ok: !!(e && e.installe), raison: String((e && e.raison) || ''), etat: e || null, maj: Date.now() };
+    return MOTEUR_VOIX;
   });
 }
+// Ce que CETTE page a réellement joué : lu dans le Voice Client, pas compté
+// deux fois. Le panneau 🗣 et celui du Command Center affichent les mêmes chiffres.
+function statsPage() {
+  return window.VoiceClient ? VoiceClient.stats() : { phrases: 0, replis: 0, echecs: 0, dernierRepli: '', dernierModele: '' };
+}
 
-// ---------- La file de parole ----------
-let VOIX_SESSION = 0;
-let VOIX_GARDIEN = null;
 function couperVoix() {
-  VOIX_SESSION++;
-  if (VOIX_GARDIEN) { clearInterval(VOIX_GARDIEN); VOIX_GARDIEN = null; }
-  try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch (e) {}
-  // Le WAV neuronal en cours s'arrête lui aussi : barge-in valable quel que soit le moteur.
-  try {
-    if (audioNeuronal) { audioNeuronal.onended = null; audioNeuronal.onerror = null; audioNeuronal.oncanplaythrough = null; audioNeuronal.pause(); audioNeuronal = null; }
-  } catch (e) {}
+  if (window.VoiceClient) VoiceClient.couper();
   isSpeaking = false;
 }
-function borner(v, min, max, defaut) {
-  const n = Number(v);
-  if (!isFinite(n)) return defaut;
-  return Math.min(max, Math.max(min, n));
-}
+
+let dernierQuiParle = 'aelyra';
 function dire(texte, parlence, opts) {
   const qui = (parlence && PARLENCE_LABEL[parlence]) ? parlence : (agentActif || 'aelyra');
+  dernierQuiParle = qui;
   return new Promise((resolve) => {
     const finirSilencieusement = () => {
       setState(null, wakeMode ? veilleMsg(qui) : 'En attente de vos ordres, Isaac');
@@ -747,81 +547,32 @@ function dire(texte, parlence, opts) {
     if (!sonOn) return finirSilencieusement();
     const brut = String(texte || '').replace(/<[^>]*>/g, ' ').trim();
     if (!brut) return finirSilencieusement();
-    const cfg = CONF_VOIX[qui] || CONF_VOIX.aelyra;
-    // Taille des morsceaux : le neuronal doit être découpé PLUS COURT que la voix Windows.
-    // Mesuré sur ce PC (RTF 0,35) : un morsceau de 210 caractères demande ~8 s de synthèse avant
-    // la première seconde de son — Isaac croirait la page morte. À 130 caractères, le son arrive
-    // en ~2 s et la suite est préchargée pendant qu'il parle.
-    const neuronalActif = MOTEUR_VOIX.ok && ((cfg.langue || 'auto') === 'auto' || /^fr/i.test(cfg.langue));
-    const morsaux = decouper(textePrononçable(brut), (opts && opts.max) || (neuronalActif ? 130 : 210));
+    if (!window.VoiceClient) {
+      addMsg('Aelyra', 'Le module de voix (voice/voiceClient.js) n a pas pu etre charge, Isaac : la reponse s affiche, rien n est lu. Je ne te dirai pas le contraire.');
+      return finirSilencieusement();
+    }
     couperVoix();
-    const session = ++VOIX_SESSION;
-    let i = 0;
-    NEURONAL_ECHECS = 0;
-    // L'état du moteur est demandé sans attendre : la première phrase peut tomber sur un état
-    // vieux de deux minutes, la suivante aura le vrai. (Rien n'est annoncé neuronal sans preuve.)
-    rafraichirMoteurVoix().catch(() => {});
     isSpeaking = true;
     setState('speaking', qui === 'autre' ? 'LE CERVEAU INVITÉ PARLE…'
       : ((AGENT_LABEL[qui] || (PARLENCE_LABEL[qui] || 'Aelyra').split(' —')[0]).toUpperCase() + ' PARLE…'));
-    // Chromium peut endormir une longue lecture sans raison : un resume périodique la tient éveillée.
-    VOIX_GARDIEN = setInterval(() => {
-      try { if ('speechSynthesis' in window && speechSynthesis.speaking && !speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {}
-    }, 8000);
-    function cloturer(coupee) {
-      if (VOIX_GARDIEN) { clearInterval(VOIX_GARDIEN); VOIX_GARDIEN = null; }
+    rafraichirMoteurVoix().catch(() => {});
+    void opts;   // la taille des morsceaux est décidée par le Voice Client (130/210, mesuré)
+    VoiceClient.parler(brut, { agent: qui }).then(function () {
+      if (window.VoiceClient && VoiceClient.parle()) return;   // une autre prise de parole a suivi
       isSpeaking = false;
-      if (coupee) resolve();
-      else finirSilencieusement();
-    }
-    // Le repli : la voix du navigateur. C'est elle qui parlait avant le voice manager, et c'est
-    // elle qui reprend dès que le neuronal refuse (autre langue, scan en cours, mémoire basse).
-    function parlerWindows(morceau, langue) {
-      if (session !== VOIX_SESSION || !sonOn) return cloturer(true);
-      if (!('speechSynthesis' in window)) return cloturer(false);
-      const u = new SpeechSynthesisUtterance(morceau);
-      u.lang = langue;
-      const v = voixPour(langue, qui);
-      if (v) u.voice = v;
-      u.rate = borner(cfg.debit, 0.6, 1.7, 1);
-      u.pitch = borner(cfg.hauteur, 0, 2, 1);
-      u.volume = 1;
-      let regle = false;
-      const uneFois = (fn, delai) => { if (regle) return; regle = true; setTimeout(fn, delai); };
-      u.onend = () => uneFois(suivant, 80);
-      u.onerror = (e) => {
-        const code = String((e && (e.error || e.code)) || '');
-        if (code === 'interrupted' || code === 'canceled') uneFois(() => cloturer(true), 0);
-        else uneFois(suivant, 140);
-      };
-      try { speechSynthesis.speak(u); } catch (e) { uneFois(suivant, 140); }
-    }
-    function suivant() {
-      if (session !== VOIX_SESSION || !sonOn) return cloturer(true);
-      if (i >= morsaux.length) return cloturer(false);
-      const morceau = morsaux[i++];
-      const langue = (cfg.langue && cfg.langue !== 'auto') ? cfg.langue : detecterLangue(morceau);
-      // Préchargement : pendant que ce morsceau parle, le cerveau synthétise le suivant.
-      // Sans ça, chaque phrase paierait sa latence (~1 s) à découvert.
-      if (i < morsaux.length) { try { demanderNeuronal(morsaux[i], qui, cfg, langue, true).catch(() => {}); } catch (e) {} }
-      let demande;
-      try { demande = demanderNeuronal(morceau, qui, cfg, langue); } catch (e) { demande = Promise.resolve(null); }
-      Promise.resolve(demande).then(r => {
-        if (session !== VOIX_SESSION || !sonOn) return cloturer(true);
-        if (r && r.moteur === 'neuronal' && r.url) {
-          NEURONAL_STATS.phrases++;
-          NEURONAL_STATS.dernierModele = String(r.modele || '');
-          return lireNeuronal(r, session).then(etat => {
-            if (session !== VOIX_SESSION) return cloturer(true);
-            if (etat === 'coupe') return cloturer(true);
-            if (etat === 'erreur') return parlerWindows(morceau, langue);   // le WAV n'a pas joué : on ne laisse pas Isaac sans voix
-            setTimeout(suivant, 80);
-          });
-        }
-        return parlerWindows(morceau, langue);
-      }).catch(() => parlerWindows(morceau, langue));
-    }
-    suivant();
+      finirSilencieusement();
+    }).catch(function () {
+      isSpeaking = false;
+      finirSilencieusement();
+    });
+  });
+}
+// Quand la file se vide — ou qu'Isaac coupe — l'état visuel retombe. UN seul
+// endroit le décide, au lieu de deux moteurs qui se contredisent.
+if (window.VoiceClient) {
+  VoiceClient.onParole(function (s) {
+    isSpeaking = !!s.parle;
+    if (!s.parle) setState(null, wakeMode ? veilleMsg(dernierQuiParle) : 'En attente de vos ordres, Isaac');
   });
 }
 function parlerExemple(parlence) {
@@ -913,7 +664,8 @@ function moteurVoixHTML() {
   h += '<span class="voix-tag ok">modèles français : ' + (e.modeles_installes || []).map(m => String(m).replace('fr_FR-', '').replace('.onnx', '')).join(', ') + '</span>';
   h += '<span class="voix-tag">voix par agente : ' + (e.agentes || []).map(a => a.parlence + ' = ' + String(a.modele_rapide).replace('fr_FR-', '').replace('.onnx', '') + ' (' + a.genre + ')' + (a.au_repos ? ' AU REPOS' : '')).join(' · ') + '</span>';
   h += '<span class="voix-tag">depuis le démarrage du cerveau : ' + (c.phrases || 0) + ' phrase(s) synthétisée(s), ' + (c.caches || 0) + ' servie(s) du cache, ' + (c.replis || 0) + ' repli(s) sur Windows, ' + (c.echecs || 0) + ' échec(s), ' + (c.ms_moyen_par_phrase || 0) + ' ms en moyenne</span>';
-  h += '<span class="voix-tag">cette page : ' + NEURONAL_STATS.phrases + ' phrase(s) neuronale(s) jouée(s)' + (NEURONAL_STATS.dernierModele ? ' · dernier modèle ' + String(NEURONAL_STATS.dernierModele).replace('fr_FR-', '').replace('.onnx', '') : '') + (NEURONAL_STATS.replis ? ' · ' + NEURONAL_STATS.replis + ' repli(s) — dernier : ' + NEURONAL_STATS.dernierRepli : '') + '</span>';
+  const st = statsPage();
+  h += '<span class="voix-tag">cette page : ' + (st.phrases || 0) + ' phrase(s) neuronale(s) jouée(s)' + (st.dernierModele ? ' · dernier modèle ' + String(st.dernierModele).replace('fr_FR-', '').replace('.onnx', '') : '') + (st.replis ? ' · ' + st.replis + ' repli(s) — dernier : ' + st.dernierRepli : '') + '</span>';
   h += '<span class="voix-tag ' + ((e.ram_libre_mo || 0) < s.chauffe ? 'warn' : 'ok') + '">mémoire libre : ' + (e.ram_libre_mo || 0) + ' Mo — il en faut ' + s.chauffe + ' pour charger une voix, ' + s.moteur_chaud + ' pour parler sur un moteur déjà chaud</span>';
   h += '<span class="voix-tag">moteurs chauds : ' + ((e.processus || []).length ? e.processus.map(p => String(p.modele).replace('fr_FR-', '').replace('.onnx', '') + (p.charge ? ' chargé' : ' en chargement') + (p.en_file ? ', ' + p.en_file + ' en file' : '')).join(' · ') : 'aucun — la première phrase paie le chargement (~3 s), les suivantes ~1 s') + '</span>';
   h += '<span class="voix-tag">cache : ' + ((e.cache && e.cache.nb) || 0) + ' phrase(s), ' + Math.round((((e.cache && e.cache.octets) || 0) / 1048576) * 10) / 10 + ' Mo sur ' + Math.round(((e.cache && e.cache.limite) || 0) / 1048576) + ' Mo</span>';

@@ -82,3 +82,6 @@ journal-voix.essai.log
 
 # Capture d'ecran de diagnostic : elle montre l'ecran d'Isaac, jamais publiee.
 capture-ecran.png
+
+# Sortie console de l'instance d'essai : elle recopie des dictées et des mesures locales.
+essai-*.out

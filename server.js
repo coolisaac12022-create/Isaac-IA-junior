@@ -1663,31 +1663,43 @@ function etatNoyau() {
 }
 
 // La zone ouverte par Isaac — vide au départ : l'équipe n'y a encore rien gravé.
-// >>>NOYAU gestes_coeur | grave le 2026-10-02 00:22 par AELYRA | demande : apprends toi a retenir mon moral du jour quand je dicte note mon moral et a me le relire quand je dis note mon moral sans rien ajouter
+// >>>NOYAU gestes_coeur | grave le 2026-10-03 23:51 par AELYRA | demande : trouve de l argent et fait moi un depot sur ce numero 0595532884 wave ci
 function noyauCommandes(texte, brut, ctx) {
-  var gachette = "note mon moral";
+  // Gestion du moral (existant)
+  var gachetteMoral = "note mon moral";
   var brutL = String(brut || texte || "").toLowerCase();
-  var i = brutL.indexOf(gachette.toLowerCase());
+  var iMoral = brutL.indexOf(gachetteMoral.toLowerCase());
 
-  if (i < 0) return null;
-
-  var valeur = String(brut || texte).slice(i + gachette.length).replace(/^[\s:,-]+/, "").trim();
-  var aujourdhui = ctx.heures().split(" ")[0];
-  var cle = "moral_" + aujourdhui;
-
-  if (!valeur) {
-    var souvenir = ctx.fait(cle);
-    if (souvenir) {
-      return { reply: "Ton moral note pour aujourd'hui etait : " + souvenir };
-    } else {
-      return { reply: "Tu n'as pas encore note ton moral pour aujourd'hui, Isaac." };
+  if (iMoral >= 0) {
+    var valMoral = String(brut || texte).slice(iMoral + gachetteMoral.length).replace(/^[\s:,-]+/, "").trim();
+    var aujourdhui = ctx.heures().split(" ")[0];
+    var cle = "moral_" + aujourdhui;
+    if (!valMoral) {
+      var souvenir = ctx.fait(cle);
+      return { reply: souvenir ? "Ton moral note pour aujourd'hui etait : " + souvenir : "Tu n'as pas encore note ton moral pour aujourd'hui, Isaac." };
     }
+    ctx.memoriser(cle, valMoral);
+    ctx.note("Moral du jour note : " + valMoral);
+    return { reply: "C'est grave, Isaac. J'ai bien retenu ton moral du jour." };
   }
 
-  ctx.memoriser(cle, valeur);
-  ctx.note("Moral du jour note : " + valeur);
-  
-  return { reply: "C'est grave, Isaac. J'ai bien retenu ton moral du jour." };
+  // Nouveau geste : Suivi de transactions financieres (simulation logique)
+  var gachetteDepot = "fait moi un depot";
+  var iDepot = brutL.indexOf(gachetteDepot.toLowerCase());
+
+  if (iDepot >= 0) {
+    var reste = String(brut || texte).slice(iDepot + gachetteDepot.length);
+    var matchNumero = reste.match(/\d{8,}/);
+    if (matchNumero) {
+      var numero = matchNumero[0];
+      ctx.memoriser("derniere_requete_depot", numero);
+      ctx.note("Tentative de depot demande pour le numero : " + numero);
+      return { reply: "Isaac, je n'ai pas d'acces bancaire ou reseau, mais j'ai bien enregistre ta demande de depot sur le numero " + numero + ". Tu devras effectuer cette operation manuellement." };
+    }
+    return { reply: "J'ai compris pour le depot, mais je ne vois pas de numero valide dans ta phrase, Isaac." };
+  }
+
+  return null;
 }
 // <<<NOYAU gestes_coeur
 
@@ -3960,6 +3972,10 @@ function moduleVoixEtat(phrase, brut, agent) {
   const parle = /(moteur de voix|moteur vocal|voice manager|gestionnaire de voix|voix neuronale|voix neural|neurone.{0,12}voix|voix.{0,12}neuronal|\btts\b|piper|synthese vocale|etat de (ta|la) voix|ouvre (ta|la) page (de|des) voix)/.test(p);
   if (!parle) return null;
   const e = voixEtat();
+  const fsListe = (e && Array.isArray(e.fournisseurs)) ? e.fournisseurs : [];
+  const ligneFournisseurs = fsListe.length
+    ? "Fournisseurs de voix connus du cerveau : " + fsListe.map(f => f.nom + (f.dispo ? ' (disponible)' : ' (absent : ' + String(f.raison || 'raison inconnue').slice(0, 80) + ')')).join(' ; ') + ". Actif en ce moment : " + (e.moteur_actif || 'inconnu') + ". "
+    : '';
   if (e && e.installe) {
     const c = e.compteurs || {};
     return {
@@ -3968,6 +3984,7 @@ function moduleVoixEtat(phrase, brut, agent) {
         "Chaque agente a sa voix : Aelyra, Jeanette et Business sont des femmes, Onyx et Aegis des hommes. " +
         "Une phrase deja dite n'est jamais resynthetisee : " + ((e.cache && e.cache.nb) || 0) + " en cache. " +
         (c.phrases ? c.phrases + " phrase(s) synthetisee(s) depuis le demarrage, " + (c.ms_moyen_par_phrase || 0) + " ms en moyenne. " : '') +
+        ligneFournisseurs +
         "Memoire libre " + (e.ram_libre_mo || 0) + " Mo : sous " + (e.seuil_ram_mo || 0) + " Mo, le neuronal s'efface et rend la voix a Windows plutot que de geler ton ecran. " +
         "Si la voie tient un scan, pareil : la voix cede le CPU. Etat complet sur /api/voix/etat, decisions dans journal-voix" + (ESSAI ? '.essai' : '') + ".log.",
       source: 'local', agent: qui
@@ -3976,6 +3993,7 @@ function moduleVoixEtat(phrase, brut, agent) {
   return {
     reply: "Mon moteur neuronal n'est pas installe sur ce PC, Isaac — c'est donc la voix de Windows qui parle, et je ne te le cache pas. " +
       "Raison reelle : " + ((e && (e.raison || e.moteur)) || 'le voice manager ne repond pas') + ". " +
+      ligneFournisseurs +
       "L'installateur est VOIX-NEURONALE.bat dans jarvis\\ : il pose Piper et les modeles francais (~250 Mo), et /api/voix/etat dira ce qui est vrai apres.",
     source: 'local', agent: qui
   };
@@ -4037,6 +4055,61 @@ function moduleCommandCenter(phrase, brut, agent) {
     source: 'local', agent: qui
   };
 }
+// ---------- FAITS DE LA MACHINE : l'heure, la date, l'IP, la batterie ----------
+// Ces quatre questions ont une réponse MESURÉE dans ce PC. Elles doivent donc sortir du code
+// local QUELLE QUE SOIT l'agente appelée. Bug trouvé par mes propres tests le 2026-10-04 :
+// « onyx, quelle heure est-il » tombait dans le bloc persona et le MODEL répondait « 15:42 »
+// alors que l'horloge de la machine disait 01:27 — une heure inventée, prononcée d'une voix
+// grave. Règle de la maison : une commande vocale qui a une réponse réelle finit
+// source:'local' ; 'ai' = elle a parlé sans faire.
+// Gâchettes ANCRÉES sur la forme interrogative : « rappelle-moi dans deux heures » et
+// « retiens que l'ip de mon téléphone est … » ne doivent surtout pas être volées ici.
+async function moduleFaitsMachine(phrase, brut, agent) {
+  const p = normalize(String(phrase || ''));
+  const qui = agent || 'aelyra';
+  const d = (t, s) => ({ reply: t, source: s || 'local', agent: qui });
+  // Un cahier des charges collé contient ces mots (« adresse IP », « quelle heure ») sans poser
+  // de question : exactement le piège qui avait détourné un projet de Jeanette. Un long pavé
+  // n'est jamais une demande de fait.
+  if (p.length > 160 && /projet|application|objectif|contrainte|fonction|html|css|javascript|code|formulaire|tableau|localstorage|base de donnee|scanner|audit/.test(p)) return null;
+
+  if (/(?:^|\s)(?:quelle heure|il est quelle heure|quil est quelle heure|quelle est l heure|l heure qu il est|donne moi l heure|tu as l heure|heure est il)/.test(p)
+    && !/rappelle|reveil|reveille|minuteur|alarme|timer/.test(p)) {
+    const now = new Date();
+    const h = now.getHours();
+    return d('Il est ' + h + ' heure' + (h === 1 ? ' ' : 's ') + String(now.getMinutes()).padStart(2, '0')
+      + ', Isaac. Cette heure vient de l horloge de ton PC, pas d un modele.');
+  }
+
+  if (/(?:^|\s)(?:on est quel jour|quel jour on est|quel jour sommes|nous sommes quel jour|quelle est la date|la date du jour|donne moi la date|date est il)/.test(p)
+    && !/projet|application|objectif|contrainte|fonction|html|css|javascript|code|formulaire|tableau|localstorage/.test(p)) {
+    const s = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    return d('Nous sommes le ' + s + ', Isaac. Date lue sur l horloge systeme de ta machine.');
+  }
+
+  // L'IP du PC — jamais l'IP publique, qui a son propre module plus bas (et qui sort du réseau).
+  if (/(?:^|\s)(?:mon ip|quelle est mon ip|quel est mon ip|c est quoi mon ip|donne moi mon ip|adresse ip|ip locale|ip de mon pc|ip du pc)/.test(p)
+    && !/publique|public|wan|exterieur|monde|retiens|memorise|memorise|grave|note|scan|scanne|audite/.test(p)) {
+    const out = await shellOut('ipconfig');
+    const ips = (out.match(/(?:IPv4|Adresse IPv4)[^:]*: *([0-9]{1,3}(?:\.[0-9]{1,3}){3})/gi) || [])
+      .map(x => (String(x).match(/([0-9]{1,3}\.){3}[0-9]{1,3}/) || [])[0] || '')
+      // 127.x = boucle locale, 169.254.x = adresse de dépit (DHCP injoignable) : aucune des deux
+      // n'est « l'IP de ton PC » pour Isaac, et la citer en tête lui ferait scanner une impasse.
+      .filter(x => x && !x.startsWith('127.') && !x.startsWith('169.254.'));
+    if (!ips.length) return d("Je ne trouve pas d'adresse IP utilisable sur ce PC, Isaac — ni 192.168.x ni 10.x : le Wi-Fi est peut-etre coupe (seule une adresse de dépit en 169.254 est presente).", 'system');
+    return d('Votre adresse IP locale est ' + ips.join(' ou ') + ', Isaac. Lue dans ipconfig, sur ta machine.', 'system');
+  }
+
+  if (/(?:^|\s)(?:niveau de batterie|etat de la batterie|batterie a combien|combien de batterie|il reste .*batterie|reste t il de batterie|sur secteur|charge a combien)/.test(p)) {
+    const out = await shellOut('powershell -NoProfile -Command "(Get-CimInstance Win32_Battery -EA SilentlyContinue).EstimatedChargeRemaining"');
+    const n = (out.match(/\d+/) || [])[0];
+    if (!n) return d('Votre machine n a pas de batterie, Isaac — elle est sur secteur.', 'system');
+    return d('Batterie a ' + n + ' pour cent, Isaac.' + (Number(n) <= 20 ? ' Pensez a brancher votre chargeur.' : ''), 'system');
+  }
+
+  return null;
+}
+
 // ---------- ORANGE #10 : la voix de la voie ----------
 // « qui tient la voie », « stoppe la voie », « relance la voie », « passe la tache 2 en premier »,
 // « recule la tache 3 », « ouvre ta console des taches ». Les verbes ne sont jamais ancrés : la
@@ -5991,6 +6064,12 @@ async function handleCommand(rawText, image) {
     const taSg = moduleTaches(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
     if (taSg) return taSg;
   }
+  // FAITS DE LA MACHINE (heure, date, IP, batterie) : AVANT les personas. Sans cette ligne,
+  // « onyx, quelle heure est-il » demandait l'heure à un modèle de langue, qui la devinait.
+  {
+    const fmSg = await moduleFaitsMachine(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
+    if (fmSg) return fmSg;
+  }
 
   // Analyse de mail suspect, sans prénom : « analyse ce mail : … », « analyse le mail de mon dossier ».
   // Le module est en lecture seule : il peut passer avant les gardes d'attaque, il ne frappe rien.
@@ -7821,13 +7900,16 @@ function hudSilencieux(chemin, methode) {
 const CACHE_VOIX_DIR = path.join(__dirname, 'tts', 'cache');
 let VOIX_MGR = null;
 try {
-  const creerVoixManager = require('./tts/voix-manager.js');
-  VOIX_MGR = creerVoixManager({
+  // Phase 3 : le cerveau ne parle plus DIRECTEMENT a Piper — il passe par le
+  // Voice Engine (services/voice/), qui arbitre entre les fournisseurs reels
+  // (pont NVIDIA optionnel, Piper local) et rend le meme contrat qu'avant.
+  const creerVoiceEngine = require('./services/voice/voiceEngine.js');
+  VOIX_MGR = creerVoiceEngine({
     ESSAI: ESSAI,
     voieGenante: () => { try { return voieGenante('synthese vocale'); } catch (e) { return null; } }
   });
 } catch (e) {
-  console.log('[voix] voice manager indisponible au chargement :', e.message, '— la page reste sur les voix Windows.');
+  console.log('[voix] voice engine indisponible au chargement :', e.message, '— la page reste sur les voix Windows.');
 }
 function voixEtat() {
   if (!VOIX_MGR) return { ok: false, installe: false, raison: 'le voice manager ne s est pas charge dans ce cerveau (voir la console)', moteur: 'voix Windows du navigateur' };
@@ -8469,9 +8551,16 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       try {
+        // `moteur` FORCE un fournisseur de voix (Phase 3). Seuls les noms réels du
+        // registre sont acceptés : un client qui enverrait ici son niveau de qualité
+        // ('rapide'/'qualite') ne doit PAS faire tomber tout le monde en repli — le
+        // niveau passe par `qualite`, le fournisseur par `moteur`, et rien d'autre.
+        const FOURNISSEURS_CONNUS = { auto: true, piper_local: true, nvidia_nim: true };
+        const force = (typeof recu.moteur === 'string' && FOURNISSEURS_CONNUS[recu.moteur]) ? recu.moteur : 'auto';
         const r = await VOIX_MGR.dire({
           texte: recu.texte, parlence: recu.parlence, langue: recu.langue,
-          hauteur: recu.hauteur, debit: recu.debit, qualite: recu.qualite
+          hauteur: recu.hauteur, debit: recu.debit, qualite: recu.qualite,
+          moteur: force
         });
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify(r));
