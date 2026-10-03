@@ -479,9 +479,33 @@ function loadKeys() {
   return {
     github: k.github_token || process.env.GITHUB_TOKEN || null,
     gemini: k.gemini_api_key || process.env.GEMINI_API_KEY || null,
+    // NVIDIA (NIM / NeMo) : couche préparée, modulaire. Sans clé, le fournisseur est annoncé
+    // « non configuré » partout — jamais étiqueté comme actif. La clé ne quitte JAMAIS le
+    // serveur : aucune route ne la renvoie, seul un booléen « présente ou pas » est exposé.
+    nvidia: k.nvidia_api_key || process.env.NVIDIA_API_KEY || null,
     email: k.email || process.env.ISAAC_EMAIL || null,
     smtpPass: k.app_password || process.env.ISAAC_APP_PASSWORD || null
   };
+}
+
+// ---------- AI GATEWAY : qui a VRAIMENT répondu ----------
+// Le HUD affiche le fournisseur réel, pas un nom décoratif. Chaque succès est compté ici,
+// et /api/ai/etat ne dit que ce que ces compteurs ont vu passer depuis le démarrage.
+const AI_COMPTEURS = {
+  github: { appels: 0, succes: 0, echecs: 0, dernier: null, ms_total: 0 },
+  gemini: { appels: 0, succes: 0, echecs: 0, dernier: null, ms_total: 0 },
+  nvidia: { appels: 0, succes: 0, echecs: 0, dernier: null, ms_total: 0 },
+  pollinations: { appels: 0, succes: 0, echecs: 0, dernier: null, ms_total: 0 }
+};
+let AI_MODE_PREFERE = String(process.env.ISAAC_AI_PROVIDER || 'auto').toLowerCase();
+function noterFournisseur(nom, ok, ms) {
+  const c = AI_COMPTEURS[nom];
+  if (!c) return;
+  c.appels++;
+  if (ok) { c.succes++; c.dernier = Date.now(); c.ms_total += Math.max(0, Math.round(ms || 0)); }
+  else c.echecs++;
+  // Le Command Center montre QUI a réellement répondu — pas un nom de modèle décoratif.
+  try { noterEvenement('IA', nom + (ok ? ' a repondu en ' + Math.round(ms || 0) + ' ms' : ' a echoue (repli sur le suivant)')); } catch (e) {}
 }
 
 function extractOpenAIContent(body) {
@@ -497,11 +521,17 @@ function extractOpenAIContent(body) {
 async function askGitHubModels(messages, timeout = 20000) {
   const { github } = loadKeys();
   if (!github) return null;
+  const t0 = Date.now();
   const res = await httpsRequestJSON('https://models.github.ai/inference/chat/completions', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + github }
   }, { model: 'microsoft/Phi-4-mini', messages, temperature: 0.6 }, timeout);
-  if (res && res.status === 200) return extractOpenAIContent(res.data);
+  if (res && res.status === 200) {
+    const contenu = extractOpenAIContent(res.data);
+    noterFournisseur('github', !!contenu, Date.now() - t0);
+    return contenu;
+  }
+  noterFournisseur('github', false, Date.now() - t0);
   return null;
 }
 
@@ -515,6 +545,7 @@ async function askGemini(messages, attempt = 0, timeout = 25000) {
     parts: [{ text: m.content }]
   }));
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODELS[attempt] + ':generateContent?key=' + encodeURIComponent(gemini);
+  const t0g = Date.now();
   const res = await httpsRequestJSON(url, { method: 'POST' }, {
     systemInstruction: system ? { parts: [{ text: system }] } : undefined,
     contents
@@ -525,9 +556,13 @@ async function askGemini(messages, attempt = 0, timeout = 25000) {
       const parts = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
       const text = Array.isArray(parts) ? parts.map(p => p.text || '').join('').trim() : '';
       // On préserve les sauts de ligne (essentiels pour le code généré), plafond confortable
-      if (text.length > 1) return text.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').slice(0, 20000);
+      if (text.length > 1) {
+        noterFournisseur('gemini', true, Date.now() - t0g);
+        return text.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').slice(0, 20000);
+      }
     } catch (e) {}
   }
+  noterFournisseur('gemini', false, Date.now() - t0g);
   return askGemini(messages, attempt + 1, timeout);
 }
 
@@ -578,14 +613,16 @@ async function askAI(messages, attempt = 0, genTimeout) {
   const plan = AI_ATTEMPTS[attempt];
   if (!plan) return null;
   if (plan.wait) await new Promise(r => setTimeout(r, plan.wait));
+  const t0p = Date.now();
   const res = await postJSON('https://text.pollinations.ai/openai', {
     model: plan.model,
     messages
   }, plan.timeout);
   if (res && res.status === 200) {
     const c = extractOpenAIContent(res.data);
-    if (c) return purgePub(c);
+    if (c) { noterFournisseur('pollinations', true, Date.now() - t0p); return purgePub(c); }
   }
+  noterFournisseur('pollinations', false, Date.now() - t0p);
   return askAI(messages, attempt + 1);
 }
 
@@ -3559,6 +3596,7 @@ function journalDroits(ligne) {
   } catch (e) {}
   DROITS_JOURNAL.push(quand.toLocaleTimeString('fr-FR') + ' — ' + ligne);
   while (DROITS_JOURNAL.length > 40) DROITS_JOURNAL.shift();
+  try { noterEvenement('DROITS', ligne); } catch (e) {}
 }
 // agent null = Aelyra : la maison répond sans qu'on l'appelle. Une agente inconnue n'a AUCUN
 // droit — tant vaut fermer que deviner.
@@ -3677,6 +3715,7 @@ function journalOrchestrateur(ligne) {
   } catch (e) {}
   VOIE.mouvements.push(quand.toLocaleTimeString('fr-FR') + ' — ' + ligne);
   if (VOIE.mouvements.length > 40) VOIE.mouvements.shift();
+  try { noterEvenement('VOIE', ligne); } catch (e) {}
 }
 function tacheAuRegistre(ref) { return lireTaches().find(x => x.ref === ref) || null; }
 // L'échéance est fixe en production. En essai seul, ISAAC_VOIE_MIN=0.15 permet de VÉRIFIER que la
@@ -7269,6 +7308,442 @@ function journaliserPolitique(decision, req, u) {
       ' | code ' + decision.code + ' | ' + decision.motif +
       ' | origin=' + (req.headers.origin || '-') + ' | referer=' + (req.headers.referer || '-') + '\n');
   } catch (e) {}
+  try { noterEvenement('POLITIQUE', 'REFUS ' + decision.code + ' — ' + req.method + ' ' + u.pathname + ' : ' + decision.motif); } catch (e) {}
+}
+
+// ---------- HUD : l'état RÉEL de la machine ----------
+// Règle de la maison, elle vaut pour tout le JARVIS COMMAND CENTER : AUCUNE valeur inventée.
+// Ce qui ne se mesure pas sur ce PC est marqué « non mesuré » — jamais un chiffre décoratif.
+// Les mesures qui coûtent cher (PowerShell sur un i5 double cœur) sont mises en cache et ne
+// partent PAS pendant qu'un job lourd tient la voie : le HUD passe alors en « valeur en cache »
+// et le dit. L'interface préfère une donnée vieille de trente secondes à un processeur saturé.
+const OS = require('os');
+const HUD_DEMARRAGE = Date.now();
+const HUD_CACHE = { cpu: null, cpu_t: 0, cpu_en_cours: null, disque: null, disque_t: 0, gpu: null, gpu_t: 0, net: null, net_t: 0, net_prec: null, net_prec_t: 0 };
+const EVENEMENTS = [];                              // anneau RAM des événements récents (jamais publié)
+const EVENEMENTS_MAX = 160;
+
+function noterEvenement(categorie, texte) {
+  try {
+    EVENEMENTS.push({ t: Date.now(), categorie: String(categorie), texte: String(texte).slice(0, 240) });
+    if (EVENEMENTS.length > EVENEMENTS_MAX) EVENEMENTS.splice(0, EVENEMENTS.length - EVENEMENTS_MAX);
+  } catch (e) {}
+}
+
+// ---------- Le CPU : la seule mesure qui a failli MENTIR ----------
+// os.cpus() coûte rien, mais sur CE Windows (10.0.19045, Node 24) le compteur idle ne bouge
+// JAMAIS : le delta sort à 0 et la charge calcule 100 % en permanence. Afficher ça, c'est
+// afficher un chiffre inventé. Donc : on tente le noyau, on VÉRIFIE que l'idle a bougé, et
+// sinon on demande la vraie charge à WMI (3-4 s sur un i5 double cœur → cache 6 s, jamais
+// lancé pendant qu'un job lourd tient la voie, jamais deux fois en parallèle).
+function cpuParNoyau() {
+  return new Promise(resolve => {
+    try {
+      const avant = OS.cpus();
+      setTimeout(() => {
+        try {
+          const apres = OS.cpus();
+          let actif = 0, total = 0, idle = 0;
+          for (let i = 0; i < apres.length; i++) {
+            const a = avant[i] && avant[i].times, b = apres[i] && apres[i].times;
+            if (!a || !b) continue;
+            const dIdle = b.idle - a.idle;
+            const dTot = (b.user - a.user) + (b.nice - a.nice) + (b.sys - a.sys) + (b.irq - a.irq) + dIdle;
+            if (dTot > 0) { actif += dTot - dIdle; total += dTot; idle += dIdle; }
+          }
+          // idle === 0 sur un PC qui respire = le compteur est mort, pas le CPU à 100 %.
+          resolve(total > 0 && idle > 0 ? Math.round(actif / total * 1000) / 10 : null);
+        } catch (e) { resolve(null); }
+      }, 320);
+    } catch (e) { resolve(null); }
+  });
+}
+
+async function mesurerCPU(genante) {
+  if (HUD_CACHE.cpu && (Date.now() - HUD_CACHE.cpu_t) < 6000) return HUD_CACHE.cpu;
+  if (genante) return HUD_CACHE.cpu;                     // la voie tourne : on sert le cache, point
+  if (HUD_CACHE.cpu_en_cours) return HUD_CACHE.cpu_en_cours;   // un seul WMI à la fois
+  HUD_CACHE.cpu_en_cours = (async () => {
+    let charge = await cpuParNoyau();
+    let methode = charge === null ? null : 'noyau (delta os.cpus() sur 320 ms)';
+    if (charge === null) {
+      const w = await psJson("Get-CimInstance Win32_Processor | Select-Object LoadPercentage | ConvertTo-Json -Compress", 12000);
+      const liste = Array.isArray(w) ? w : (w ? [w] : []);
+      const vals = liste.map(x => Number(x.LoadPercentage)).filter(n => isFinite(n) && n >= 0 && n <= 100);
+      if (vals.length) {
+        charge = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10;
+        methode = 'WMI Win32_Processor.LoadPercentage';
+      }
+    }
+    HUD_CACHE.cpu = charge === null ? null : { charge_pct: charge, methode, mesure_le: Date.now() };
+    HUD_CACHE.cpu_t = Date.now();
+    HUD_CACHE.cpu_en_cours = null;
+    return HUD_CACHE.cpu;
+  })();
+  return HUD_CACHE.cpu_en_cours;
+}
+
+function psJson(cmd, tl) {
+  return new Promise(resolve => {
+    try {
+      exec('powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + cmd + '"',
+        { timeout: tl || 9000, windowsHide: true, maxBuffer: 400000 },
+        (err, stdout) => {
+          if (err) return resolve(null);
+          try { resolve(JSON.parse(String(stdout || '').replace(/^\uFEFF/, '').trim())); } catch (e) { resolve(null); }
+        });
+    } catch (e) { resolve(null); }
+  });
+}
+
+async function mesurerDisque(genante) {
+  if (HUD_CACHE.disque && (Date.now() - HUD_CACHE.disque_t) < 30000) return HUD_CACHE.disque;
+  if (genante) return HUD_CACHE.disque;                       // la voie tourne : on sert le cache, on ne spawn pas
+  const d = await psJson('Get-PSDrive C | Select-Object Used,Free | ConvertTo-Json -Compress', 9000);
+  if (!d || typeof d.Free !== 'number') return HUD_CACHE.disque;
+  const libre = d.Free, utilise = d.Used || 0;
+  HUD_CACHE.disque = {
+    lettre: 'C:',
+    libre_octets: libre,
+    utilise_octets: utilise,
+    total_octets: libre + utilise,
+    libre_pct: (libre + utilise) > 0 ? Math.round(libre / (libre + utilise) * 1000) / 10 : null,
+    mesure_le: Date.now()
+  };
+  HUD_CACHE.disque_t = Date.now();
+  return HUD_CACHE.disque;
+}
+
+async function mesurerGPU(genante) {
+  if (HUD_CACHE.gpu && (Date.now() - HUD_CACHE.gpu_t) < 300000) return HUD_CACHE.gpu;
+  if (genante) return HUD_CACHE.gpu;
+  const g = await psJson('Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion,AdapterRAM | ConvertTo-Json -Compress', 12000);
+  const liste = Array.isArray(g) ? g : (g ? [g] : []);
+  if (!liste.length) return HUD_CACHE.gpu;
+  HUD_CACHE.gpu = {
+    cartes: liste.map(x => ({
+      nom: String(x.Name || 'inconnu'),
+      pilote: x.DriverVersion ? String(x.DriverVersion) : null,
+      // AdapterRAM est un entier 32 bits dans WMI : au-dessus de 4 Go il ment. On l'affiche
+      // seulement quand il est plausible, sinon « non mesuré » plutôt qu'un chiffre faux.
+      memoire_vram_octets: (typeof x.AdapterRAM === 'number' && x.AdapterRAM > 0 && x.AdapterRAM < 4294967295) ? x.AdapterRAM : null
+    })),
+    // La charge GPU ne se lit pas sans compteur de performance dédié : on ne l'invente pas.
+    charge_pct: null,
+    memoire_utilisee: null,
+    mesure_le: Date.now()
+  };
+  HUD_CACHE.gpu_t = Date.now();
+  return HUD_CACHE.gpu;
+}
+
+async function mesurerReseau(genante) {
+  const maintenant = Date.now();
+  if (HUD_CACHE.net && (maintenant - HUD_CACHE.net_t) < 8000) return HUD_CACHE.net;
+  let debit = null;
+  if (!genante) {
+    const s = await psJson('Get-NetAdapterStatistics | Select-Object Name,ReceivedBytes,SentBytes | ConvertTo-Json -Compress', 9000);
+    const liste = Array.isArray(s) ? s : (s ? [s] : []);
+    if (liste.length) {
+      const recu = liste.reduce((a, x) => a + (Number(x.ReceivedBytes) || 0), 0);
+      const emis = liste.reduce((a, x) => a + (Number(x.SentBytes) || 0), 0);
+      if (HUD_CACHE.net_prec !== null && HUD_CACHE.net_prec_t) {
+        const dt = (maintenant - HUD_CACHE.net_prec_t) / 1000;
+        if (dt > 0.5) {
+          debit = {
+            descendant_ko_s: Math.max(0, Math.round((recu - HUD_CACHE.net_prec.recu) / dt / 1024 * 10) / 10),
+            montant_ko_s: Math.max(0, Math.round((emis - HUD_CACHE.net_prec.emis) / dt / 1024 * 10) / 10)
+          };
+        }
+      }
+      HUD_CACHE.net_prec = { recu, emis };
+      HUD_CACHE.net_prec_t = maintenant;
+      HUD_CACHE.net = { interfaces: liste.map(x => String(x.Name || '')), total_recu_octets: recu, total_emis_octets: emis, debit, mesure_le: maintenant };
+      HUD_CACHE.net_t = maintenant;
+    }
+  }
+  if (!HUD_CACHE.net) HUD_CACHE.net = { interfaces: [], total_recu_octets: null, total_emis_octets: null, debit: null, mesure_le: null };
+  return HUD_CACHE.net;
+}
+
+function adresseIPLocale() {
+  const out = [];
+  try {
+    const ifs = OS.networkInterfaces();
+    for (const nom of Object.keys(ifs)) for (const a of (ifs[nom] || [])) {
+      if (a.family !== 'IPv4' || a.internal) continue;
+      // 169.254.x = lien local (APIPA). Ce n'est pas une adresse utilisable, et c'est aussi la
+      // plage des métadonnées cloud qui fait partie des verrous absolus : on l'étiquette au lieu
+      // de la laisser ressembler à une interface du réseau d'Isaac.
+      const lienLocal = /^169\.254\./.test(a.address);
+      const prive = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address);
+      out.push({
+        interface: nom,
+        ip: a.address,
+        mac: a.mac,
+        portee: lienLocal ? 'lien local (APIPA) — aucune route, hors périmètre' : (prive ? 'réseau local (chez Isaac)' : 'publique')
+      });
+    }
+  } catch (e) {}
+  return out;
+}
+
+// ---------- L'échantillonneur de fond : le HUD ne doit JAMAIS ralentir le cerveau ----------
+// Mesuré pour de vrai : quatre PowerShell lancés en parallèle sur cet i5 double cœur font passer
+// la réponse de /api/systeme à 7,9 s. C'est exactement l'inverse de ce qu'Isaac a demandé (« les
+// effets visuels ne doivent jamais prendre le dessus sur les fonctions IA »). Donc :
+//   1. les mesures tournent EN SÉRIE dans une boucle de fond, une seule à la fois ;
+//   2. la route HTTP ne fait que LIRE le cache → réponse en quelques millisecondes ;
+//   3. sans lecteur depuis 60 s, la boucle s'arrête : le HUD éteint ne coûte rien du tout ;
+//   4. pendant qu'un job lourd tient la voie, aucune mesure n'est lancée et le HUD le dit.
+const HUD_TTL = { cpu: 6000, net: 5000, disque: 30000, gpu: 300000 };
+let HUD_LECTEUR = 0;                 // dernière fois qu'une page a regardé le HUD
+let HUD_TOUR = null;                 // cycle de mesure en cours (un seul à la fois)
+let HUD_TIMER = null;
+let HUD_DERNIER_SAUT = 0;
+let HUD_CYCLES = 0;
+
+function hudVoieGenante() {
+  try { return (typeof voieGenante === 'function') ? voieGenante('mesures du HUD') : null; } catch (e) { return null; }
+}
+
+async function hudCycle() {
+  if (HUD_TOUR) return HUD_TOUR;
+  HUD_TOUR = (async () => {
+    const genante = hudVoieGenante();
+    if (genante) { HUD_DERNIER_SAUT = Date.now(); return; }        // la voie tourne : le HUD s'efface
+    const t = Date.now();
+    // EN SÉRIE, jamais en parallèle : c'est le prix à payer pour que la mesure reste vraie.
+    if (!HUD_CACHE.net || (t - HUD_CACHE.net_t) > HUD_TTL.net) await mesurerReseau(false);
+    if (!HUD_CACHE.cpu || (t - HUD_CACHE.cpu_t) > HUD_TTL.cpu) await mesurerCPU(false);
+    if (!HUD_CACHE.disque || (t - HUD_CACHE.disque_t) > HUD_TTL.disque) await mesurerDisque(false);
+    if (!HUD_CACHE.gpu || (t - HUD_CACHE.gpu_t) > HUD_TTL.gpu) await mesurerGPU(false);
+    HUD_CYCLES++;
+  })().catch(() => {}).then(() => { HUD_TOUR = null; });
+  return HUD_TOUR;
+}
+
+function hudVeiller() {
+  HUD_LECTEUR = Date.now();
+  if (HUD_TIMER) return;
+  HUD_TIMER = setInterval(() => {
+    if ((Date.now() - HUD_LECTEUR) > 60000) {                      // plus personne ne regarde : on éteint
+      clearInterval(HUD_TIMER); HUD_TIMER = null; return;
+    }
+    hudCycle();
+  }, 3000);
+  if (HUD_TIMER.unref) HUD_TIMER.unref();
+  hudCycle();                                                      // première mesure tout de suite
+}
+
+// Âge d'une mesure + son honnêteté : « frais », « en cache depuis X s », ou « non mesuré ».
+function ageMs(t) { return t ? (Date.now() - t) : null; }
+function fraicheurDe(t, ttl) {
+  const a = ageMs(t);
+  if (a === null) return 'non mesuré';
+  if (a <= ttl) return 'frais';
+  return 'valeur en cache depuis ' + Math.round(a / 1000) + ' s';
+}
+
+function etatSysteme() {
+  hudVeiller();
+  const genante = hudVoieGenante();
+  const cpu = HUD_CACHE.cpu, disque = HUD_CACHE.disque, gpu = HUD_CACHE.gpu, reseau = HUD_CACHE.net;
+  const total = OS.totalmem(), libre = OS.freemem();
+  return {
+    ok: true,
+    mesure_le: Date.now(),
+    voie_occupee: genante || null,
+    echantillonneur: {
+      cycles: HUD_CYCLES,
+      dernier_saut_voie: HUD_DERNIER_SAUT ? new Date(HUD_DERNIER_SAUT).toISOString() : null,
+      politique: 'mesures en série dans une boucle de fond ; la route ne fait que lire le cache ; boucle éteinte si personne n a regardé depuis 60 s'
+    },
+    fraicheur: genante
+      ? 'valeurs en cache — la voie tient un job lourd, aucune mesure coûteuse n est lancée'
+      : (cpu ? 'mesures réelles, rafraîchies toutes les 3 s' : 'première mesure en cours (WMI met 3 à 4 s sur ce CPU)'),
+    cpu: cpu ? {
+      charge_pct: cpu.charge_pct,
+      methode: cpu.methode,
+      mesure_le: cpu.mesure_le,
+      age_ms: ageMs(cpu.mesure_le),
+      etat: fraicheurDe(cpu.mesure_le, HUD_TTL.cpu),
+      coeurs: OS.cpus().length,
+      modele: (OS.cpus()[0] && OS.cpus()[0].model || '').trim() || null,
+      note: null
+    } : {
+      charge_pct: null,
+      methode: null,
+      coeurs: OS.cpus().length,
+      modele: (OS.cpus()[0] && OS.cpus()[0].model || '').trim() || null,
+      etat: genante ? 'mesure reportée — la voie tient un job lourd' : 'première mesure en cours',
+      note: 'os.cpus() ne remonte aucun idle sur ce Windows (10.0.19045) : le pourcentage vient de WMI Win32_Processor.LoadPercentage. Tant qu il n a pas répondu, le HUD affiche « non mesuré » — jamais un chiffre décoratif.'
+    },
+    ram: {
+      totale_octets: total,
+      libre_octets: libre,
+      utilisee_octets: total - libre,
+      utilisee_pct: Math.round((total - libre) / total * 1000) / 10,
+      methode: 'os.totalmem / os.freemem (mémoire physique vue par Node)',
+      etat: 'frais'
+    },
+    gpu: gpu ? Object.assign({}, gpu, {
+      age_ms: ageMs(gpu.mesure_le),
+      etat: fraicheurDe(gpu.mesure_le, HUD_TTL.gpu),
+      note: gpu.charge_pct === null ? 'charge non mesurable sans compteur de performance — le nom et le pilote, eux, sont réels' : null
+    }) : { cartes: [], charge_pct: null, etat: 'première mesure en cours', note: 'non mesuré (aucune lecture disponible)' },
+    disque: disque ? Object.assign({}, disque, {
+      age_ms: ageMs(disque.mesure_le),
+      etat: fraicheurDe(disque.mesure_le, HUD_TTL.disque)
+    }) : { lettre: 'C:', libre_octets: null, etat: 'première mesure en cours', note: 'non mesuré' },
+    reseau: reseau ? Object.assign({}, reseau, {
+      age_ms: ageMs(reseau.mesure_le),
+      etat: reseau.debit ? fraicheurDe(reseau.mesure_le, HUD_TTL.net) : 'compteurs lus — le débit (ko/s) demande deux relevés espacés'
+    }) : { interfaces: [], total_recu_octets: null, total_emis_octets: null, debit: null, etat: 'première mesure en cours' },
+    ips: adresseIPLocale(),
+    uptime: {
+      machine_s: Math.round(OS.uptime()),
+      cerveau_s: Math.round(process.uptime()),
+      cerveau_depuis: new Date(HUD_DEMARRAGE).toISOString(),
+      plateforme: OS.platform() + ' ' + OS.release(),
+      hostname: OS.hostname()
+    },
+    instance: ESSAI ? 'essai' : 'prod',
+    port: PORT
+  };
+}
+
+function etatAI() {
+  const k = loadKeys();
+  const fournisseur = (nom, cle, modele, note) => ({
+    nom,
+    configure: !!cle,
+    modele: cle ? modele : null,
+    note: cle ? (note || null) : 'aucune clé — ce fournisseur ne peut pas répondre',
+    compteurs: AI_COMPTEURS[nom] ? {
+      appels: AI_COMPTEURS[nom].appels,
+      succes: AI_COMPTEURS[nom].succes,
+      echecs: AI_COMPTEURS[nom].echecs,
+      ms_moyen: AI_COMPTEURS[nom].succes ? Math.round(AI_COMPTEURS[nom].ms_total / AI_COMPTEURS[nom].succes) : null,
+      dernier: AI_COMPTEURS[nom].dernier
+    } : null
+  });
+  const ordre = ['github', 'gemini', 'nvidia', 'pollinations'];
+  const dernier = ordre
+    .filter(n => AI_COMPTEURS[n].dernier)
+    .sort((a, b) => AI_COMPTEURS[b].dernier - AI_COMPTEURS[a].dernier)[0] || null;
+  return {
+    ok: true,
+    mode: AI_MODE_PREFERE,
+    modes_possibles: ['auto', 'github', 'gemini', 'nvidia'],
+    ordre_reel: 'GitHub Models → Gemini → NVIDIA NIM (si clé) → Pollinations (sans clé, parfois saturé)',
+    // JAMAIS la clé elle-même : uniquement sa présence. Aucune route ne renvoie un secret.
+    fournisseurs: [
+      fournisseur('github', k.github, 'microsoft/Phi-4-mini (texte) · gemini-2.5-flash / Llama-3.2-90B-Vision / gpt-4o (vision)'),
+      fournisseur('gemini', k.gemini, GEMINI_MODELS.join(', ')),
+      fournisseur('nvidia', k.nvidia, 'NVIDIA NIM — connecteur modulaire, choisi seulement si une clé NVIDIA_API_KEY est posée côté serveur'),
+      fournisseur('pollinations', 'sans clé', 'openai-fast / openai (libre, sans clé)', 'toujours disponible, mais libre et parfois saturé : c est le dernier recours')
+    ],
+    dernier_fournisseur: dernier,
+    vision: { github: !!k.github, gemini: !!k.gemini, pollinations: true },
+    voix: (typeof VOIX_MGR !== 'undefined' && VOIX_MGR) ? (() => { try { const v = VOIX_MGR.etat(); return { neuronal_local: !!v.installe, modeles: v.modeles_installes || [], moteur: v.moteur }; } catch (e) { return { neuronal_local: false }; } })() : { neuronal_local: false },
+    note_nvidia: 'NVIDIA est une couche de services préparée, pas une dépendance : sans clé, tout continue de tourner sur ce qui est déjà prouvé ici, et l interface dit « non configuré » au lieu de faire semblant.'
+  };
+}
+
+// Flux d'événements RÉEL : les journaux qui existent déjà + l'anneau RAM des requêtes HTTP.
+// Rien n'est simulé, rien n'est rejoué : si un journal est vide, la catégorie est vide.
+// Les noms sont ceux qui sont VRAIMENT écrits sur le disque (journal-politique.log n'a pas de
+// variante « essai », les autres si) — pas une liste inventée.
+const HUD_JOURNAUX = [
+  { prod: 'journal-politique.log', essai: 'journal-politique.log', categorie: 'POLITIQUE' },
+  { prod: 'journal-orchestrateur.log', essai: 'journal-orchestrateur.essai.log', categorie: 'VOIE' },
+  { prod: 'journal-voix.log', essai: 'journal-voix.essai.log', categorie: 'VOIX' },
+  { prod: 'journal-droits.log', essai: 'journal-droits.essai.log', categorie: 'DROITS' },
+  { prod: 'journal-evolution.log', essai: 'journal-evolution.essai.log', categorie: 'EVOLUTION' },
+  { prod: 'journal-engagements.log', essai: 'journal-engagements.essai.log', categorie: 'ENGAGEMENT' }
+];
+let HUD_JOURNAL_CACHE = { t: 0, lignes: [] };
+function lireQueueFichier(chemin, octets) {
+  try {
+    const fd = fs.openSync(chemin, 'r');
+    try {
+      const taille = fs.fstatSync(fd).size;
+      const debut = Math.max(0, taille - octets);
+      const buf = Buffer.alloc(Math.min(octets, taille));
+      fs.readSync(fd, buf, 0, buf.length, debut);
+      return buf.toString('utf8');
+    } finally { fs.closeSync(fd); }
+  } catch (e) { return ''; }
+}
+// Un journal peut contenir une empreinte ou un jeton : tout ce qui ressemble à un secret long
+// est masqué avant d'être affiché à l'écran. Le fichier, lui, reste intact sur le disque.
+function masquerSecrets(s) {
+  return String(s)
+    .replace(/\b[A-Za-z0-9_\-]{40,}\b/g, m => m.slice(0, 6) + '…masqué')
+    .replace(/(Bearer\s+)\S+/gi, '$1…masqué')
+    .replace(/(key=)[^&\s]+/gi, '$1…masqué');
+}
+function evenementsRecents(limite) {
+  const maintenant = Date.now();
+  if (HUD_JOURNAL_CACHE.t && (maintenant - HUD_JOURNAL_CACHE.t) < 4000) {
+    return fusionEvenements(HUD_JOURNAL_CACHE.lignes, limite);
+  }
+  const lignes = [];
+  for (const j of HUD_JOURNAUX) {
+    const nom = ESSAI ? j.essai : j.prod;
+    const brut = lireQueueFichier(path.join(__dirname, nom), 6000);
+    if (!brut) continue;
+    for (const l of brut.split(/\r?\n/).filter(Boolean).slice(-14)) {
+      const m = l.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)/);
+      // L'horodatage ISO de tête part dans le champ « heure » : le texte reste lisible à l'écran.
+      const corps = m ? l.slice(m[1].length).trim() : l.trim();
+      lignes.push({ t: m ? Date.parse(m[1]) : null, categorie: j.categorie, texte: masquerSecrets(corps.slice(0, 220)) });
+    }
+  }
+  HUD_JOURNAL_CACHE = { t: maintenant, lignes };
+  return fusionEvenements(lignes, limite);
+}
+// Quels journaux existent réellement sur le disque : l'écran dit « vide » ou « absent » au lieu
+// de laisser croire qu'une catégorie muette est une catégorie surveillée.
+function journauxPresents() {
+  return HUD_JOURNAUX.map(j => {
+    const nom = ESSAI ? j.essai : j.prod;
+    let taille = null;
+    try { taille = fs.statSync(path.join(__dirname, nom)).size; } catch (e) {}
+    return { categorie: j.categorie, fichier: nom, present: taille !== null, octets: taille };
+  });
+}
+function fusionEvenements(lignes, limite) {
+  const brut = lignes.concat(EVENEMENTS.map(e => ({ t: e.t, categorie: e.categorie, texte: e.texte })));
+  brut.sort((a, b) => (b.t || 0) - (a.t || 0));
+  // Un même fait peut arriver deux fois : gravé dans le journal ET poussé dans l'anneau RAM
+  // (VOIE, DROITS). On ne garde qu'un exemplaire, identifié par sa catégorie + son texte sans
+  // l'horodatage ISO de tête — sinon le Command Center montrerait chaque événement en double.
+  const vus = new Set();
+  const tout = [];
+  for (const e of brut) {
+    const cle = e.categorie + '|' + String(e.texte).replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s*/, '').trim().slice(0, 80);
+    if (vus.has(cle)) continue;
+    vus.add(cle);
+    tout.push(e);
+  }
+  return tout.slice(0, Math.max(10, Math.min(200, limite || 60))).map(e => ({
+    heure: e.t ? new Date(e.t).toLocaleTimeString('fr-FR') : 'heure inconnue',
+    t: e.t, categorie: e.categorie, texte: e.texte
+  }));
+}
+// Le HUD se sonde lui-même toutes les quelques secondes : ces chemins ne doivent pas remplir
+// le flux d'événements, sinon l'écran ne montrerait plus que son propre battement de cœur.
+const HUD_SILENCIEUX = {
+  '/api/ping': 'GET', '/api/systeme': 'GET', '/api/evenements': 'GET', '/api/ai/etat': 'GET',
+  '/api/voix/etat': 'GET', '/api/rappel': 'GET', '/api/repartition': 'GET', '/api/droits': 'GET',
+  '/api/taches': 'GET', '/style.css': '*', '/app.js': '*', '/avatar3d.js': '*', '/three.min.js': '*'
+};
+function hudSilencieux(chemin, methode) {
+  const r = HUD_SILENCIEUX[chemin];
+  if (!r) return false;
+  return r === '*' || r === methode;
 }
 
 // ---------- VOICE MANAGER — le TTS neuronal local ----------
@@ -7311,6 +7786,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Flux d'activité RÉEL du Command Center : chaque requête qui compte est gravée dans l'anneau RAM
+  // à l'instant où elle se termine, avec son vrai code HTTP. Les sondes du HUD lui-même en sont
+  // exclues — sinon le flux ne montrerait que son propre pouls et noierait ce qu'Isaac veut voir.
+  if (!hudSilencieux(u.pathname, req.method)) {
+    res.on('finish', () => {
+      try {
+        if (res.statusCode >= 400 || req.method === 'POST' || u.pathname.indexOf('/api/') === 0) {
+          noterEvenement('HTTP', req.method + ' ' + u.pathname + ' → ' + res.statusCode);
+        }
+      } catch (e) {}
+    });
+  }
+
   // Petit signal de vie pour l'interface
   if (u.pathname === '/api/ping') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -7342,6 +7830,47 @@ const server = http.createServer(async (req, res) => {
       routes_ecriture: API_ECRITURE,
       refus_recent: refusRecent
     }));
+    return;
+  }
+
+  // ---------- HUD du JARVIS COMMAND CENTER : trois lectures, aucune écriture ----------
+  // GET /api/systeme    → CPU/RAM/GPU/disque/réseau/uptime MESURÉS sur ce PC (ou « non mesuré »)
+  // GET /api/ai/etat    → quels fournisseurs d'IA existent VRAIMENT ici (booléens, jamais la clé)
+  // GET /api/evenements → le flux d'activité réel : journaux gravés + requêtes HTTP de ce cerveau
+  // Ces routes ne modifient rien et ne sont donc pas dans API_ECRITURE ; elles restent derrière
+  // la politique d'accès et l'écoute 127.0.0.1 comme tout le reste.
+  if (u.pathname === '/api/systeme' || u.pathname === '/api/ai/etat' || u.pathname === '/api/evenements') {
+    if (req.method !== 'GET') {
+      json(res, 405, { ok: false, reply: 'Methode refusee : ' + u.pathname + ' est une lecture (GET) — rien a ecrire ici.' });
+      return;
+    }
+    const envoyer = (obj) => {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(obj));
+    };
+    try {
+      if (u.pathname === '/api/systeme') { envoyer(await etatSysteme()); return; }
+      if (u.pathname === '/api/ai/etat') { envoyer(etatAI()); return; }
+      const limite = Math.max(10, Math.min(200, parseInt(u.searchParams.get('limite') || '60', 10) || 60));
+      const cats = String(u.searchParams.get('categories') || '');
+      let ev = evenementsRecents(limite);
+      if (cats) {
+        const veux = cats.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+        const filtre = ev.filter(e => veux.indexOf(e.categorie) >= 0);
+        // Un filtre qui ne remonte rien est une information vraie, pas une panne : on renvoie vide.
+        ev = filtre;
+      }
+      envoyer({
+        ok: true,
+        mesure_le: Date.now(),
+        anneau_ram: EVENEMENTS.length,
+        journaux: journauxPresents(),
+        secrets_masques: true,
+        evenements: ev
+      });
+    } catch (e) {
+      json(res, 500, { ok: false, reply: 'Mesure impossible : ' + e.message });
+    }
     return;
   }
 
