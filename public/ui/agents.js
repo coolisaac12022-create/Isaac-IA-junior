@@ -86,6 +86,7 @@
 
   // La table des droits a sa propre sonde : elle ne depend ni de l IA ni de la voie.
   async function sondeDroits() {
+    if (K.visible && !K.visible()) return;
     const r = await K.api('api/droits', { timeout: 8000 });
     if (r.ok && r.data && Array.isArray(r.data.agents)) {
       ETAT.droits = r.data;

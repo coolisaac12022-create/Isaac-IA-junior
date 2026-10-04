@@ -22,6 +22,7 @@
   // cerveau  -> les compteurs de memoire (panneau AGENTS)
   // orchestrateur -> la pastille VOIE (qui tient la voie maintenant)
   async function sondeAI() {
+    if (K.visible && !K.visible()) return;
     const [ai, cerv, voie] = await Promise.all([
       K.api('api/ai/etat', { timeout: 8000 }),
       K.api('api/cerveau', { timeout: 8000 }),
@@ -118,7 +119,11 @@
 
     // Chien de garde de la page : si aucune mesure n'est arrivee depuis 25 s,
     // on le dit franchement au lieu de laisser un ecran fige mentir par silence.
+    // Mais JAMAIS pendant un arriere-plan : le navigateur estrange les minuteurs,
+    // le retard serait celui de l'onglet, pas du cerveau — l'accuser serait un
+    // message d'erreur qui ment sur sa cause. Le kit redonne un ping au reveil.
     setInterval(function () {
+      if (document.hidden) return;
       if (ETAT.dernierPing && (Date.now() - ETAT.dernierPing) > 25000 && ETAT.serveur !== 'mort') {
         ETAT.serveur = 'mort';
         K.setCore('OFFLINE', 'aucune mesure recue depuis 25 s');
@@ -127,6 +132,15 @@
         if (el.txtServeur) el.txtServeur.textContent = 'SERVEUR MUET';
       }
     }, 5000);
+
+    // Reveil : on ne laisse pas la page rattraper son retard a petit feu — des
+    // qu'elle reapparait, elle relit tout de suite, et l'ecran dit l'etat present.
+    K.onReveil(function () {
+      if (window.HudSysteme) HudSysteme.sonde();
+      if (window.HudFlux) HudFlux.sonde();
+      if (window.HudAgents) HudAgents.sonde();
+      sondeAI();
+    });
   }
 
   function demarrer() {

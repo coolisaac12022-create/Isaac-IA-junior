@@ -103,6 +103,9 @@
   }
 
   async function sondeSysteme() {
+    // Onglet cache : on ne sonde pas. Le PC (2 coeurs) respire, et surtout on ne
+    // nourrit pas le chien de garde avec des mesures qu'il ne verrait pas a temps.
+    if (K.visible && !K.visible()) return;
     const r = await K.api('api/systeme', { timeout: 8000 });
     if (r.ok && r.data && r.data.ok) {
       ETAT.systeme = r.data; ETAT.echecsSuite = 0; ETAT.dernierPing = Date.now();

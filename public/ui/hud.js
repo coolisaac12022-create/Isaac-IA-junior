@@ -94,20 +94,53 @@
   }
 
   // Requete avec delai : un ecran qui attend indefiniment finit par mentir par silence.
-  async function api(chemin, opts) {
-    const o = opts || {};
+  // Phase 7 — anti-empilement : sur ce PC (2 coeurs), une sonde lente ne doit pas
+  // s'empiler tour apres tour et saturer le cerveau. Une requete EN VOL sur le MEME
+  // chemin est reusee : le 3 s de /api/systeme ne part jamais deux fois a la fois.
+  // opts.force = 1 passe outre (utile quand on vient d'ecrire et qu'on veut relire).
+  const enVol = Object.create(null);
+  function une(chemin, o) {
     const controleur = ('AbortController' in window) ? new AbortController() : null;
     const minuteur = controleur ? setTimeout(function () { controleur.abort(); }, o.timeout || 9000) : null;
     try {
-      const r = await fetch(chemin, Object.assign({ cache: 'no-store' }, o.fetch || {}, controleur ? { signal: controleur.signal } : {}));
-      const txt = await r.text();
-      let data = null;
-      try { data = txt ? JSON.parse(txt) : null; } catch (e) { data = null; }
-      return { ok: r.ok, status: r.status, data: data, brut: txt.slice(0, 300) };
+      return fetch(chemin, Object.assign({ cache: 'no-store' }, o.fetch || {}, controleur ? { signal: controleur.signal } : {}))
+        .then(function (r) { return r.text().then(function (txt) {
+          let data = null;
+          try { data = txt ? JSON.parse(txt) : null; } catch (e) { data = null; }
+          return { ok: r.ok, status: r.status, data: data, brut: txt.slice(0, 300) };
+        }); })
+        .catch(function (e) {
+          return { ok: false, status: 0, data: null, erreur: (e && e.name === 'AbortError') ? 'delai depasse' : String((e && e.message) || e) };
+        });
     } catch (e) {
-      return { ok: false, status: 0, data: null, erreur: (e && e.name === 'AbortError') ? 'delai depasse' : String((e && e.message) || e) };
+      return Promise.resolve({ ok: false, status: 0, data: null, erreur: String((e && e.message) || e) });
     } finally { if (minuteur) clearTimeout(minuteur); }
   }
+  function api(chemin, opts) {
+    const o = opts || {};
+    if (o.force) return une(chemin, o);
+    const cle = String(chemin) + '|' + ((o.fetch && o.fetch.method) || 'GET');
+    if (enVol[cle]) return enVol[cle];
+    const p = une(chemin, o).then(function (r) { if (enVol[cle] === p) delete enVol[cle]; return r; });
+    enVol[cle] = p;
+    return p;
+  }
+
+  // ------------------- Onglet cache / reveil (Phase 7, tache n°64) -----------
+  // Un onglet en arriere-plan est ETRANGLE par le navigateur : ses minuteurs
+  // tombent a ~1/min. On ne peut donc pas se fier a l'intervalle qu'on voit passer
+  // pour declarer le cerveau mort — ce serait un message d'erreur qui ment sur sa
+  // cause. Tant que la page est cachee, on ne sonde pas (le PC respire) et le
+  // chien de garde ne mord pas. Des qu'elle reapparait, on rattrape aussitot.
+  function visible() { return !document.hidden; }
+  const reveils = [];
+  function onReveil(f) { if (typeof f === 'function') reveils.push(f); }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) return;
+    // Grace : le chien de garde ne mordra pas sur le seul retard de la mise en veille.
+    ETAT.dernierPing = Date.now();
+    for (const f of reveils) { try { f(); } catch (e) {} }
+  });
 
   // --------------------------- Le bandeau d'erreur --------------------------
   function bandeau(msg) {
@@ -187,6 +220,7 @@
     $: $, el: el, ETAT: ETAT,
     esc: esc, go: go, mo: mo, ko: ko, duree: duree, non: non, jauge: jauge, ligne: ligne,
     api: api, bandeau: bandeau,
+    visible: visible, onReveil: onReveil,
     setCore: setCore, rafraichirLegende: rafraichirLegende,
     msg: msg, ouvrirModale: ouvrirModale, fermerModale: fermerModale,
     rafraichirPastilleVoix: rafraichirPastilleVoix

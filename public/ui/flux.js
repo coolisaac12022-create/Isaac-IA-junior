@@ -33,6 +33,7 @@
   }
 
   async function sondeEvenements() {
+    if (K.visible && !K.visible()) return;
     const r = await K.api('api/evenements?limite=40', { timeout: 8000 });
     if (r.ok && r.data) rendreFlux(r.data);
   }
