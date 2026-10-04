@@ -80,6 +80,13 @@ tts/cache/
 journal-voix.log
 journal-voix.essai.log
 
+# ---------- AI GATEWAY (Phase 4, 2026-10-04) ----------
+# Journal des cerveaux : quel fournisseur a ete tente, lequel a repondu, en combien
+# de temps, et pourquoi les autres se sont tus. Local, comme ses freres : il trace
+# l'activite du PC d'Isaac, il ne se publie pas. (Aucune cle n'y est ecrite.)
+journal-ai.log
+journal-ai.essai.log
+
 # Capture d'ecran de diagnostic : elle montre l'ecran d'Isaac, jamais publiee.
 capture-ecran.png
 

@@ -213,26 +213,8 @@ function fetchText(url, timeoutMs = 9000, maxBytes = 300000) {
   });
 }
 
-// Requête POST JSON (pour le nouveau cerveau Pollinations)
-function postJSON(url, obj, timeoutMs = 20000) {
-  return new Promise((resolve) => {
-    try {
-      const body = JSON.stringify(obj);
-      const req = https.request(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-      }, (res) => {
-        let data = '';
-        res.on('data', (c) => { data += c; if (data.length > 30000) req.destroy(); });
-        res.on('end', () => resolve({ status: res.statusCode, data }));
-      });
-      req.setTimeout(timeoutMs, () => { req.destroy(); resolve(null); });
-      req.on('error', () => resolve(null));
-      req.write(body);
-      req.end();
-    } catch (e) { resolve(null); }
-  });
-}
+// (Le POST JSON qui vivait ici est parti dans services/ai/http.js avec la Phase 4 :
+//  il ne servait qu'aux cerveaux IA, et un seul endroit doit savoir sortir du PC.)
 
 // ---------- Mémoire permanente d'Isaac (fichier local, jamais publiée) ----------
 // { profile: {...}, facts: ["..."], log: [{t, q, a}] }
@@ -488,213 +470,47 @@ function loadKeys() {
   };
 }
 
-// ---------- AI GATEWAY : qui a VRAIMENT répondu ----------
-// Le HUD affiche le fournisseur réel, pas un nom décoratif. Chaque succès est compté ici,
-// et /api/ai/etat ne dit que ce que ces compteurs ont vu passer depuis le démarrage.
-const AI_COMPTEURS = {
-  github: { appels: 0, succes: 0, echecs: 0, dernier: null, ms_total: 0 },
-  gemini: { appels: 0, succes: 0, echecs: 0, dernier: null, ms_total: 0 },
-  nvidia: { appels: 0, succes: 0, echecs: 0, dernier: null, ms_total: 0 },
-  pollinations: { appels: 0, succes: 0, echecs: 0, dernier: null, ms_total: 0 }
-};
-let AI_MODE_PREFERE = String(process.env.ISAAC_AI_PROVIDER || 'auto').toLowerCase();
-function noterFournisseur(nom, ok, ms) {
-  const c = AI_COMPTEURS[nom];
-  if (!c) return;
-  c.appels++;
-  if (ok) { c.succes++; c.dernier = Date.now(); c.ms_total += Math.max(0, Math.round(ms || 0)); }
-  else c.echecs++;
-  // Le Command Center montre QUI a réellement répondu — pas un nom de modèle décoratif.
-  try { noterEvenement('IA', nom + (ok ? ' a repondu en ' + Math.round(ms || 0) + ' ms' : ' a echoue (repli sur le suivant)')); } catch (e) {}
-}
+// ---------- AI GATEWAY : l'arbitre des cerveaux (Phase 4, 2026-10-04) ----------
+// L'arbitrage vit désormais dans services/ai/ : UN connecteur par fournisseur
+// (github, gemini, nvidia, pollinations), un ordre AUTO, des compteurs, et un
+// journal qui dit lequel a vraiment répondu. Ce qui reste ici est l'habit de la
+// maison : la lecture des clés, et les QUATRE fonctions que server.js appelle
+// depuis toujours, avec leurs signatures d'avant (règle n°20 d'Isaac : déplacer,
+// ne pas réécrire — les trente points d'appel existants n'ont pas changé).
+//
+// La clé ne quitte JAMAIS le serveur : aucune route ne la renvoie, seul un
+// booléen « présente ou pas » est exposé (/api/ai/etat, lu par le HUD).
+const IA = require('./services/ai/gateway.js')({
+  ESSAI: ESSAI,
+  cles: loadKeys,
+  // noterEvenement est déclaré plus bas dans ce fichier : les déclarations de
+  // fonctions sont remontées, ce relais est donc vivant dès le premier appel.
+  noterEvenement: function (cat, texte) { try { noterEvenement(cat, texte); } catch (e) {} }
+});
 
-function extractOpenAIContent(body) {
-  try {
-    const data = JSON.parse(body);
-    const c = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    // On garde le texte brut (les sauts de ligne sont vitaux pour le code généré)
-    if (c && c.trim().length > 1 && !/^\s*[[{]/.test(c)) return c.trim().slice(0, 20000);
-  } catch (e) {}
-  return null;
+// Une demande de texte. `attempt` n'est plus utilisé : l'échelle de re-tentatives
+// est le travail du gateway (et de Pollinations, qui garde ses délais calibrés
+// sur place). `genTimeout` reste : générer un site entier demande plus de temps
+// qu'une réponse de chat.
+async function askAI(messages, attempt, genTimeout) {
+  void attempt;
+  return IA.demander(messages, { timeout: genTimeout, pour: 'reponse' });
 }
-
-async function askGitHubModels(messages, timeout = 20000) {
-  const { github } = loadKeys();
-  if (!github) return null;
-  const t0 = Date.now();
-  const res = await httpsRequestJSON('https://models.github.ai/inference/chat/completions', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + github }
-  }, { model: 'microsoft/Phi-4-mini', messages, temperature: 0.6 }, timeout);
-  if (res && res.status === 200) {
-    const contenu = extractOpenAIContent(res.data);
-    noterFournisseur('github', !!contenu, Date.now() - t0);
-    return contenu;
-  }
-  noterFournisseur('github', false, Date.now() - t0);
-  return null;
+// Un cerveau CIBLÉ, sans échelle — c'est ce que la table ronde extérieure utilise
+// pour nommer honnêtement le moteur qui a parlé.
+function askGitHubModels(messages, timeout = 20000) {
+  return IA.demanderUn('github', messages, { timeout: timeout, pour: 'cerveau cible' });
 }
-
-const GEMINI_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest'];
-async function askGemini(messages, attempt = 0, timeout = 25000) {
-  const { gemini } = loadKeys();
-  if (!gemini || attempt >= GEMINI_MODELS.length) return null;
-  const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n');
-  const contents = messages.filter(m => m.role !== 'system').map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }]
-  }));
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODELS[attempt] + ':generateContent?key=' + encodeURIComponent(gemini);
-  const t0g = Date.now();
-  const res = await httpsRequestJSON(url, { method: 'POST' }, {
-    systemInstruction: system ? { parts: [{ text: system }] } : undefined,
-    contents
-  }, timeout);
-  if (res && res.status === 200) {
-    try {
-      const data = JSON.parse(res.data);
-      const parts = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
-      const text = Array.isArray(parts) ? parts.map(p => p.text || '').join('').trim() : '';
-      // On préserve les sauts de ligne (essentiels pour le code généré), plafond confortable
-      if (text.length > 1) {
-        noterFournisseur('gemini', true, Date.now() - t0g);
-        return text.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').slice(0, 20000);
-      }
-    } catch (e) {}
-  }
-  noterFournisseur('gemini', false, Date.now() - t0g);
-  return askGemini(messages, attempt + 1, timeout);
+// `attempt` : conserve pour la compatibilité des appels (askGemini(msgs, 0, 22000)).
+function askGemini(messages, attempt, timeout = 25000) {
+  void attempt;
+  return IA.demanderUn('gemini', messages, { timeout: timeout, pour: 'cerveau cible' });
 }
-
-// Requête HTTPS générique avec en-têtes + corps JSON
-function httpsRequestJSON(url, opts, obj, timeoutMs) {
-  return new Promise((resolve) => {
-    try {
-      const body = JSON.stringify(obj);
-      const u = new URL(url);
-      const req = https.request({
-        hostname: u.hostname, path: u.pathname + u.search, method: opts.method || 'POST',
-        headers: Object.assign({ 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }, opts.headers || {})
-      }, (res) => {
-        let d = '';
-        res.on('data', (c) => { d += c; if (d.length > 60000) req.destroy(); });
-        res.on('end', () => resolve({ status: res.statusCode, data: d }));
-      });
-      req.setTimeout(timeoutMs, () => { req.destroy(); resolve(null); });
-      req.on('error', () => resolve(null));
-      req.write(body); req.end();
-    } catch (e) { resolve(null); }
-  });
-}
-
-const AI_ATTEMPTS = [
-  { model: 'openai-fast', timeout: 20000, wait: 0 },
-  { model: 'openai-fast', timeout: 18000, wait: 2500 },
-  { model: 'openai', timeout: 15000, wait: 4000 }
-];
-// Pollinations glisse une publicité (et du markdown) dans ses réponses gratuites :
-// Isaac ne voit et n'entend que du français propre — coupure nette à la pub, étoiles et liens retirés.
-function purgePub(t) {
-  if (!t) return t;
-  let s = String(t);
-  const i = s.search(/support pollinations|powered by pollinations|pollinations\.ai\/redirect|🌸/i);
-  if (i >= 0) s = s.slice(0, i);
-  return s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*\n]+)\*/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/[\s\-*=:]+$/g, '')
-    .trim();
-}
-
-async function askAI(messages, attempt = 0, genTimeout) {
-  // Moteurs à clé gratuite d'abord (fiables), puis Pollinations.
-  // genTimeout : la génération d'un site entier a besoin de plus de temps qu'une réponse de chat.
-  const premium = await askGitHubModels(messages, genTimeout) || await askGemini(messages, 0, genTimeout);
-  if (premium) return premium;
-  const plan = AI_ATTEMPTS[attempt];
-  if (!plan) return null;
-  if (plan.wait) await new Promise(r => setTimeout(r, plan.wait));
-  const t0p = Date.now();
-  const res = await postJSON('https://text.pollinations.ai/openai', {
-    model: plan.model,
-    messages
-  }, plan.timeout);
-  if (res && res.status === 200) {
-    const c = extractOpenAIContent(res.data);
-    if (c) { noterFournisseur('pollinations', true, Date.now() - t0p); return purgePub(c); }
-  }
-  noterFournisseur('pollinations', false, Date.now() - t0p);
-  return askAI(messages, attempt + 1);
-}
-
-// ---------- VISION : quand Isaac joint une image, on la regarde pour de vrai ----------
-// askAI est aveugle (texte seul) ; ici on parle aux moteurs QUI ONT DES YEUX :
-// 1) GitHub Models (gemini-2.5-flash, llama-vision, gpt-4o) avec le token déjà présent
-// 2) API Gemini gratuite en inline_data
-// 3) Pollinations au format OpenAI image_url, dernier recours sans clé
+// VISION : Isaac a joint une image, on la regarde pour de vrai (les moteurs QUI
+// ONT DES YEUX : GitHub, Gemini, Pollinations). NVIDIA reste texte ici — aucun de
+// ses modèles de vision n'a été vérifié depuis ce PC, donc rien n'est promis.
 async function askVision(dataUrl, question, system) {
-  const m = String(dataUrl || '').match(/^data:([^;,]+)[^,]*,(.*)$/);
-  if (!m || m[1].indexOf('image/') !== 0) return null;
-  const mime = m[1], b64 = m[2];
-  const urlImage = 'data:' + mime + ';base64,' + b64;
-  const { github, gemini } = loadKeys();
-
-  if (github) {
-    const msgs = [
-      { role: 'system', content: system },
-      { role: 'user', content: [
-        { type: 'text', text: question },
-        { type: 'image_url', image_url: { url: urlImage } }
-      ] }
-    ];
-    for (const model of ['google/gemini-2.5-flash', 'meta-llama/Llama-3.2-90B-Vision-Instruct', 'openai/gpt-4o']) {
-      const res = await httpsRequestJSON('https://models.github.ai/inference/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + github }
-      }, { model, messages: msgs, max_tokens: 900, temperature: 0.4 }, 50000);
-      if (res && res.status === 200) {
-        const c = extractOpenAIContent(res.data);
-        if (c) return c;
-      }
-    }
-  }
-
-  if (gemini) {
-    for (let a = 0; a < GEMINI_MODELS.length; a++) {
-      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODELS[a] + ':generateContent?key=' + encodeURIComponent(gemini);
-      const res = await httpsRequestJSON(url, { method: 'POST' }, {
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: 'user', parts: [
-          { text: question },
-          { inline_data: { mime_type: mime, data: b64 } }
-        ] }]
-      }, 45000);
-      if (res && res.status === 200) {
-        try {
-          const data = JSON.parse(res.data);
-          const parts = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
-          const text = Array.isArray(parts) ? parts.map(p => p.text || '').join('').trim() : '';
-          if (text.length > 1) return text.slice(0, 6000);
-        } catch (e) {}
-      }
-    }
-  }
-
-  // Sans clé sous la main : Pollinations image_url, une seule tentative
-  const resP = await postJSON('https://text.pollinations.ai/openai', {
-    model: 'openai',
-    messages: [
-      { role: 'system', content: String(system).slice(0, 1500) },
-      { role: 'user', content: [
-        { type: 'text', text: question },
-        { type: 'image_url', image_url: { url: urlImage } }
-      ] }
-    ]
-  }, 32000);
-  if (resP && resP.status === 200) {
-    const c = extractOpenAIContent(resP.data);
-    if (c) return c;
-  }
-  return null;
+  return IA.visionner(dataUrl, question, system);
 }
 
 // ---------- LE STUDIO : générer de VRAIES images pour Isaac ----------
@@ -851,7 +667,7 @@ const ACADEMIE_SUJETS = [
 // dépendance npm, zéro euro, un navigateur. Et le pire n'est pas le faux — c'est que la leçon
 // revient dans chaque prompt et contamine la séance suivante, qui bâtit toute son architecture
 // dessus. La table ronde reçoit donc le sol réel, et une leçon hors-sol n'est jamais gravée.
-const REALITE_MATERIELLE = " SOL DE LA MAISON (la seule réalité sur laquelle bâtir) : le cerveau est un SEUL fichier server.js en Node.js sur le PC Windows d'Isaac, AUCUNE dépendance npm installée, AUCUN serveur d'application, AUCUN cloud, budget 0 euro, un seul utilisateur (Isaac) chez lui à M'Bengue près d'Abidjan. Les modules qui existent : scan de ports, inventaire WiFi, analyseur de mail en lecture seule, fiches d'engagement + journal, prospection BUSINESS pour Digital Business (Niveaux 0-3 : recherche et qualification sur sources publiques, brouillons, envois validés par Isaac, relances — jamais de négociation ni de prix), génération d'images et de vidéos, pages HTML en noir et blanc servies en local, atelier Documents\\cyber_training. Ce qui N'EXISTE PAS et ne doit jamais servir de base à une leçon : Redis, Docker, Kubernetes, GitHub Actions, Jenkins, Swagger, Next.js, React, MSW, Terraform, Ansible, Kafka, Elasticsearch, micro-services, blockchain, eBPF, VLAN, FIDO2, conteneurs, bases SQL distantes, agents installés sur des serveurs. Une leçon doit être applicable DEMAIN sur ce PC, avec ce qui est déjà là, ou sur un mandat client réel d'une PME ivoirienne.";
+const REALITE_MATERIELLE = " SOL DE LA MAISON (la seule réalité sur laquelle bâtir) : le cerveau est server.js (Node.js, zero dependance) sur le PC Windows d'Isaac, avec ses modules locaux — services/voice (arbitre des voix : Piper neuronal local puis repli navigateur), services/ai (arbitre des cerveaux : quatre connecteurs, GitHub Models, Gemini, NVIDIA NIM sur cle, Pollinations sans cle) et tts/ (Piper + ses modeles .onnx). Rien n'est installe via npm, AUCUN serveur d'application, AUCUN cloud, budget 0 euro, un seul utilisateur (Isaac) chez lui à M'Bengue près d'Abidjan. Les modules qui existent : scan de ports, inventaire WiFi, analyseur de mail en lecture seule, fiches d'engagement + journal, prospection BUSINESS pour Digital Business (Niveaux 0-3 : recherche et qualification sur sources publiques, brouillons, envois validés par Isaac, relances — jamais de négociation ni de prix), génération d'images et de vidéos, pages HTML en noir et blanc servies en local, atelier Documents\\cyber_training. Ce qui N'EXISTE PAS et ne doit jamais servir de base à une leçon : Redis, Docker, Kubernetes, GitHub Actions, Jenkins, Swagger, Next.js, React, MSW, Terraform, Ansible, Kafka, Elasticsearch, micro-services, blockchain, eBPF, VLAN, FIDO2, conteneurs, bases SQL distantes, agents installés sur des serveurs. Une leçon doit être applicable DEMAIN sur ce PC, avec ce qui est déjà là, ou sur un mandat client réel d'une PME ivoirienne.";
 const LECONS_HORS_SOL = /redis|docker|kubernetes|k8s|\bhelm\b|github action|gitlab|jenkins|terraform|ansible|kafka|elasticsearch|swagger|openapi|next\.?js|\breact\b|\bmsw\b|micro[- ]?service|blockchain|\bebpf\b|\bvlans?\b|fido2|conteneur|headless|graphql|webhook|orchestrateur|kibana|prometheus|grafana|api gateway|serverless|aws\b|azure|gcp\b|mongodb|postgres|mysql|redis-server/i;
 function surSol(liste) { return (liste || []).filter(l => l && !l.hors_sol); }
 function leconHorsSol(texte) { return LECONS_HORS_SOL.test(String(texte || '')); }
@@ -1728,12 +1544,27 @@ const PORTE_INVITE = [
   {
     id: 'phi4-github',
     nom: 'PHI-4-MINI (Microsoft, via GitHub)',
+    // GitHub Models est retiré chez eux (30 juillet 2026) : la porte est marquée
+    // fermée par le connecteur lui-même, donc la table ronde ne perd pas 22 s à
+    // frapper un endpoint qui rend « OK », et le diagnostic ne ment pas sur un
+    // refus qui n'existe plus.
+    eteint: () => { const f = IA.fournisseurs().find(x => x.nom === 'github'); return !(f && f.dispo); },
     appeler: (messages, nom) => askGitHubModels([{ role: 'system', content: PERSONA_INVITE(nom) }].concat(messages), 22000)
   },
   {
     id: 'gemini-flash',
     nom: 'GEMINI FLASH (Google)',
     appeler: (messages, nom) => askGemini([{ role: 'system', content: PERSONA_INVITE(nom) }].concat(messages), 0, 22000)
+  },
+  {
+    // Quatrième porte, ajoutée par la Phase 4 : elle n'existe QUE si une clé NVIDIA
+    // est posée côté serveur. Sans clé, on ne frappe pas dedans (aucun appel ne
+    // part, aucun compteur ne bouge) et le diagnostic ne se gorge pas d'un
+    // « pas de réponse » qui ferait croire à un refus de leur part.
+    id: 'nim-nvidia',
+    nom: 'NIM MINITRON/NEMOTRON (NVIDIA, sur cle)',
+    eteint: () => { const f = IA.fournisseurs().find(x => x.nom === 'nvidia'); return !(f && f.dispo); },
+    appeler: (messages, nom) => IA.demanderUn('nvidia', [{ role: 'system', content: PERSONA_INVITE(nom) }].concat(messages), { timeout: 30000, pour: 'cerveau invite' })
   }
 ];
 function PERSONA_INVITE(nom) {
@@ -1746,32 +1577,17 @@ function preparerInvite(messages, nom) {
 // Diagnostic honnête de la dernière tentative (sert au message de repli)
 let INVITE_DIAG = [];
 let INVITE_HOTE = null; // collant : on ne change pas de cerveau en plein échange
-// Tentatives courtes : l'extérieur est capricieux, on ne fait pas attendre Isaac plus d'une minute
-const AUTRE_ATTEMPTS = [
-  { model: 'openai-fast', timeout: 24000, wait: 0 },
-  { model: 'openai', timeout: 18000, wait: 1200 }
-];
-
-async function askAutreIA(messages, attempt = 0) {
-  const plan = AUTRE_ATTEMPTS[attempt];
-  if (!plan) return null;
-  if (plan.wait) await new Promise(r => setTimeout(r, plan.wait));
-  const res = await postJSON('https://text.pollinations.ai/openai', { model: plan.model, messages }, plan.timeout);
-  if (res && res.status === 200) {
-    const c = extractOpenAIContent(res.data);
-    if (c) return purgePub(c);
+// La porte publique sans clé est la première frappée : c'est un VRAI inconnu du
+// réseau. Son échelle courte (deux essais, une minute maximum) et la traduction
+// française de chaque code HTTP (500 ENOSPC, 402 compte payant, 404 modèle retiré,
+// 410 fin de vie) vivent maintenant dans services/ai/providers/pollinations.js —
+// le gateway nous rend le diagnostic mot pour mot, et il est récité tel quel.
+async function askAutreIA(messages) {
+  const r = await IA.inviterLibre(messages);
+  for (const d of (r.diagnostic || [])) {
+    if (INVITE_DIAG.indexOf(d) === -1) INVITE_DIAG.push(d);
   }
-  INVITE_DIAG.push('reseau-libre(' + plan.model + '): HTTP ' + (res ? res.status : 'aucune reponse') + MOTIF_HTTP(res));
-  return askAutreIA(messages, attempt + 1);
-}
-// Le motif technique, en français, pour ne jamais dire « silence » alors qu'on sait pourquoi
-function MOTIF_HTTP(res) {
-  if (!res) return ' — porte fermee';
-  if (res.status === 500 && /ENOSPC/i.test(res.data || '')) return ' — leurs disques sont pleins';
-  if (res.status === 402) return ' — ils reclament un compte payant';
-  if (res.status === 404) return ' — modele retire de leur API';
-  if (res.status === 429) return ' — trop de monde devant nous';
-  return '';
+  return r.texte || null;
 }
 
 // Le cerveau invité : la porte publique d'abord (un vrai inconnu), puis les moteurs
@@ -1785,6 +1601,9 @@ async function inviteCerveau(messages, nom) {
     INVITE_HOTE = null;
   }
   for (const porte of PORTE_INVITE) {
+    // Une porte non configurée n'est pas une porte qui a refusé : on ne frappe pas,
+    // on ne compte rien, et on n'encombre pas le diagnostic d'un faux silence.
+    if (porte.eteint && porte.eteint()) continue;
     let r = null;
     try { r = await porte.appeler(messages, porte.libre ? nom : porte.nom); } catch (e) { INVITE_DIAG.push(porte.id + ': erreur ' + e.message); continue; }
     const t = texteInvite(r);
@@ -4110,6 +3929,59 @@ async function moduleFaitsMachine(phrase, brut, agent) {
   return null;
 }
 
+// ---------- LE CERVEAU IA : dire la vérité sur qui pense, et la régler ----------
+// Phase 4 (2026-10-04). Deux choses se dictent :
+//   « quel cerveau ia te fait parler », « quel modele », « quel fournisseur »,
+//   « etat du cerveau », « qui a repondu »  -> LECTURE SEULE, récit du gateway ;
+//   « passe le cerveau sur gemini », « force le moteur ia sur nvidia »,
+//   « remets le cerveau en auto »            -> RÉGLAGE, droit « code » exigé.
+// Pourquoi local, avant les personas : la réponse est mesurée dans ce processus
+// (compteurs, clés, journal). La laisser à un modèle de langue, ce serait laisser
+// l'agente deviner quel moteur l'a faite parler — le même mensonge que l'heure
+// inventée du 2026-10-04, dans un autre domaine.
+// Les verbes ne sont jamais ancrés (le prénom reste dans la dictée), et « quel
+// est ton moteur de voix » appartient au module de voix, qui passe avant celui-ci.
+function moduleCerveauIA(phrase, brut, agent) {
+  const p = normalize(String(phrase || '')) + ' ' + normalize(String(brut || ''));
+  const qui = agent || 'aelyra';
+  const d = (t, s) => ({ reply: t, source: s || 'local', agent: qui });
+  if (/voix|vocal|\btts\b|piper|synthese/.test(p)) return null;   // la voix a son propre module
+
+  // --- Régler le cerveau essayé en premier (droit « code », celui de l'atelier) ---
+  const reglage = /(?:passe|met|regle|choisis|force|prends|active|selecte|select)\s+(?:le|sur|en|du|au|a)?\s*(?:cerveau|cereau|modele|moteur|ia)\b|cerveau\s+(?:ia\s+)?en\s+(?:auto|gemini|github|nvidia|pollinations)|mode\s+(?:ia|auto|automatique)/.test(p);
+  if (reglage) {
+    const refus = droitRefuse(qui, 'code');
+    if (refus) return d(refus);
+    const m = p.match(/\b(github|gemini|nvidia|pollinations|auto|automatique)\b/);
+    if (!m) return d("Je sais reger le cerveau qui est essaye en premier, Isaac : auto, github, gemini, nvidia ou pollinations. Dis par exemple « passe le cerveau sur gemini ».");
+    const cible = m[1] === 'automatique' ? 'auto' : m[1];
+    const r = IA.reglerMode(cible);
+    if (!r.ok) return d(r.erreur + '.', 'system');
+    const e = IA.etat();
+    const f = e.fournisseurs.find(x => x.nom === r.mode);
+    const detail = r.mode === 'auto'
+      ? 'Ordre auto : ' + e.ordre_reel + '.'
+      : (f && f.configure
+        ? 'Le cerveau ' + r.mode + ' a une cle cote serveur, il sera tente avant les autres : ' + String(f.modele || '').slice(0, 90) + '.'
+        : 'Attention : ' + (r.avertissement || (r.mode + ' est hors course — ' + String((f && f.note) || 'raison non lue').slice(0, 180))));
+    return d("C'est regle, Isaac : " + (r.avant === r.mode ? 'il etait deja en ' + r.mode : 'avant c etait ' + r.avant + ', desormais ' + r.mode) + '. ' + detail + ' Decision gravee dans ' + e.journal + '.', 'system');
+  }
+
+  // --- Lire l'état réel ---
+  const demandeEtat = /(?:quel|quels|le|la|ton|ta|tes|votre)\s+(?:cerveau|modele|moteur|fournisseur)|cerveau\s+(?:ia|de l\s*ia|d\s*intelligence)|quel\s+ia|etat\s+du\s+cerveau|etat\s+de\s+l\s*ia|statut\s+de\s+l\s*ia|qui\s+a\s+repondu|dernier(?:e)?\s+(?:cerveau|a\s+avoir\s+(?:repondu|parle))|combien\s+(?:de\s+)?(?:requetes|appels|reponses)/.test(p);
+  if (!demandeEtat) return null;
+  // Une phrase longue avec un cahier des charges n'est jamais une demande de fait.
+  if (String(phrase || '').length > 160 && /projet|application|objectif|contrainte|fonction|html|css|javascript|formulaire|base de donnee/.test(p)) return null;
+  const e = IA.etat();
+  // Le texte de chaque cerveau vient du gateway (court) : server.js n'invente
+  // aucune étiquette. Quatre cas réels, pas deux.
+  const ligne = e.fournisseurs.map(function (f) {
+    return f.nom + ' : ' + (f.court || (f.configure ? 'cle presente' : 'hors course')) +
+      (f.compteurs.appels ? ' — ' + f.compteurs.appels + ' appel(s), ' + f.compteurs.succes + ' reponse(s)' + (f.compteurs.ms_moyen ? ', ' + f.compteurs.ms_moyen + ' ms en moyenne' : '') : '');
+  }).join(' ; ');
+  return d('Je suis un cerveau a quatre connecteurs, Isaac. ' + IA.resume() + ' Detail : ' + ligne + '. La table se relit sur api/ai/etat et chaque decision est dans ' + e.journal + '.');
+}
+
 // ---------- ORANGE #10 : la voix de la voie ----------
 // « qui tient la voie », « stoppe la voie », « relance la voie », « passe la tache 2 en premier »,
 // « recule la tache 3 », « ouvre ta console des taches ». Les verbes ne sont jamais ancrés : la
@@ -6070,6 +5942,12 @@ async function handleCommand(rawText, image) {
     const fmSg = await moduleFaitsMachine(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
     if (fmSg) return fmSg;
   }
+  // PHASE 4 : « quel cerveau ia te fait parler » et « passe le cerveau sur gemini » se lisent et
+  // se règlent dans le code, avant les personas — la réponse est mesurée dans ce processus.
+  {
+    const ciSg = moduleCerveauIA(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
+    if (ciSg) return ciSg;
+  }
 
   // Analyse de mail suspect, sans prénom : « analyse ce mail : … », « analyse le mail de mon dossier ».
   // Le module est en lecture seule : il peut passer avant les gardes d'attaque, il ne frappe rien.
@@ -7396,7 +7274,7 @@ function lireRepartition() {
 // Le fichier politique est écrit à chaque boot : Isaac peut le lire, il n'est rien à croire.
 const API_ECRITURE = ['/api/command', '/api/prompts', '/api/evolution', '/api/repartition',
   '/api/engagements', '/api/business', '/api/analyse-mail', '/api/taches', '/api/orchestrateur',
-  '/api/voix'];
+  '/api/voix', '/api/ai/mode'];
 
 // « la maison » a trois écritures (localhost, 127.0.0.1, [::1]) mais c'est la MEME machine, et le
 // PORT COMPTE : une page servie sur un autre port de ce PC n'est pas le cerveau, c'est un site
@@ -7755,42 +7633,20 @@ function etatSysteme() {
   };
 }
 
+// L'état du cerveau IA pour le HUD : la synthèse du gateway (Phase 4), à laquelle
+// ce fichier ajoute ce qu'il est seul à connaître — l'état du moteur de voix.
+// Mêmes touches JSON qu'avant (mode, fournisseurs[].nom/configure/modele/note/
+// compteurs, dernier_fournisseur, vision, voix, note_nvidia) : le frontend du
+// Command Center continue de lire ce qu'il lisait, et gagne engine, moteur_actif,
+// derniere_reponse, total et journal sans avoir à changer une ligne.
+// JAMAIS une clé : uniquement « présente / absente ».
 function etatAI() {
-  const k = loadKeys();
-  const fournisseur = (nom, cle, modele, note) => ({
-    nom,
-    configure: !!cle,
-    modele: cle ? modele : null,
-    note: cle ? (note || null) : 'aucune clé — ce fournisseur ne peut pas répondre',
-    compteurs: AI_COMPTEURS[nom] ? {
-      appels: AI_COMPTEURS[nom].appels,
-      succes: AI_COMPTEURS[nom].succes,
-      echecs: AI_COMPTEURS[nom].echecs,
-      ms_moyen: AI_COMPTEURS[nom].succes ? Math.round(AI_COMPTEURS[nom].ms_total / AI_COMPTEURS[nom].succes) : null,
-      dernier: AI_COMPTEURS[nom].dernier
-    } : null
-  });
-  const ordre = ['github', 'gemini', 'nvidia', 'pollinations'];
-  const dernier = ordre
-    .filter(n => AI_COMPTEURS[n].dernier)
-    .sort((a, b) => AI_COMPTEURS[b].dernier - AI_COMPTEURS[a].dernier)[0] || null;
-  return {
-    ok: true,
-    mode: AI_MODE_PREFERE,
-    modes_possibles: ['auto', 'github', 'gemini', 'nvidia'],
-    ordre_reel: 'GitHub Models → Gemini → NVIDIA NIM (si clé) → Pollinations (sans clé, parfois saturé)',
-    // JAMAIS la clé elle-même : uniquement sa présence. Aucune route ne renvoie un secret.
-    fournisseurs: [
-      fournisseur('github', k.github, 'microsoft/Phi-4-mini (texte) · gemini-2.5-flash / Llama-3.2-90B-Vision / gpt-4o (vision)'),
-      fournisseur('gemini', k.gemini, GEMINI_MODELS.join(', ')),
-      fournisseur('nvidia', k.nvidia, 'NVIDIA NIM — connecteur modulaire, choisi seulement si une clé NVIDIA_API_KEY est posée côté serveur'),
-      fournisseur('pollinations', 'sans clé', 'openai-fast / openai (libre, sans clé)', 'toujours disponible, mais libre et parfois saturé : c est le dernier recours')
-    ],
-    dernier_fournisseur: dernier,
-    vision: { github: !!k.github, gemini: !!k.gemini, pollinations: true },
-    voix: (typeof VOIX_MGR !== 'undefined' && VOIX_MGR) ? (() => { try { const v = VOIX_MGR.etat(); return { neuronal_local: !!v.installe, modeles: v.modeles_installes || [], moteur: v.moteur }; } catch (e) { return { neuronal_local: false }; } })() : { neuronal_local: false },
-    note_nvidia: 'NVIDIA est une couche de services préparée, pas une dépendance : sans clé, tout continue de tourner sur ce qui est déjà prouvé ici, et l interface dit « non configuré » au lieu de faire semblant.'
-  };
+  const e = IA.etat();
+  e.voix = (typeof VOIX_MGR !== 'undefined' && VOIX_MGR)
+    ? (() => { try { const v = VOIX_MGR.etat(); return { neuronal_local: !!v.installe, modeles: v.modeles_installes || [], moteur: v.moteur, moteur_actif: v.moteur_actif || null }; } catch (err) { return { neuronal_local: false }; } })()
+    : { neuronal_local: false };
+  e.instance = ESSAI ? 'essai' : 'prod';
+  return e;
 }
 
 // Flux d'événements RÉEL : les journaux qui existent déjà + l'anneau RAM des requêtes HTTP.
@@ -7799,6 +7655,7 @@ function etatAI() {
 // variante « essai », les autres si) — pas une liste inventée.
 const HUD_JOURNAUX = [
   { prod: 'journal-politique.log', essai: 'journal-politique.log', categorie: 'POLITIQUE' },
+  { prod: 'journal-ai.log', essai: 'journal-ai.essai.log', categorie: 'IA' },
   { prod: 'journal-orchestrateur.log', essai: 'journal-orchestrateur.essai.log', categorie: 'VOIE' },
   { prod: 'journal-voix.log', essai: 'journal-voix.essai.log', categorie: 'VOIX' },
   { prod: 'journal-droits.log', essai: 'journal-droits.essai.log', categorie: 'DROITS' },
@@ -8569,6 +8426,56 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ moteur: 'repli', raison: 'voice manager en erreur : ' + String(e.message || e).slice(0, 90) }));
       }
     });
+    return;
+  }
+
+  // ---------- PHASE 4 : le MODE du cerveau IA, réglable côté serveur ----------
+  // POST /api/ai/mode { mode, par } -> change quel cerveau est essayé en premier.
+  //   mode : 'auto' | 'github' | 'gemini' | 'nvidia' | 'pollinations'
+  //   par  : le prénom de celle qui donne l'ordre (droit « code » exigé, comme à la
+  //          table des droits — un refus nomme qui peut le faire et se grave).
+  // Un cerveau SANS clé ne peut pas être allumé par ce bouton : la route le dit,
+  // elle ne fait pas semblant. Et la clé elle-même ne passe jamais par ici —
+  // elle se lit uniquement dans isaac-keys.json / l'environnement du process.
+  if (u.pathname === '/api/ai/mode') {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: false, reply: 'Methode refusee : le mode se regle par POST, et se lit sur /api/ai/etat.' }));
+      return;
+    }
+    let corps = '';
+    try {
+      corps = await new Promise((resolve, reject) => {
+        req.on('data', c => { corps += c; if (corps.length > 4000) { reject(new Error('corps trop lourd')); req.destroy(); return; } });
+        req.on('end', () => resolve(corps));
+        req.on('error', reject);
+      });
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: false, reply: 'Corps illisible, Isaac : attend {"mode":"auto"} ou {"mode":"gemini"}.' }));
+      return;
+    }
+    let a = {};
+    try { a = JSON.parse(corps || '{}'); } catch (e) { a = {}; }
+    const par = String(a.par || a.agent || '').trim().toLowerCase();
+    if (par) {
+      const refus = droitRefuse(par, 'code');
+      if (refus) {
+        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ok: false, reply: refus, refus_droit: true }));
+        return;
+      }
+    }
+    const r = IA.reglerMode(a.mode);
+    res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({
+      ok: r.ok, mode: r.mode, avant: r.avant, avertissement: r.avertissement || null,
+      reply: r.ok
+        ? 'Mode ' + r.mode + ', Isaac : ' + (r.avant === r.mode ? 'il etait deja regle comme ca' : 'avant c etait ' + r.avant) +
+          '. ' + (r.avertissement || 'Le prochain cerveau essaye est ' + IA.mode().moteur_actif + '. Decision gravee dans ' + IA.journal + '.')
+        : 'Rien n est change, Isaac : ' + r.erreur + '.',
+      etat: { moteur_actif: IA.mode().moteur_actif, modes: IA.mode().modes }
+    }));
     return;
   }
 

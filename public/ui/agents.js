@@ -25,9 +25,15 @@
 
     // Le MODELE affiche est celui que le cerveau declare vraiment, et on dit si un
     // fournisseur a repondu depuis le demarrage — jamais un nom de modele decoratif.
+    // Depuis la Phase 4, le gateway rend aussi le MODÈLE et le TEMPS mesuré de la
+    // dernière réponse : la ligne devient une preuve, pas une étiquette.
+    const dr = ai.derniere_reponse || null;
     const f = (ai.fournisseurs || []).filter(function (x) { return x.nom === ai.dernier_fournisseur; })[0] || null;
-    const modele = f ? (ai.dernier_fournisseur + ' a répondu en dernier · ' + (f.modele || 'modèle non précisé'))
-      : ('ordre réel : ' + (ai.ordre_reel || 'inconnu') + ' · aucun fournisseur n a encore répondu depuis le démarrage');
+    const modele = dr
+      ? (dr.fournisseur + ' a répondu en dernier · ' + (dr.modele || 'modèle non précisé') + ' · ' + (dr.ms || 0) + ' ms'
+         + (dr.pour ? ' (' + dr.pour + ')' : ''))
+      : (f ? (ai.dernier_fournisseur + ' a répondu en dernier · ' + (f.modele || 'modèle non précisé'))
+        : ('ordre réel : ' + (ai.ordre_reel || 'inconnu') + ' · aucun fournisseur n a encore répondu depuis le démarrage'));
 
     // La VOIX : ce que le Voice Manager mesure + le profil de cette agente.
     const p = window.VoiceClient ? VoiceClient.profil(ETAT.agent) : null;
