@@ -7850,6 +7850,21 @@ function voixEtat() {
 
 // ---------- Serveur HTTP ----------
 
+// AIDE JSON de la portee VIVANTE du cerveau. ATTENTION : le « function json » qui apparait
+// plus haut (~ligne 1990) appartient au GABARIT de site que le cerveau sait generer — ce
+// n'est qu'une chaine de caracteres, il n'existe pas ici. Sans cette definition, un simple
+// POST sur une route de lecture (/api/systeme, /api/ai/etat, /api/evenements) appelait un
+// json() imaginaire et faisait tomber TOUT le cerveau (ReferenceError non rattrape). Le
+// harnais de tests (tests/cerveau.test.js) l'a decouvert a sa premiere execution ; cette
+// ligne le referme. Ne jamais mentir sur une cause d'erreur vaut aussi : une requete ne
+// doit jamais tuer le service.
+function json(res, code, obj) {
+  try {
+    res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(obj));
+  } catch (e) { try { res.end(); } catch (e2) {} }
+}
+
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://localhost:${PORT}`);
 
