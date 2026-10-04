@@ -126,7 +126,7 @@
     if (!data || !data.ok) return;
     var s = data.stats || {};
     var c = el('stats'); while (c.firstChild) c.removeChild(c.firstChild);
-    [['faits mémorisés', s.faits], ['leçons gravées', s.lecons], ['échanges au journal', s.echanges]].forEach(function (p) {
+    [['faits mémorisés', s.faits], ['leçons gravées', s.lecons], ['échanges au journal', s.echanges], ['scans enregistrés', s.scans]].forEach(function (p) {
       var d = document.createElement('div'); d.className = 'stat';
       var b = document.createElement('b'); texte(b, String(p[1] == null ? 0 : p[1]) + ' ');
       d.appendChild(b); d.appendChild(document.createTextNode(p[0]));
@@ -134,10 +134,17 @@
     });
     var pr = el('profil');
     while (pr.firstChild) pr.removeChild(pr.firstChild);
-    if (data.memoire.profile) { pr.className = 'fact'; texte(pr, data.memoire.profile); }
+    // Le profil etait un OBJET ({prenom, role, ville, pays}) : l afficher brut rendait
+    // « [object Object] » sur cette page. Depuis la Phase 6 le cerveau envoie une ligne
+    // lisible, deja masquee pour les coordonnees d autrui.
+    var prof = data.memoire.profile;
+    if (prof) { pr.className = 'fact'; texte(pr, typeof prof === 'string' ? prof : JSON.stringify(prof)); }
     else { pr.className = 'vide'; texte(pr, 'profil vide — dis « retiens que... » pour me graver quelque chose'); }
     var f = el('facts'); while (f.firstChild) f.removeChild(f.firstChild);
     if (!data.memoire.facts.length) { var v1 = document.createElement('div'); v1.className = 'vide'; texte(v1, 'aucun fait mémorisé'); f.appendChild(v1); }
+    // Les faits arrivent du serveur avec le numero de telephone et le mail d un TIERS
+    // masques : un ecran de memoire se photographie, le fichier sur le disque garde la
+    // valeur complete.
     data.memoire.facts.forEach(function (x) { ligne(f, 'fact', typeof x === 'string' ? x : (x.texte || JSON.stringify(x))); });
     var l = el('lecons'); while (l.firstChild) l.removeChild(l.firstChild);
     if (!data.memoire.lecons.length) { var v2 = document.createElement('div'); v2.className = 'vide'; texte(v2, 'aucune leçon gravée'); l.appendChild(v2); }
@@ -148,7 +155,10 @@
       var d = ligne(g, 'ligne-log', '');
       var q = document.createElement('span'); q.className = 'q'; texte(q, 'ISAAC : ' + (x.q || x.question || ''));
       d.appendChild(q);
-      var r = document.createElement('span'); r.className = 'r'; texte(r, 'RÉPONSE : ' + String(x.r || x.reponse || x.reply || '').slice(0, 220));
+      // Le journal de la memoire grave { t, q, a } : cette page cherchait x.r /
+      // x.reponse / x.reply et n affichait donc JAMAIS la reponse. Le champ reel
+      // du fichier est « a » — le lire, c est la regle de cette interface.
+      var r = document.createElement('span'); r.className = 'r'; texte(r, 'RÉPONSE : ' + String(x.a || x.r || x.reponse || x.reply || '').slice(0, 220));
       d.appendChild(r);
     });
     texte(el('etat'), 'CERVEAU INTERROGÉ EN DIRECT — ' + new Date().toLocaleString('fr-FR'));

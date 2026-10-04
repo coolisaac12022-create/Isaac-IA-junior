@@ -7,7 +7,7 @@
 //  personne d autre ne lit), et tient le chien de garde de fraicheur.
 //  Ordre de chargement exige dans le HTML : core.js, voiceClient.js, hud.js
 //  (le kit), systeme.js, flux.js, conversation.js, agents.js, missions.js,
-//  permissions.js, outils.js, reglages.js, puis celui-ci.
+//  permissions.js, memoire.js, outils.js, reglages.js, puis celui-ci.
 //  Chien de garde : si aucune mesure n arrive pendant 25 s, la page le DIT au
 //  lieu de laisser un ecran fige faire croire que tout va bien.
 // ============================================================================
@@ -28,7 +28,25 @@
       K.api('api/orchestrateur', { timeout: 8000 })
     ]);
     if (ai.ok && ai.data) ETAT.ai = ai.data;
-    if (cerv.ok && cerv.data && cerv.data.stats) ETAT.cerveau = cerv.data;
+    if (cerv.ok && cerv.data && cerv.data.stats) {
+      ETAT.cerveau = cerv.data;
+      // La pastille MÉMOIRE est la Phase 6 du temps réel : les compteurs viennent du
+      // FICHIER de mémoire (lus a chaque tour de sonde), et le survol dit ou c est ecrit
+      // et quand le cerveau y a écrit pour la derniere fois. Un compteur non lu s affiche
+      // « memoire non lue », jamais un zero.
+      const st = cerv.data.stats || {};
+      const ac = cerv.data.academie || null;
+      const nb = function (n) { return (typeof n === 'number' ? n : '?'); };
+      if (el.memoire) {
+        el.memoire.textContent = 'MÉMOIRE ' + nb(st.faits) + ' FAITS · ' + nb(st.lecons) + ' LEÇONS';
+        el.memoire.className = 'cc-pastille' + (ac && ac.auto ? ' slow' : '');
+        el.memoire.title = 'Mémoire gravée dans ' + (cerv.data.ou_c_est_grave || 'le fichier du cerveau')
+          + ' · ' + nb(st.echanges) + ' échange(s) au journal, ' + nb(st.scans) + ' scan(s) enregistré(s)'
+          + (ac ? ' · régime auto ' + (ac.auto ? 'ACTIF' : 'EN VEILLE') + ', dernière séance ' + (ac.derniere || 'non gravée') : '')
+          + (cerv.data.fichier ? ' · dernière écriture il y a ' + Math.round((Date.now() - new Date(cerv.data.fichier.modifie).getTime()) / 1000) + ' s' : '')
+          + '. Cliquer pour ouvrir le Memory Center.';
+      }
+    }
     if (voie.ok && voie.data) {
       ETAT.voie = voie.data;
       const v = voie.data;
@@ -81,6 +99,10 @@
     const ba = K.$('#btnAgents'); if (ba) ba.onclick = function () { if (window.HudAgents) HudAgents.modale(); };
     const bm = K.$('#btnMissions'); if (bm) bm.onclick = function () { if (window.HudMissions) HudMissions.modale(); };
     const bp = K.$('#btnPermissions'); if (bp) bp.onclick = function () { if (window.HudPermissions) HudPermissions.modale(); };
+    const bme = K.$('#btnMemoire'); if (bme) bme.onclick = function () { if (window.HudMemoire) HudMemoire.modale(); };
+    // La pastille du bandeau ouvre le meme Memory Center : un chiffre affiche doit
+    // toujours mener a la source qui le produit.
+    if (el.memoire) el.memoire.onclick = function () { if (window.HudMemoire) HudMemoire.modale(); };
     const bo = K.$('#btnOutils'); if (bo) bo.onclick = function () { if (window.HudOutils) HudOutils.modale(); };
     const br = K.$('#btnReglages'); if (br) br.onclick = function () { if (window.HudReglages) HudReglages.modale(); };
     const bch = K.$('#btnChanger'); if (bch) bch.onclick = function () { if (window.HudAgents) HudAgents.modale(); };

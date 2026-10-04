@@ -27,7 +27,7 @@
   const $ = function (s) { return document.querySelector(s); };
   const el = {
     bandeau: $('#bandeau'), sousTitre: $('#sousTitre'), ptServeur: $('#ptServeur'), txtServeur: $('#txtServeur'),
-    voie: $('#pastilleVoie'), voix: $('#pastilleVoix'), heure: $('#heure'),
+    voie: $('#pastilleVoie'), voix: $('#pastilleVoix'), memoire: $('#pastilleMemoire'), heure: $('#heure'),
     systeme: $('#panneauSysteme'), noteSysteme: $('#noteSysteme'), fraicheur: $('#badgeFraicheur'),
     agent: $('#panneauAgent'), noteAgent: $('#noteAgent'),
     coreEtat: $('#coreEtat'), coreAgent: $('#coreAgent'), coreDetail: $('#coreDetail'),

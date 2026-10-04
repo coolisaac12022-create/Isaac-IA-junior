@@ -32,13 +32,19 @@
   const GENRE_ATTENDU = { aelyra: 'f', jeanette: 'f', onyx: 'm', aegis: 'm', business: 'f', autre: '?' };
 
   // Profil par agente : ce que le spec demande, champ par champ.
+  // PHASE 6 — deux regles separees, parce que le serveur en distingue deux :
+  //   `fournisseur` = QUI synthetise (auto / piper_local / nvidia_nim) -> champ `moteur` du POST ;
+  //   `qualite`     = LE MODELE utilise (rapide = petit, qualite = grand) -> champ `qualite`.
+  // L ancien champ `moteur` du profil valait « qualite » : il est migré a la lecture,
+  // un profil grave hier continue de parler comme hier.
+  const FOURNISSEURS_CLIENT = ['auto', 'piper_local', 'nvidia_nim'];
   const PROFIL_DEFAUT = {
-    aelyra:   { volume: 1, hauteur: 1.05, debit: 1.04, langue: 'auto', interruptible: true, autoParle: true, moteur: 'auto', voixNavigateur: '' },
-    jeanette: { volume: 1, hauteur: 0.95, debit: 0.99, langue: 'auto', interruptible: true, autoParle: true, moteur: 'auto', voixNavigateur: '' },
-    onyx:     { volume: 1, hauteur: 0.85, debit: 0.90, langue: 'auto', interruptible: true, autoParle: true, moteur: 'auto', voixNavigateur: '' },
-    aegis:    { volume: 1, hauteur: 0.95, debit: 0.98, langue: 'auto', interruptible: true, autoParle: true, moteur: 'auto', voixNavigateur: '' },
-    business: { volume: 1, hauteur: 1.00, debit: 1.06, langue: 'auto', interruptible: true, autoParle: true, moteur: 'auto', voixNavigateur: '' },
-    autre:    { volume: 1, hauteur: 1.18, debit: 1.08, langue: 'auto', interruptible: true, autoParle: true, moteur: 'auto', voixNavigateur: '' }
+    aelyra:   { volume: 1, hauteur: 1.05, debit: 1.04, langue: 'auto', interruptible: true, autoParle: true, fournisseur: 'auto', qualite: 'rapide', voixNavigateur: '' },
+    jeanette: { volume: 1, hauteur: 0.95, debit: 0.99, langue: 'auto', interruptible: true, autoParle: true, fournisseur: 'auto', qualite: 'rapide', voixNavigateur: '' },
+    onyx:     { volume: 1, hauteur: 0.85, debit: 0.90, langue: 'auto', interruptible: true, autoParle: true, fournisseur: 'auto', qualite: 'rapide', voixNavigateur: '' },
+    aegis:    { volume: 1, hauteur: 0.95, debit: 0.98, langue: 'auto', interruptible: true, autoParle: true, fournisseur: 'auto', qualite: 'rapide', voixNavigateur: '' },
+    business: { volume: 1, hauteur: 1.00, debit: 1.06, langue: 'auto', interruptible: true, autoParle: true, fournisseur: 'auto', qualite: 'rapide', voixNavigateur: '' },
+    autre:    { volume: 1, hauteur: 1.18, debit: 1.08, langue: 'auto', interruptible: true, autoParle: true, fournisseur: 'auto', qualite: 'rapide', voixNavigateur: '' }
   };
 
   let profils = {};
@@ -60,6 +66,12 @@
   function profilEffectif(agent) {
     const a = profils[agent] ? agent : 'aelyra';
     const p = Object.assign({}, profils[a]);
+    // Migration du vieux champ `moteur` (il valait le niveau de qualite) : un profil
+    // grave avant la Phase 6 continue de donner exactement la meme voix.
+    if (p.moteur === 'qualite' && !p.qualite) p.qualite = 'qualite';
+    if (p.moteur && FOURNISSEURS_CLIENT.indexOf(p.moteur) >= 0 && p.moteur !== 'auto' && !p.fournisseur) p.fournisseur = p.moteur;
+    if (!p.fournisseur) p.fournisseur = 'auto';
+    if (p.qualite !== 'qualite') p.qualite = 'rapide';
     const c = confPartagee(a);
     if (c) {
       if (typeof c.hauteur === 'number' && isFinite(c.hauteur)) p.hauteur = c.hauteur;
@@ -106,7 +118,12 @@
       raisonRepli: derniereRaison,
       echecsConsecutifs: echecs,
       ramLibreMo: (MOTEUR && MOTEUR.ram_libre_mo) || null,
-      cache: (MOTEUR && MOTEUR.cache && MOTEUR.cache.nb) || 0
+      cache: (MOTEUR && MOTEUR.cache && MOTEUR.cache.nb) || 0,
+      // Phase 6 : ce que le cerveau ARBITRE, pas ce qu on souhaite. Le panneau Reglages
+      // ne propose que ces noms-la, et il dit franchement si celui choisi est eteint.
+      fournisseurs: (MOTEUR && MOTEUR.fournisseurs) || [],
+      moteurActif: (MOTEUR && MOTEUR.moteur_actif) || null,
+      instance: (MOTEUR && MOTEUR.instance) || null
     };
     abonnesEtat.forEach(function (f) { try { f(snap); } catch (e) {} });
   }
@@ -238,7 +255,12 @@
         langue: p.langue === 'auto' ? undefined : p.langue,
         hauteur: p.hauteur,
         debit: p.debit,
-        qualite: p.moteur === 'qualite' ? 'qualite' : 'rapide'
+        qualite: (p.qualite === 'qualite' || p.moteur === 'qualite') ? 'qualite' : 'rapide',
+        // Phase 6 : le fournisseur PREFERE de l agente (regle dans Settings) est envoye
+        // sous le nom reel que le serveur connait. « auto » = ne rien forcer, laisse le
+        // cerveau arbitrer — et un nom que le serveur ne connait pas ne part jamais d ici.
+        moteur: (p.fournisseur && p.fournisseur !== 'auto' && FOURNISSEURS_CLIENT.indexOf(p.fournisseur) >= 0)
+          ? p.fournisseur : undefined
       })
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -473,6 +495,13 @@
     },
     moteurEtat: moteurEtat,
     moteurBrut: function () { return MOTEUR; },
+    // La liste CLOSE des noms que le serveur accepte, et celle qu il declare allumes.
+    fournisseursConnus: function () { return FOURNISSEURS_CLIENT.slice(); },
+    fournisseursDeclare: function (nom) {
+      const l = (MOTEUR && MOTEUR.fournisseurs) || [];
+      for (let i = 0; i < l.length; i++) if (l[i] && l[i].nom === nom) return l[i];
+      return null;
+    },
     neuronalDispo: neuronalDispo,
     stats: function () { return Object.assign({}, STATS); },
     textePrononçable: textePrononçable,

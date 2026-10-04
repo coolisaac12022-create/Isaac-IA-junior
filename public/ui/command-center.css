@@ -97,6 +97,10 @@ html, body {
   padding: 5px 11px; border: 1px solid var(--bord); border-radius: 999px;
   background: rgba(255, 255, 255, .03); white-space: nowrap;
 }
+/* Phase 6 : la pastille MÉMOIRE est un bouton comme les autres — le curseur le dit,
+   et elle ouvre exactement la même page que le bouton du pied de page. */
+#pastilleMemoire { cursor: pointer; }
+#pastilleMemoire:hover { border-color: var(--cyan-fort); color: var(--cyan-fort); }
 .cc-point { width: 7px; height: 7px; border-radius: 50%; background: var(--vert); box-shadow: 0 0 9px var(--vert); }
 .cc-point.mort { background: var(--rouge); box-shadow: 0 0 9px var(--rouge); }
 .cc-point.lent { background: var(--ambre); box-shadow: 0 0 9px var(--ambre); animation: clignote 1.1s infinite; }

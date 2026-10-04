@@ -5364,12 +5364,28 @@ async function handleCommand(rawText, image) {
       return { reply: "État de l'Académie, Isaac : régime automatique " + (on ? "ACTIF — environ une séance spontanée toutes les 24 heures ; elles frappent d'abord aux portes des vraies IA du réseau, et tiennent la séance croisée entre elles si le silence répond. " : "EN VEILLE — elles ne travaillent que quand vous le demandez. ") + "Dernière séance : " + depuis + "." + enAttente + " Leçons gravées à ce jour : " + total + ". « active l'académie automatique » ou « désactive l'académie automatique » pour changer.", source: 'local' };
     }
     const on = !(verb === 'desactive' || verb === 'arrete' || verb === 'stoppe' || verb === 'enraye');
+    // PHASE 6 : changer le régime de l'Académie, c'est écrire dans la mémoire de la maison
+    // et décider si les agentes travaillent seules. C'est une ACTION, donc la table des
+    // droits s'applique ici aussi — ONYX et AEGIS n'ont pas la capacité « code ». La borne
+    // vit dans le serveur, pas dans l'interface : un bouton de page ne la contourne pas, et
+    // l'« état de l'Académie » (une QUESTION) reste ouvert à toutes, comme partout ailleurs.
+    const quiAc = (function () {
+      const t = text.replace(/^[\s,.:;]+/, '');
+      if (new RegExp('^(?:' + ONYX + ')\\b').test(t)) return 'onyx';
+      if (new RegExp('^(?:' + AEGIS + ')\\b').test(t)) return 'aegis';
+      if (new RegExp('^(?:' + GK + ')\\b').test(t)) return 'jeanette';
+      return 'aelyra';
+    })();
+    const refusAc = droitRefuse(quiAc, 'code');
+    // `refus: true` voyage jusqu a la page : une refusee ne doit jamais s afficher
+    // avec la meme couleur qu un ordre execute (le vert d un succes mente deux fois).
+    if (refusAc) return { reply: refusAc, source: 'local', agent: quiAc, refus: true };
     mem3.academieAuto = on;
     saveMemory(mem3);
     return { reply: on
       ? "C'est gravé, Isaac : l'Académie tourne maintenant toute seule. Aelyra et Jeanette se tiendront une séance spontanée environ toutes les 24 heures — rencontre avec les agentes libres du réseau quand elles répondent, séance croisée entre elles sinon — et la séance du jour vous sera rejouée à votre prochaine ouverture de page. « désactive l'académie automatique » pour le silence, « état de l'académie » pour le chemin parcouru."
       : "Entendu, Isaac : le régime automatique est éteint. Les agentes ne s'entraîneront plus seules — elles restent prêtes pour « débattez entre vous » et « parle avec d'autres agents », et les leçons déjà gravées demeurent dans leur mémoire.",
-      source: 'local' };
+      source: 'local', agent: quiAc };
   }
 
   const acm = text.replace(new RegExp(ACDEV), '').match(/^(?:(?:debat|discut|echang|parl|muscl|develop|exerc|form|instrui|entran|entren|entrain)\w*(?:[- ]vous)?\s+)?(?:entre vous(?: deux)?|toutes les deux|toutes les quatre|vos intelligent\w*|l.intelligence de l.autre|(?:academie|entrainement|entainement)(?: croise)?|seance (?:d.entra?inement|de formation))(.*)/);
@@ -7724,6 +7740,24 @@ function masquerSecrets(s) {
     .replace(/(Bearer\s+)\S+/gi, '$1…masqué')
     .replace(/(key=)[^&\s]+/gi, '$1…masqué');
 }
+// PHASE 6 — le Memory Center affiche la mémoire de la maison, et la mémoire contient
+// des COORDONNÉES D'AUTRUI (« le numero de nadege c'est +225… »). Un écran du Command
+// Center est fait pour être lu à voix haute et montré : le numéro et la boîte mail
+// d'un tiers restent masqués à l'affichage, le fait lui-même demeure lisible, et le
+// fichier sur le disque reste INTACT — Isaac ne perd rien, c'est le navigateur qui
+// ne recopie pas. Une adresse IP de sa propre maison, elle, s'affiche : c'est une
+// machine à surveiller, pas une identité humaine.
+const IPV4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+function masquerCoordonnees(s) {
+  return String(s)
+    .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,4}/g, m => m.slice(0, 2) + '…@… (mail masqué)')
+    .replace(/\+?\d[\d\s.\-()]{6,}\d/g, function (m) {
+      const brut = m.trim();
+      if (IPV4_RE.test(brut)) return m;                 // une adresse réseau se lit
+      if (brut.replace(/[^\d]/g, '').length < 8) return m;  // un code court n'est pas un téléphone
+      return (brut[0] === '+' ? '+' : '') + '… (numéro masqué)';
+    });
+}
 function evenementsRecents(limite) {
   const maintenant = Date.now();
   if (HUD_JOURNAL_CACHE.t && (maintenant - HUD_JOURNAL_CACHE.t) < 4000) {
@@ -8203,29 +8237,134 @@ const server = http.createServer(async (req, res) => {
   }
 
   // VITRINE DU CERVEAU (page /cerveau.html) : les prompts RÉELS des quatre agentes, lus à la demande,  // plus la mémoire vivante. Aucune clé n'y transite — isaac-keys.json n'est jamais lu ici.
+  // PHASE 6 — Memory Center : cette route devient un SUR-ENSEMBLE. Les anciennes clés
+  // (fige, memoire.profile/facts/lecons/log, stats) ne bougent pas, /cerveau.html continue
+  // de marcher telle quelle. Ce qui s'ajoute est MESURÉ (taille et date du fichier, état
+  // du .gitignore, compteurs de scans et d'Académie) ou MASQUÉ (coordonnées d'autrui) ;
+  // rien ici n'invente une valeur, et une mesure impossible s'affiche null — le HUD écrira
+  // « non mesuré ». La route reste en LECTURE SEULE : elle n'est pas dans API_ECRITURE.
   if (u.pathname === '/api/cerveau') {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', 'Allow': 'GET', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ ok: false, reply: 'Methode refusee : la memoire se lit, elle ne s ecrit pas par cette route. Ce qu une agente mémorise passe par « retiens que… », et rien d autre.' }));
+      return;
+    }
     let out;
     try {
       const memC = loadMemory();
+      const faC = memC.facts || [];
+      const leC = (memC.lecons || []).slice(-40);
+      const loC = (memC.log || []).slice(-30);
+      const scC = Array.isArray(memC.scans) ? memC.scans : [];
+      const prof = memC.profile || null;
+      const lisible = (x) => masquerCoordonnees(masquerSecrets(x));
+
+      // — Le fichier lui-même, mesuré à l'instant (aucun chiffre décoratif).
+      let fichier = null;
+      try {
+        const st = fs.statSync(MEMORY_FILE);
+        fichier = {
+          nom: path.basename(MEMORY_FILE),
+          dossier: __dirname,
+          octets: st.size,
+          modifie: new Date(st.mtimeMs).toISOString(),
+          modifie_lisible: new Date(st.mtimeMs).toLocaleString('fr-FR'),
+          echanges_par_seconde: Math.max(0, Math.round((Date.now() - st.mtimeMs) / 1000))
+        };
+      } catch (e) { fichier = null; }
+
+      // — Le dépôt public ne doit PAS contenir cette mémoire : on relit le .gitignore.
+      let gitignore = { verifie: false, mentionne: null, motif: '' };
+      try {
+        const gi = fs.readFileSync(path.join(__dirname, '.gitignore'), 'utf8');
+        const nom = path.basename(MEMORY_FILE);
+        gitignore = {
+          verifie: true,
+          mentionne: gi.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#')).indexOf(nom) >= 0,
+          motif: 'ligne « ' + nom + ' » du fichier .gitignore, relue à la demande'
+        };
+      } catch (e) { gitignore = { verifie: false, mentionne: null, motif: '.gitignore illisible : ' + String(e && e.message || e).slice(0, 60) }; }
+
+      // — Une leçon peut être un objet {t,d,texte} ou une chaîne : les deux se lisent.
+      const texteLecon = (x) => (typeof x === 'string' ? x : String((x && (x.texte || x.d || x.lecon)) || JSON.stringify(x)));
+      const dateLecon = (x) => (x && typeof x === 'object' ? String(x.d || (x.t ? new Date(x.t).toLocaleDateString('fr-FR') : '')) : '');
+
+      // — La recherche dans la mémoire : le motif est comparé en français normalisé
+      // (accents et ponctuation enlevés), l'affichage reste sur la ligne réelle masquée.
+      const motif = String(u.searchParams.get('q') || '').trim().slice(0, 64);
+      let recherche = null;
+      if (motif) {
+        const aiguille = normalize(motif);
+        const trouves = [];
+        const ajouter = (sur, texte, quand) => {
+          if (aiguille && normalize(texte).indexOf(aiguille) >= 0) trouves.push({ sur, texte: lisible(texte), quand: quand || '' });
+        };
+        faC.forEach(f => ajouter('fait', String(f)));
+        leC.forEach(l => ajouter('leçon', texteLecon(l), dateLecon(l)));
+        loC.forEach(e => ajouter('échange', String(e.q || '') + ' — ' + String(e.a || ''), e.t ? new Date(e.t).toLocaleString('fr-FR') : ''));
+        scC.forEach(s => ajouter('scan', (s.cible || '?') + ' (' + (s.agent || '?') + ')', s.t ? new Date(s.t).toLocaleString('fr-FR') : ''));
+        ajouter('profil', JSON.stringify(prof || {}));
+        recherche = { motif, normalise: aiguille, total: trouves.length, lignes: trouves.slice(-20) };
+      }
+
       out = {
         ok: true,
+        // PHASE 6 — le bloc `fige` est le prompt TEL QU'IL PART AU CERVEAU, mais il
+        // porte la memoire injectee (memoryDigest recopie les faits). La vitrine ne
+        // doit pas etre un deuxieme endroit ou le numero d un tiers s affiche : les
+        // coordonnees y sont masquees aussi. Le prompt reel envoye au modele, lui,
+        // garde la valeur complete — c est comme ça qu une agente peut repondre
+        // « quel est le numero de Nadège » sans la redemander.
         fige: {
-          aelyra: identitySystem(memC),
-          jeanette: jeanetteSystemPrompt(''),
-          onyx: onyxSystem(''),
-          aegis: aegisSystem('')
+          aelyra: lisible(identitySystem(memC)),
+          jeanette: lisible(jeanetteSystemPrompt('')),
+          onyx: lisible(onyxSystem('')),
+          aegis: lisible(aegisSystem(''))
         },
+        // PHASE 6 — LE NAVIGATEUR NE REÇOIT QUE DES LIGNES MASQUÉES. Le numéro de
+        // téléphone et la boîte mail d un TIERS sont retirés ici, avant l envoi, sur
+        // toutes les listes (profil, faits, leçons, échanges) : un écran de mémoire se
+        // photographie et se lit à voix haute. Le fichier sur le disque, lui, reste
+        // complet — et les compteurs de `stats` comptent les lignes RÉELLES du fichier.
         memoire: {
-          profile: memC.profile || '',
-          facts: memC.facts || [],
-          lecons: (memC.lecons || []).slice(-40),
-          log: (memC.log || []).slice(-30)
+          profile: prof ? lisible([prof.prenom, prof.role, prof.ville, prof.pays].filter(Boolean).join(', ')) : '',
+          facts: faC.map(lisible),
+          lecons: leC.map(x => ({ t: (x && x.t) || null, date: dateLecon(x), texte: lisible(texteLecon(x)) })),
+          log: loC.map(e => ({ t: e.t || null, q: lisible(String(e.q || '')), a: lisible(String(e.a || '')) }))
         },
         stats: {
-          faits: (memC.facts || []).length,
+          faits: faC.length,
           echanges: (memC.log || []).length,
-          lecons: (memC.lecons || []).length
-        }
+          lecons: (memC.lecons || []).length,
+          scans: scC.length
+        },
+        // — Où c'est écrit, et si c'est publié. Mesuré, pas déclaré.
+        ou_c_est_grave: (path.basename(MEMORY_FILE) + ' dans ' + __dirname),
+        hors_depot: gitignore,
+        fichier: fichier,
+        contrat: 'La mémoire de la maison vit dans un fichier chez Isaac, jamais dans ce navigateur et jamais sur GitHub. Le Command Center la LIT : il n y a ni bouton d effacement ni bouton d écriture, parce qu un souvenir qui sert de preuve ne se vide pas depuis une page.',
+        // — Les scans réels gravés (cible, agente, date, nombre de ports relevés).
+        scans: {
+          total: scC.length,
+          derniers: scC.slice(-8).reverse().map(s => ({
+            t: s.t || null,
+            quand: s.t ? new Date(s.t).toLocaleString('fr-FR') : 'date non gravée',
+            cible: masquerSecrets(String(s.cible || 'cible non dite')),
+            agent: String(s.agent || 'agente non notée'),
+            ports: Array.isArray(s.ports) ? s.ports.length : (typeof s.ports === 'number' ? s.ports : null)
+          }))
+        },
+        // — L'Académie : le régime automatique est un interrupteur RÉEL (mémoire gravée),
+        // la dernière séance et les leçons en attente sont des faits du fichier.
+        academie: {
+          auto: memC.academieAuto !== false,
+          derniere_t: memC.academieLast || null,
+          derniere: memC.academieLast ? new Date(memC.academieLast).toLocaleString('fr-FR') : 'jamais depuis que le compteur existe',
+          il_y_a_s: memC.academieLast ? Math.max(0, Math.round((Date.now() - memC.academieLast) / 1000)) : null,
+          lecons_gravees: (memC.lecons || []).length,
+          attente: memC.academieNotif ? ((memC.academieNotif.lecons || []).length + ' leçon(s) pas encore lue(s)') : 'aucune séance en attente de lecture'
+        },
+        recherche: recherche
       };
     } catch (e) { out = { ok: false, erreur: String(e && e.message || e) }; }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
