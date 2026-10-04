@@ -56,6 +56,15 @@
       : 'compteurs non lus');
     h += ligne('VOIX', voixTxt);
 
+    // Phase 5 : ce que cette agente A FAIT depuis le boot, mesuré par /api/command
+    // lui-même (le compteur suit l agente qui a RENDU la réponse). Zéro = « aucun
+    // ordre traité », pas un tiret décoratif.
+    const act = ((ETAT.droits || {}).activite || {})[ETAT.agent] || null;
+    h += ligne('ACTIVITÉ', act
+      ? (act.commandes + ' ordre(s) traité(s) sous son nom depuis le boot' + (act.refus ? ' · ' + act.refus + ' refus de droit' : '')
+        + (act.derniere_phrase ? ' · dernier : « ' + act.derniere_phrase + ' » (' + (act.derniere_source || '?') + ')' : ''))
+      : 'aucun ordre traité sous son nom depuis le démarrage de ce cerveau', !act);
+
     // PERMISSIONS : la table du serveur, case par case. Un droit absent n'existe pas.
     h += '<div class="cc-ligne"><b>DROITS</b><span>' + (fiche
       ? Object.keys(caps).map(function (k) {
@@ -104,9 +113,21 @@
               const oui = !!(a.droits && a.droits[k]);
               return '<span class="cc-droit ' + (oui ? 'oui' : '') + '" title="' + esc(caps[k]) + '">' + esc(k) + (oui ? ' ✓' : ' ✕') + '</span>';
             }).join('') + '</div>'
+          // Phase 5 : les droits disent ce qu'elle PEUT, cette ligne dit ce qu'elle
+          // A FAIT depuis le boot — mesuré par /api/command, pas estimé.
+          + '<div class="cc-note" style="padding-left:0;margin-top:8px">' + (function () {
+              const act = (r.data.activite || {})[a.agent] || null;
+              if (!act) return 'aucun ordre traité sous son nom depuis le démarrage de ce cerveau';
+              return act.commandes + ' ordre(s) traité(s) sous son nom'
+                + (act.derniere_phrase ? ' · dernier : « ' + esc(act.derniere_phrase) + ' » (' + esc(act.derniere_source || '?') + ')' : '')
+                + (act.refus ? ' · ' + act.refus + ' refus de droit, dernier : ' + esc(act.dernier_refus || '?') : ' · aucun refus de droit');
+            })() + '</div>'
           + '<div class="cc-carte-actions"><button class="cc-petit" data-activer="' + esc(a.agent) + '">ACTIVER</button></div>'
           + '</div>';
       }).join('') + '</div>'
+      + '<div class="cc-note" style="margin-top:12px">Compteurs d activité mesurés par /api/command depuis le démarrage de ce cerveau — le compteur suit l agente qui a RENDU la réponse'
+      + (typeof r.data.depuis_s === 'number' ? ' (il y a ' + esc(K.duree(r.data.depuis_s) || '?') + ')' : '')
+      + ' — un zéro ici est un zéro vrai. Une agente inconnue de la table n a AUCUN droit : le serveur la refuse et le grave.</div>'
       + ((r.data.refus_recent && r.data.refus_recent.length)
         ? '<h4 style="margin:16px 0 8px;font-size:10px;letter-spacing:.2em;color:var(--cyan-fort)">DERNIERS REFUS GRAVÉS</h4>'
           + r.data.refus_recent.slice(0, 8).map(function (l) { return '<div class="cc-ev"><span class="cc-ev-txt">' + esc(l) + '</span></div>'; }).join('')

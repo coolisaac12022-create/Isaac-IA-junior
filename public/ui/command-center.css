@@ -238,8 +238,12 @@ body[data-core-etat="OFFLINE"] .css-heart { opacity: .35; animation: none; }
 .cc-msg-source { font-size: 9px; letter-spacing: .10em; color: var(--texte-pale); margin-top: 4px; }
 
 /* -------------------------------- Barre du bas ---------------------------- */
-.cc-barre {
+/* Classe dediee : NE PAS la rebaptiser .cc-barre, qui est la JAUGE du panneau
+   SYSTEME (5 px, overflow hidden). Le partage du meme nom rognait les boutons
+   du pied et donnait aux jauges le fond en verre et le padding du pied. */
+.cc-pied {
   display: flex; align-items: center; gap: 8px;
+  height: auto; overflow: visible;
   padding: 9px 12px;
   background: linear-gradient(90deg, var(--verre-fort), var(--verre));
   border: 1px solid var(--bord); border-radius: var(--rayon);
@@ -396,7 +400,7 @@ body[data-core-etat="OFFLINE"] .css-heart { opacity: .35; animation: none; }
   .cc-core { min-height: 300px; }
   .cc-parole { flex: none; min-height: 220px; }
   .cc-corps { max-height: 320px; }
-  .cc-barre { flex-wrap: wrap; }
+  .cc-pied { flex-wrap: wrap; }
   .cc-saisie { order: -1; flex-basis: 100%; }
   .cc-activite { max-height: 200px; }
 }

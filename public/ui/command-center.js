@@ -7,7 +7,7 @@
 //  personne d autre ne lit), et tient le chien de garde de fraicheur.
 //  Ordre de chargement exige dans le HTML : core.js, voiceClient.js, hud.js
 //  (le kit), systeme.js, flux.js, conversation.js, agents.js, missions.js,
-//  outils.js, reglages.js, puis celui-ci.
+//  permissions.js, outils.js, reglages.js, puis celui-ci.
 //  Chien de garde : si aucune mesure n arrive pendant 25 s, la page le DIT au
 //  lieu de laisser un ecran fige faire croire que tout va bien.
 // ============================================================================
@@ -31,11 +31,22 @@
     if (cerv.ok && cerv.data && cerv.data.stats) ETAT.cerveau = cerv.data;
     if (voie.ok && voie.data) {
       ETAT.voie = voie.data;
-      const ec = voie.data.en_cours || (voie.data.voie && voie.data.voie.enCours) || null;
+      const v = voie.data;
+      // etatVoie() met le job lui-meme dans `voie` (null = voie libre) : lire ici
+      // `voie.data.voie.enCours` ne trouvait jamais rien et la pastille restait
+      // bloquee sur LIBRE même sous scan complet. Le titre dit le job reel.
+      const ec = v.voie || v.en_cours || null;
+      const enFile = Array.isArray(v.file) ? v.file.filter(function (x) { return !x.annulee; }).length : 0;
       if (el.voie) {
-        el.voie.textContent = 'VOIE ' + (ec ? 'OCCUPÉE' : 'LIBRE');
-        el.voie.className = 'cc-pastille' + (ec ? ' slow' : '');
-        el.voie.title = ec ? ('Job lourd en cours : ' + JSON.stringify(ec).slice(0, 200)) : 'Aucun job lourd : la voie est libre.';
+        el.voie.textContent = 'VOIE ' + (ec ? 'OCCUPÉE' : (v.pause ? 'EN PAUSE' : 'LIBRE')) + (enFile ? ' · ' + enFile + ' EN FILE' : '');
+        el.voie.className = 'cc-pastille' + ((ec || v.pause) ? ' slow' : '');
+        el.voie.title = ec
+          ? ('Job lourd en cours : ' + (ec.type || '?') + ' sur ' + (ec.cible || '?') + ' par ' + (ec.agent || '?')
+            + (ec.progression != null ? ' — ' + ec.progression + '%' : ' — progression non mesurée')
+            + (ec.reste_s != null ? ', reste ' + Math.round(ec.reste_s) + ' s' : '') + '. ' + enFile + ' en file.')
+          : (v.pause
+            ? ('Départs en pause : aucun nouveau job ne part, la file attend. ' + enFile + ' en file.')
+            : ('Aucun job lourd : la voie est libre. ' + enFile + ' en file.'));
       }
     }
     if (window.HudAgents) HudAgents.rendre();
@@ -69,6 +80,7 @@
 
     const ba = K.$('#btnAgents'); if (ba) ba.onclick = function () { if (window.HudAgents) HudAgents.modale(); };
     const bm = K.$('#btnMissions'); if (bm) bm.onclick = function () { if (window.HudMissions) HudMissions.modale(); };
+    const bp = K.$('#btnPermissions'); if (bp) bp.onclick = function () { if (window.HudPermissions) HudPermissions.modale(); };
     const bo = K.$('#btnOutils'); if (bo) bo.onclick = function () { if (window.HudOutils) HudOutils.modale(); };
     const br = K.$('#btnReglages'); if (br) br.onclick = function () { if (window.HudReglages) HudReglages.modale(); };
     const bch = K.$('#btnChanger'); if (bch) bch.onclick = function () { if (window.HudAgents) HudAgents.modale(); };

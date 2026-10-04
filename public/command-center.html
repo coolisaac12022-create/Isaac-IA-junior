@@ -96,7 +96,11 @@
   </section>
 
   <!-- ============================ BARRE DU BAS =========================== -->
-  <footer class="cc-barre">
+  <!-- Barre du bas. Classe DISTINCTE de .cc-barre (les jauges du panneau SYSTEME) :
+       jusqu'ici le pied et les jauges partageaient le meme nom, donc les memes
+       regles — le pied heritait de « height:5px; overflow:hidden » et rognait les
+       boutons, les jauges heritaient du fond en verre et du padding du pied. -->
+  <footer class="cc-pied">
     <button class="cc-btn" id="btnParler" title="Parler (reconnaissance vocale du navigateur)">🎙 <span class="txt">TALK</span></button>
     <div class="cc-saisie">
       <input id="saisie" type="text" autocomplete="off"
@@ -105,6 +109,7 @@
     </div>
     <button class="cc-btn" id="btnAgents" title="Les quatre agentes et leurs droits réels">👥 <span class="txt">AGENTS</span></button>
     <button class="cc-btn" id="btnMissions" title="Les missions : le registre réel des tâches">🎯 <span class="txt">MISSIONS</span></button>
+    <button class="cc-btn" id="btnPermissions" title="La table des droits réelle et les refus gravés">🛡 <span class="txt">PERMISSIONS</span></button>
     <button class="cc-btn" id="btnOutils" title="Les outils réellement disponibles">🧰 <span class="txt">TOOLS</span></button>
     <button class="cc-btn" id="btnReglages" title="Réglages du JARVIS : interface, IA, voix">⚙ <span class="txt">SETTINGS</span></button>
   </footer>
@@ -133,6 +138,7 @@
 <script src="ui/conversation.js"></script>
 <script src="ui/agents.js"></script>
 <script src="ui/missions.js"></script>
+<script src="ui/permissions.js"></script>
 <script src="ui/outils.js"></script>
 <script src="ui/reglages.js"></script>
 <script src="ui/command-center.js"></script>

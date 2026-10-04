@@ -3435,14 +3435,51 @@ function droitRefuse(agent, cap) {
   const qui = agent || 'aelyra';
   if (!DROIT_NOM[cap]) return null;
   const table = DROITS[qui];
-  if (!table) return null;
+  // Une agente INCONNUE de la table n'a AUCUN droit : autant fermer que deviner.
+  // Avant la Phase 5, ce cas rendait null (« pas de refus ») — un trou entre le
+  // commentaire et le code. Le refus ci-dessous est gravé comme les autres.
+  if (!table) {
+    const quiPeut = agentsAyantDroit(cap);
+    journalDroits('REFUS ' + qui + ' (absente de la table) — ' + cap + ' (droit : ' + DROIT_NOM[cap] + ')');
+    noterRefusActivite(qui, cap);
+    VOIE.nbRefuses++;
+    return "« " + qui + " » n existe pas dans la table des droits de cette maison : une agente inconnue n a aucun droit, pas même celui de " + DROIT_NOM[cap] + ". " +
+      (quiPeut.length ? "Qui le peut : " + quiPeut.join(', ') + ". " : "Personne ne le peut dans cette maison. ") +
+      "Ce refus est grave dans journal-droits.log et la table se lit sur /api/droits.";
+  }
   if (table[cap] === true) return null;
   const quiPeut = agentsAyantDroit(cap);
   journalDroits('REFUS ' + qui + ' — ' + cap + ' (droit : ' + DROIT_NOM[cap] + ')');
+  noterRefusActivite(qui, cap);
   VOIE.nbRefuses++;
   return "Ce n'est pas mon droit, Isaac — « " + qui + " » n'a pas été écrite pour " + DROIT_NOM[cap] + ". " +
     (quiPeut.length ? "Qui le peut : " + quiPeut.join(', ') + " — redemande-lui la même phrase. " : "Personne ne le peut dans cette maison. ") +
     "Ce refus est grave dans journal-droits.log et la table se lit sur /api/droits.";
+}
+
+// ---------- Phase 5 (2026-10-04) : l'activité par agente, MESURÉE ----------
+// Le panneau Agents montrait les droits (ce qu'une agente PEUT) mais pas ce
+// qu'elle A FAIT. Ces compteurs sont incrémentés par /api/command lui-même, au
+// moment où la réponse part, et par droitRefuse au moment du refus : rien n'est
+// reconstruit après coup. Aucun ordre reçu = compteur à zéro, et le panneau
+// affiche zéro — un zéro vrai vaut mieux qu'un tiret décoratif.
+const ACTIVITE_AGENTS = {};
+function activiteDe(qui) {
+  return ACTIVITE_AGENTS[qui] || (ACTIVITE_AGENTS[qui] = {
+    commandes: 0, refus: 0, derniere_quand: null, derniere_source: null, derniere_phrase: null, dernier_refus: null
+  });
+}
+function noterActivite(agent, phrase, source) {
+  const a = activiteDe(String(agent || 'aelyra').toLowerCase());
+  a.commandes++;
+  a.derniere_quand = Date.now();
+  a.derniere_source = String(source || 'inconnue');
+  a.derniere_phrase = String(phrase || '').slice(0, 90);
+}
+function noterRefusActivite(agent, cap) {
+  const a = activiteDe(String(agent || 'aelyra').toLowerCase());
+  a.refus++;
+  a.dernier_refus = cap + ' — ' + new Date().toLocaleTimeString('fr-FR');
 }
 function resumeDroits() {
   return {
@@ -3452,7 +3489,11 @@ function resumeDroits() {
     agents: Object.keys(DROITS).map(a => ({ agent: a, droits: DROITS[a], peut: Object.keys(DROITS[a]).filter(c => DROITS[a][c]) })),
     journal: ESSAI ? 'journal-droits.essai.log' : 'journal-droits.log',
     ou_c_est_grave: 'bloc DROITS de server.js (c est le code qui commande, cette reponse le relit)',
-    refus_recent: DROITS_JOURNAL.slice(-10).reverse()
+    refus_recent: DROITS_JOURNAL.slice(-10).reverse(),
+    // Phase 5 : ce que chaque agente A FAIT depuis le démarrage de ce cerveau,
+    // mesuré par /api/command et droitRefuse — pas une estimation.
+    activite: ACTIVITE_AGENTS,
+    depuis_s: Math.round(process.uptime())
   };
 }
 // La table doit être lue AVANT le découpage de l'adresse (l'atelier d'auto-correction tourne plus
@@ -8241,7 +8282,18 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const ref = String(a.ref || a.tache || '').trim().toUpperCase();
-      const ag = String(a.agent || 'aelyra');
+      // Phase 5 : la page dit QUI appuie (par). Une agente sans le droit « scan »
+      // ne déplace pas et ne pause pas la voie : le refus est le même que celui
+      // de la voix, et il nomme celle qui peut. Sans `par`, la maison répond sous
+      // le nom d'Aelyra, comme avant — rien ne casse pour /taches.html.
+      const par = String(a.par || a.agent || '').toLowerCase();
+      const ag = DROITS[par] ? par : 'aelyra';
+      const refusD = droitRefuse(ag, 'scan');
+      if (refusD) {
+        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ok: false, reply: refusD }));
+        return;
+      }
       let r2 = { ok: false, reply: 'Rien fait, Isaac : donne la reference de la tache (T-……) pour « priorite » ou « reculer ».' };
       if (a.action === 'priorite' && ref) {
         const r = passerEnPremier(ref);
@@ -8287,19 +8339,29 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const ref = String(a.ref || a.tache || '').trim().toUpperCase();
+      // Phase 5 : même garde que la voie — annuler ou taire une mission est un acte
+      // de scan, pas un acte de carnet. Sans `par`, Aelyra signe comme avant.
+      const parT = String(a.par || a.agent || '').toLowerCase();
+      const agT = DROITS[parT] ? parT : 'aelyra';
+      const refusT = droitRefuse(agT, 'scan');
+      if (refusT) {
+        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ok: false, reply: refusT }));
+        return;
+      }
       let res2 = { ok: false, reply: 'Rien fait, Isaac : donne la reference de la tache (T-……), exemple « annule la tache T-261002-1145 ».' };
       if (a.action === 'annuler' && ref) {
         const r = annulerTache(ref);
         res2 = r.ok ? { ok: true, arrete: r.arrete, reply: r.detail, tache: rendreTache(r.tache) }
                    : { ok: false, reply: 'Annulation refusée : ' + r.erreur + '.' };
-        tracerFrappe(ref, 'aelyra', 'TACHE ' + (res2.ok ? (res2.arrete ? 'ANNULEE' : 'ANNULATION DEMANDEE (le job tourne)') : 'NON ANNULEE — ' + res2.reply.slice(0, 80)));
+        tracerFrappe(ref, agT, 'TACHE ' + (res2.ok ? (res2.arrete ? 'ANNULEE' : 'ANNULATION DEMANDEE (le job tourne)') : 'NON ANNULEE — ' + res2.reply.slice(0, 80)));
       } else if (a.action === 'taire' && ref) {
         // Le balayage en cours ne se rappelle pas ; ce qui s'arrête, c'est la VOIX. Le résultat
         // reste écrit au registre — Isaac garde la preuve, il choisit seulement de ne pas l'entendre.
         const r = taireTache(ref);
         res2 = r.ok ? { ok: true, reply: r.detail, tache: rendreTache(r.tache) }
                    : { ok: false, reply: "Rien n'a ete tu : " + r.erreur + '.' };
-        tracerFrappe(ref, 'aelyra', 'TACHE RAPPORT TAI SUR ORDRE — ' + res2.reply.slice(0, 100));
+        tracerFrappe(ref, agT, 'TACHE RAPPORT TAI SUR ORDRE — ' + res2.reply.slice(0, 100));
       }
       res.writeHead(res2.ok ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify(res2));
@@ -8355,6 +8417,9 @@ const server = http.createServer(async (req, res) => {
         const result = await handleCommand(text, image);
         // Une agente a exécuté elle-même une commande système : la réponse prend ses couleurs et sa voix.
         if (JEANETTE_AUX_COMMANDES && !result.agent && !result.conversation) result.agent = AGENT_AUX_NOM || 'jeanette';
+        // Phase 5 : l'activité par agente se mesure ICI, au moment où la réponse
+        // part — le panneau Agents dira qui a vraiment travaillé depuis le boot.
+        try { noterActivite(result.agent, String(text || (image ? 'image jointe' : '')), result.source); } catch (e) {}
         console.log('> Réponse (' + result.source + '):', result.reply.slice(0, 120));
         // Enregistrement dans la mémoire de conversation
         if ((text && String(text).trim()) || image) {
