@@ -92,6 +92,11 @@ function setAgent(a) {
   if (btnOnyx) btnOnyx.classList.toggle('active', agentActif === 'onyx');
   if (btnAegis) btnAegis.classList.toggle('active', agentActif === 'aegis');
   if (window.Avatars) window.Avatars.setActive(agentActif);
+  // Le Command Center (charge sur cette page) doit suivre le meme agent que le corps :
+  // une seule verite. Sans ce pont, la pastille « AGENT ACTIF » resterait sur Aelyra
+  // quand Isaac choisit Onyx — lecran mentirait sur qui tient la main.
+  if (window.HudKit) { HudKit.ETAT.agent = agentActif; HudKit.rafraichirLegende(); }
+  if (window.HudAgents) { try { HudAgents.rendre(); } catch (e) {} }
   if (!isSpeaking && !processing) {
     setState(null, wakeMode ? veilleMsg(agentActif) : 'En attente de vos ordres, Isaac');
   }

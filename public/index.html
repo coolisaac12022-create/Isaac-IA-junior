@@ -3,92 +3,207 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aelyra, Jeanette, Onyx & Aegis — Les quatre agentes de Isaac</title>
+<title>JARVIS — L'équipe d'Isaac (Aelyra, Jeanette, Onyx, Aegis)</title>
+<!-- Deux feuilles, dans cet ordre : style.css porte le réacteur, les visages 3D
+     et les bulles de conversation ; command-center.css porte la COQUILLE du poste
+     de commande (fond, panneaux en verre, pastilles, pied). La seconde est lue en
+     dernier : c'est elle qui donne à la page le look JARVIS COMMAND CENTER. -->
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="ui/command-center.css">
+<style>
+  /* Le réacteur vit DEDANS le core encadré du Command Center : on le dimensionne
+     pour qu'il tienne dans le cadre, et on laisse le canvas des visages (inset:0)
+     remplir tout le box. Rien d'inventé ici — que de l'agencement. */
+  .cc-core.stage { padding: 0; }
+  .cc-core .reactor-wrap { transform: scale(.82); }
+  .cc-core .cc-core-legende { bottom: 10px; }
+  .cc-core .cc-core-etat { font-size: 14px; }
+  /* Le champ du pied est un <form> : on lui donne la forme .cc-saisie du CC. */
+  form.cc-saisie { padding: 0 12px; }
+  @media (max-width: 980px) { .cc-core .reactor-wrap { transform: scale(.9); } }
+</style>
 </head>
-<body>
+<body data-core-agent="aelyra">
 
-<!-- Écran de démarrage -->
+<!-- ===== Fond du Command Center ===== -->
+<div class="cc-fond"></div>
+<div class="cc-grille"></div>
+<div class="cc-balayage"></div>
+
+<!-- Le bandeau ne ment jamais : il n'apparaît que sur un échec réel. -->
+<div class="cc-bandeau" id="bandeau"></div>
+
+<!-- ===== Écran de démarrage (app.js) ===== -->
 <div id="boot">
   <div class="boot-core"></div>
   <div class="boot-lines" id="bootLines"></div>
 </div>
 
-<!-- Fond HUD -->
-<div class="grid-bg"></div>
-<div class="scanline"></div>
+<div class="cc">
 
-<!-- Barre supérieure -->
-<header class="hud-top">
-  <div class="hud-left">
-    <span class="dot online" id="serverDot"></span> <span id="serverStatus">SYSTÈMES EN LIGNE</span>
-  </div>
-  <div class="hud-title">
-    <div id="hudTitle">AELYRA</div>
+  <!-- ============================== EN-TÊTE ============================== -->
+  <header class="cc-top">
+    <div class="cc-marque">
+      <div class="cc-titre" id="hudTitle">AELYRA</div>
+      <div class="cc-sous" id="sousTitre">la table où Isaac parle à ses agentes</div>
+    </div>
+
+    <!-- Choix de l'agente active : les quatre boutons que pilote app.js -->
     <div class="agent-switch" id="agentSwitch">
       <button id="btnAelyra" class="sw active">AELYRA</button>
       <button id="btnJeanette" class="sw sw-gk">JEANETTE</button>
       <button id="btnOnyx" class="sw sw-onyx">ONYX</button>
       <button id="btnAegis" class="sw sw-aegis">AEGIS</button>
     </div>
-  </div>
-  <div class="hud-right"><button id="soundBtn" class="sound-btn" title="Couper ou activer la voix">🔊</button> <span id="clock">--:--</span></div>
-</header>
 
-<!-- Réacteur -->
-<main class="stage">
-  <div class="reactor-wrap">
-    <div class="ring ring-outer"></div>
-    <div class="ring ring-mid"></div>
-    <div class="ring ring-inner"></div>
-    <div class="ring ring-dashed"></div>
-    <div class="ticks" id="ticks"></div>
-    <button id="reactor" class="core" title="Cliquer pour parler à Aelyra ou Jeanette">
-      <div class="core-glow"></div>
-      <div class="core-center"></div>
-    </button>
-  </div>
-  <div id="status" class="status">Initialisation...</div>
-</main>
+    <span class="cc-top-espace"></span>
 
-<!-- Journal de conversation -->
-<section class="log-panel">
-  <div class="log-head">
-    <span>JOURNAL DE COMMUNICATION</span>
-    <div class="log-tools">
-      <label class="wake-toggle">
-        <input type="checkbox" id="wakeMode">
-        <span>Mode veille</span>
-      </label>
-      <button id="voixBtn" class="zoom-btn" title="La voix de chaque agente : choisir, régler, écouter">🗣</button>
-      <button id="logZoom" class="zoom-btn" title="Agrandir ou réduire le journal (ou tirez le bord du journal)">⤢</button>
-      <a id="ccBtn" class="zoom-btn" href="command-center.html" title="Ouvrir le JARVIS COMMAND CENTER : noyau holographique, mesures réelles, agentes, missions">◈</a>
+    <!-- La liaison (app.js) + les pastilles réelles du CC (hud/command-center.js) -->
+    <span class="cc-pastille" title="Le cerveau répond-il ?"><i class="dot online" id="serverDot"></i><span id="serverStatus">SYSTÈMES EN LIGNE</span></span>
+    <span class="cc-pastille" id="pastilleVoie" title="Un seul job lourd à la fois">VOIE —</span>
+    <span class="cc-pastille" id="pastilleVoix" title="Le moteur qui parle réellement">VOIX —</span>
+    <span class="cc-pastille" id="pastilleMemoire" title="La mémoire gravée — clique pour ouvrir le Memory Center">MÉMOIRE —</span>
+    <button id="soundBtn" class="cc-btn" title="Couper ou rendre la voix">🔊</button>
+    <span class="cc-heure" id="clock">--:--:--</span>
+    <a class="cc-lien" href="command-center.html" title="Le poste de commande plein écran">◈ HUD</a>
+  </header>
+
+  <!-- =============================== MILIEU ============================== -->
+  <main class="cc-milieu">
+
+    <!-- ---------------------------- SYSTÈME ---------------------------- -->
+    <section class="cc-panneau cc-gauche">
+      <div class="cc-tete">
+        <h2>System</h2>
+        <div class="cc-outils"><span class="cc-badge info" id="badgeFraicheur">—</span></div>
+      </div>
+      <div class="cc-corps" id="panneauSysteme">
+        <div class="cc-ligne"><b>ÉTAT</b><span class="non">première mesure en cours…</span></div>
+      </div>
+      <div class="cc-mini" id="noteSysteme">Mesures réelles de ce PC. Ce qui ne se mesure pas est écrit « non mesuré ».</div>
+    </section>
+
+    <!-- --------------------- CORE (visages 3D) + PAROLE ------------------ -->
+    <section class="cc-centre">
+      <!-- Le cadre du core du CC accueille les VRAIS VISAGES 3D (avatar3d.js)
+           et le réacteur cliquable (app.js). .stage = l'hôte que cherche avatar3d. -->
+      <div class="cc-core stage" id="core">
+        <div class="reactor-wrap">
+          <div class="ring ring-outer"></div>
+          <div class="ring ring-mid"></div>
+          <div class="ring ring-inner"></div>
+          <div class="ring ring-dashed"></div>
+          <div class="ticks" id="ticks"></div>
+          <button id="reactor" class="core" title="Cliquer pour parler à l'agente active">
+            <div class="core-glow"></div>
+            <div class="core-center"></div>
+          </button>
+        </div>
+        <div class="cc-core-legende">
+          <div class="cc-core-etat" id="status">Initialisation…</div>
+          <div class="cc-core-agent" id="coreAgent">AELYRA</div>
+          <div class="cc-core-detail" id="coreDetail">moteur —</div>
+        </div>
+      </div>
+
+      <!-- Le panneau « Communication » du CC = le journal de conversation d'app.js -->
+      <div class="cc-panneau cc-parole">
+        <div class="cc-tete">
+          <h2>Communication</h2>
+          <div class="cc-outils">
+            <label class="wake-toggle" title="Écoute permanente : dites un prénom pour activer l'agente">
+              <input type="checkbox" id="wakeMode"><span>VEILLE</span>
+            </label>
+            <button class="cc-petit" id="voixBtn" title="La voix de chaque agente : choisir, régler, écouter">🗣</button>
+            <button class="cc-petit" id="logZoom" title="Agrandir / réduire le journal">⤢</button>
+          </div>
+        </div>
+        <div id="voixPanneau" class="voix-panneau" hidden></div>
+        <div id="imgPreview" class="img-preview" hidden>
+          <img id="imgThumb" alt="aperçu de l'image jointe">
+          <span id="imgName">image jointe</span>
+          <button type="button" id="imgRemove" title="Retirer l'image">✕</button>
+        </div>
+        <div class="cc-log" id="log"></div>
+      </div>
+    </section>
+
+    <!-- -------------------------- AGENTE ACTIVE ------------------------- -->
+    <section class="cc-panneau cc-droite">
+      <div class="cc-tete">
+        <h2>Active agent</h2>
+        <div class="cc-outils"><button class="cc-petit" id="btnChanger" title="Changer l'agente active">CHANGER</button></div>
+      </div>
+      <div class="cc-corps" id="panneauAgent">
+        <div class="cc-ligne"><b>ÉTAT</b><span class="non">chargement…</span></div>
+      </div>
+      <div class="cc-mini" id="noteAgent">Les droits affichés viennent de la table écrite dans le serveur (/api/droits).</div>
+    </section>
+
+  </main>
+
+  <!-- ============================== ACTIVITÉ ============================= -->
+  <section class="cc-panneau cc-activite">
+    <div class="cc-tete">
+      <h2>Activity</h2>
+      <div class="cc-outils">
+        <span class="cc-badge" id="badgeFlux">—</span>
+        <button class="cc-petit" id="btnFluxPause" title="Figer le flux pour le lire">FIGER</button>
+      </div>
     </div>
-  </div>
-  <div id="voixPanneau" class="voix-panneau" hidden></div>
-  <div id="log" class="log"></div>
-  <div id="imgPreview" class="img-preview" hidden>
-    <img id="imgThumb" alt="aperçu de l'image jointe">
-    <span id="imgName">image jointe</span>
-    <button type="button" id="imgRemove" title="Retirer l'image">✕</button>
-  </div>
-  <form id="cmdForm" class="cmd-bar">
-    <input type="file" id="imgFile" accept="image/*" hidden>
-    <button type="button" id="imgBtn" class="attach-btn" title="Joindre une image (ou Ctrl+V)">📎</button>
-    <button type="button" id="micBtn" class="mic-btn" title="Parler">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-        <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/>
-        <path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V22h2v-2.06A9 9 0 0 0 21 11h-2z"/>
-      </svg>
-    </button>
-    <input id="cmdInput" type="text" placeholder="Écrivez un ordre... ex : « ouvre youtube », « quelle heure est-il ». Image ? 📎 ou Ctrl+V, puis posez votre question." autocomplete="off">
-    <button type="submit" class="send-btn" title="Envoyer">➤</button>
-  </form>
-</section>
+    <div class="cc-corps"><div class="cc-flux" id="flux"></div></div>
+    <div class="cc-mini">Flux réel : journaux gravés par le cerveau + requêtes de cette session.</div>
+  </section>
 
+  <!-- ============================ BARRE DU BAS =========================== -->
+  <footer class="cc-pied">
+    <button class="cc-btn" id="micBtn" title="Parler (reconnaissance vocale du navigateur)">🎙 <span class="txt">TALK</span></button>
+    <form id="cmdForm" class="cc-saisie">
+      <input type="file" id="imgFile" accept="image/*" hidden>
+      <button type="button" id="imgBtn" title="Joindre une image (ou Ctrl+V)">📎</button>
+      <input id="cmdInput" type="text" autocomplete="off"
+             placeholder="⌨ COMMAND — écris un ordre : « état du système », « onyx, scanne mes appareils », « jeanette, crée un site »…">
+      <button type="submit" class="cc-envoi" title="Envoyer">➤</button>
+    </form>
+    <button class="cc-btn" id="btnAgents" title="Les agentes et leurs droits réels">👥 <span class="txt">AGENTS</span></button>
+    <button class="cc-btn" id="btnMissions" title="La voie et sa file de tâches">🎯 <span class="txt">MISSIONS</span></button>
+    <button class="cc-btn" id="btnPermissions" title="La table des droits et les refus gravés">🛡 <span class="txt">DROITS</span></button>
+    <button class="cc-btn" id="btnMemoire" title="Memory Center : la mémoire réelle du cerveau">🧠 <span class="txt">MEMORY</span></button>
+    <button class="cc-btn" id="btnOutils" title="Les outils réellement disponibles">🧰 <span class="txt">TOOLS</span></button>
+    <button class="cc-btn" id="btnReglages" title="Réglages : cerveau IA, Académie, voix, dictée">⚙ <span class="txt">SETTINGS</span></button>
+  </footer>
+
+</div>
+
+<!-- ================================ MODALES ============================== -->
+<div class="cc-voile" id="voile">
+  <div class="cc-modale">
+    <div class="cc-modale-tete">
+      <h3 id="modaleTitre">—</h3>
+      <button class="cc-x" id="modaleFermer" title="Fermer">✕</button>
+    </div>
+    <div class="cc-modale-corps" id="modaleCorps"></div>
+  </div>
+</div>
+
+<!-- Moteur de conversation : app.js garde la main sur le journal, le micro, la
+     veille, l'image jointe, les rappels et l'Académie. Les modules ui/ ne font
+     que REMPLIR les panneaux (System, Agent, Activity, pastilles, modales) avec
+     des mesures RÉELLES lues du cerveau. core.js et conversation.js du CC ne sont
+     PAS chargés : le core est tenu par les visages 3D, la conversation par app.js. -->
 <script src="three.min.js"></script>
 <script src="avatar3d.js"></script>
 <script src="voice/voiceClient.js"></script>
 <script src="app.js"></script>
+<script src="ui/hud.js"></script>
+<script src="ui/systeme.js"></script>
+<script src="ui/flux.js"></script>
+<script src="ui/agents.js"></script>
+<script src="ui/missions.js"></script>
+<script src="ui/permissions.js"></script>
+<script src="ui/memoire.js"></script>
+<script src="ui/outils.js"></script>
+<script src="ui/reglages.js"></script>
+<script src="ui/command-center.js"></script>
 </body>
 </html>

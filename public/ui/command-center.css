@@ -70,11 +70,22 @@ html, body {
   height: 100vh; display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 10px; padding: 10px 14px 12px;
+  /* Sur un grand écran, la grille pleine largeur étalait les trois colonnes et
+     le journal trop loin : on plafonne la largeur et on CENTRE le poste de
+     commande. Les fonds (.cc-fond/.cc-grille/.cc-balayage) sont en position:fixed
+     plein viewport, donc centrer la grille ne laisse aucun trou autour. */
+  width: 100%; max-width: 1280px; margin: 0 auto;
 }
 
 /* --------------------------------- En-tête -------------------------------- */
 .cc-top {
   display: flex; align-items: center; gap: 14px;
+  /* L'en-tête porte beaucoup (titre + 4 pills d'agente + 4 pastilles + sonnerie +
+     horloge + lien). En une seule ligne sans retour à la ligne, ces éléments
+     dépassaient la largeur et, comme html/body sont en overflow:hidden, l'horloge
+     et le lien étaient ROGNÉS hors écran chez Isaac. flex-wrap : ce qui ne tient
+     pas descend à la ligne au lieu d'être coupé — l'heure reste toujours visible. */
+  flex-wrap: wrap; row-gap: 8px;
   padding: 9px 16px;
   background: linear-gradient(90deg, rgba(79, 216, 255, .09), var(--verre) 40%, rgba(178, 118, 255, .09));
   border: 1px solid var(--bord);
