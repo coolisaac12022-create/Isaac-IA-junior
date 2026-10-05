@@ -802,6 +802,9 @@ function graverLecons(lecons) {
   if (grav) {
     if (mem.lecons.length > 80) mem.lecons = mem.lecons.slice(-80);
     saveMemory(mem);
+    // Orange #13 : une seance d'Academie qui grave des leçons modifie le cerveau — c'est
+    // un maillon du grand livre, avec ce qui est entre et ce qui a ete ecarte (hors sol).
+    try { graverAudit('EVOLUTION', null, 'LECONS', grav + ' lecon(s) gravee(s), ' + ecartees.length + ' ecartee(s)'); } catch (e) {}
   }
   return { grav, total: mem.lecons.length, first: mem.lecons.length ? mem.lecons[0].d : d, ecartees };
 }
@@ -1003,6 +1006,9 @@ function ecrireFichierExtensions(contenu) {
     '// Isaac : tu peux lire et editer ce fichier toi-meme. Un bloc retire = le geste disparait.\n' +
     '// Un geste n a acces ni au disque, ni au reseau, ni aux verrous legaux de la maison.\n';
   fs.writeFileSync(CHEMIN_EXTENSIONS, entete + '\n' + contenu, 'utf8');
+  // Orange #13 : le cerveau vient de réécrire une partie de lui-meme. Chaque geste appris
+  // entre, retire ou remplace est un maillon du grand livre — l'auto-modification est tracee.
+  try { let n = 0; try { n = decouperBlocsExt(contenu).length; } catch (e) {} graverAudit('EVOLUTION', 'aelyra', 'GESTES', 'extensions.js reecrit : ' + n + ' bloc(s), sauvegarde dans ' + (ESSAI ? 'backups-essai' : 'backups')); } catch (e) {}
 }
 
 function corpsFichierExtensions() {
@@ -2625,6 +2631,9 @@ function ecrireEngagements(liste) {
 }
 function journalEngagement(quoi) {
   try { fs.appendFileSync(CHEMIN_JOURNAL, new Date().toISOString() + ' :: ' + String(quoi).replace(/\s+/g, ' ') + '\n'); } catch (e) {}
+  // Orange #13 : chaque mouvement de fiche est AUSSI un maillon du grand livre (_creation,
+  // cloture, refus de verrou, frappe sous mandat — ce sont les moments legallyaux).
+  try { graverAudit('ENGAGEMENT', agentDans(quoi), premierMot(quoi), quoi); } catch (e) {}
 }
 function estUneIP(s) { return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(s || '').trim()); }
 function octets(s) { return String(s).trim().split('.').map(Number); }
@@ -2817,6 +2826,9 @@ function journalBusiness(ligne) {
     fs.mkdirSync(DOSSIER_BUSINESS, { recursive: true });
     fs.appendFileSync(CHEMIN_JOURNAL_BUSINESS, new Date().toISOString() + ' :: ' + String(ligne).replace(/\s+/g, ' ') + '\n');
   } catch (e) {}
+  // Orange #13 : tout mouvement du carnet (surtout ENVOI-WA / ENVOI-MAIL, un ordre explicite
+  // d'Isaac) est un maillon du grand livre — la prospection devient auditable ligne a ligne.
+  try { graverAudit('BUSINESS', 'business', premierMot(ligne), ligne); } catch (e) {}
 }
 function refProspect(n) { return 'PROS-' + String(Number(n) || 0).padStart(3, '0'); }
 function prochaineRefProspect() {
@@ -3428,6 +3440,9 @@ function journalDroits(ligne) {
   DROITS_JOURNAL.push(quand.toLocaleTimeString('fr-FR') + ' — ' + ligne);
   while (DROITS_JOURNAL.length > 40) DROITS_JOURNAL.shift();
   try { noterEvenement('DROITS', ligne); } catch (e) {}
+  // Orange #13 : un refus de droit est un moment legallyal — il entre dans le grand livre,
+  // en nommant l'agente concernee quand la ligne la cite (REFUS onyx | code …).
+  try { graverAudit('DROIT', agentDans(ligne), /refus/i.test(ligne) ? 'REFUS' : 'DECISION', ligne); } catch (e) {}
 }
 // agent null = Aelyra : la maison répond sans qu'on l'appelle. Une agente inconnue n'a AUCUN
 // droit — tant vaut fermer que deviner.
@@ -3588,6 +3603,8 @@ function journalOrchestrateur(ligne) {
   VOIE.mouvements.push(quand.toLocaleTimeString('fr-FR') + ' — ' + ligne);
   if (VOIE.mouvements.length > 40) VOIE.mouvements.shift();
   try { noterEvenement('VOIE', ligne); } catch (e) {}
+  // Orange #13 : DEPART/FIN/ECHEC/REFUS de la voie = le debut et la fin de chaque scan.
+  try { graverAudit('VOIE', agentDans(ligne), premierMot(ligne), ligne); } catch (e) {}
 }
 function tacheAuRegistre(ref) { return lireTaches().find(x => x.ref === ref) || null; }
 // L'échéance est fixe en production. En essai seul, ISAAC_VOIE_MIN=0.15 permet de VÉRIFIER que la
@@ -7386,6 +7403,9 @@ function journaliserPolitique(decision, req, u) {
       ' | origin=' + (req.headers.origin || '-') + ' | referer=' + (req.headers.referer || '-') + '\n');
   } catch (e) {}
   try { noterEvenement('POLITIQUE', 'REFUS ' + decision.code + ' — ' + req.method + ' ' + u.pathname + ' : ' + decision.motif); } catch (e) {}
+  // Orange #13 : un refus d'acces (origine etrangere, Content-Type deguise, DNS rebinding)
+  // est LE moment de securite par excellence — il est grave dans le grand livre a chaine.
+  try { graverAudit('ACCES', null, 'REFUS-' + decision.code, req.method + ' ' + u.pathname + ' : ' + decision.motif); } catch (e) {}
 }
 
 // ---------- HUD : l'état RÉEL de la machine ----------
@@ -7406,6 +7426,67 @@ function noterEvenement(categorie, texte) {
     if (EVENEMENTS.length > EVENEMENTS_MAX) EVENEMENTS.splice(0, EVENEMENTS.length - EVENEMENTS_MAX);
   } catch (e) {}
 }
+
+// ---------- ORANGE #13 — LE JOURNAL D'AUDIT UNIFIÉ (chaîne infalsifiable) ----------
+// Les journaux par domaine (politique, droits, voie, engagements, business, evolution,
+// voix, IA) restent ou ils sont : chacun raconte son metier et le harnais s'appuie dessus
+// (regle n°20, rien n'est supprime). Mais Isaac voulait AUSSI un seul grand livre qui
+// dise, dans l'ordre, « qui a fait quoi ». Ce grand livre est une CHAINE : chaque ligne
+// porte l'empreinte sha256 de la precedente. Effacer, reordonner ou retoucher une ligne
+// au milieu casse le maillon suivant, et /api/audit le VOIT a chaque lecture. Le cerveau
+// ne fait qu'AJOUTER au bout : aucune route n'ecrit ni ne rase ce fichier. La valeur est
+// gravee INTACTE sur le disque (c'est la preuve) ; seul l'affichage HTTP masque secrets et
+// coordonnees, comme partout ailleurs dans la maison.
+const AUDIT_GENESIS = 'AELYRA-AUDIT-GENESE';
+let AUDIT_DERNIER = null;                         // dernier hash grave (null = pas encore relu le disque)
+
+function cheminAudit() { return path.join(__dirname, ESSAI ? 'journal-audit.essai.log' : 'journal-audit.log'); }
+function empreinteAudit(rec) {
+  return crypto.createHash('sha256')
+    .update([rec.ts, rec.cat, rec.agent, rec.action, rec.detail, rec.prev].join('\u0001')).digest('hex');
+}
+// Marche sur toute la chaine et dit OU elle casse, s'il y a une cassure. On avance neanmoins
+// le « attendu » au hash stocke de chaque ligne lue : la premiere ligne fautive est seule
+// accusee, les suivantes ne croulent pas en cascade sous une fausse alerte.
+function chaineAudit() {
+  let brut = '';
+  try { brut = fs.readFileSync(cheminAudit(), 'utf8'); } catch (e) { return { total: 0, cassure: -1, dernier: AUDIT_GENESIS, lignes: [] }; }
+  const lignes = brut.split(/\r?\n/).filter(Boolean);
+  let attendu = AUDIT_GENESIS, cassure = -1;
+  const lues = [];
+  for (let i = 0; i < lignes.length; i++) {
+    let rec = null; try { rec = JSON.parse(lignes[i]); } catch (e) {}
+    const hashOk = !!(rec && typeof rec.hash === 'string' && empreinteAudit(rec) === rec.hash);
+    const lienOk = !!(rec && rec.prev === attendu);
+    if ((!hashOk || !lienOk) && cassure < 0) cassure = i;
+    if (rec && typeof rec.hash === 'string') attendu = rec.hash;
+    lues.push(rec);
+  }
+  return { total: lignes.length, cassure, dernier: attendu, lignes: lues };
+}
+// LA seule porte d'entree du grand livre : elle ajoute au bout, elle ne remplace rien.
+function graverAudit(cat, agent, action, detail) {
+  try {
+    if (AUDIT_DERNIER === null) AUDIT_DERNIER = chaineAudit().dernier;
+    const rec = {
+      ts: new Date().toISOString(),
+      cat: String(cat || 'AUDIT'),
+      agent: agent ? String(agent) : 'cerveau',
+      action: String(action || 'EVENEMENT'),
+      detail: String(detail == null ? '' : detail).replace(/\s+/g, ' ').slice(0, 300),
+      prev: AUDIT_DERNIER
+    };
+    rec.hash = empreinteAudit(rec);
+    AUDIT_DERNIER = rec.hash;
+    fs.appendFileSync(cheminAudit(), JSON.stringify(rec) + '\n', 'utf8');
+    try { noterEvenement('AUDIT', rec.cat + ' · ' + rec.agent + ' · ' + rec.action + (rec.detail ? ' · ' + rec.detail.slice(0, 120) : '')); } catch (e) {}
+    return rec.hash;
+  } catch (e) { return null; }
+}
+// Le premier mot d'une ligne de journal est deja l'action (DEPART, FIN, REFUS, ENVOI-WA,
+// FICHE, CLOTURE…) : on le relit tel quel, sans inventer de verbe que le domaine n'a pas dit.
+function premierMot(s) { return String(s || '').trim().split(/\s+/)[0] || 'EVENEMENT'; }
+function agentDans(s) { const m = String(s || '').match(/aelyra|jeanette|onyx|aegis|business/i); return m ? m[0].toLowerCase() : null; }
 
 // ---------- Le CPU : la seule mesure qui a failli MENTIR ----------
 // os.cpus() coûte rien, mais sur CE Windows (10.0.19045, Node 24) le compteur idle ne bouge
@@ -7812,6 +7893,7 @@ function fusionEvenements(lignes, limite) {
 const HUD_SILENCIEUX = {
   '/api/ping': 'GET', '/api/systeme': 'GET', '/api/evenements': 'GET', '/api/ai/etat': 'GET',
   '/api/voix/etat': 'GET', '/api/rappel': 'GET', '/api/repartition': 'GET', '/api/droits': 'GET',
+  '/api/audit': 'GET',
   '/api/taches': 'GET', '/style.css': '*', '/app.js': '*', '/avatar3d.js': '*', '/three.min.js': '*'
 };
 function hudSilencieux(chemin, methode) {
@@ -7922,6 +8004,34 @@ const server = http.createServer(async (req, res) => {
       routes_ecriture: API_ECRITURE,
       refus_recent: refusRecent
     }));
+    return;
+  }
+
+  // ---------- ORANGE #13 — LE GRAND LIVRE D'AUDIT (lecture seule, verdict d'intégrité) ----------
+  // Isaac lit, personne ne vide : un passé qui sert de preuve ne se retranche pas depuis une
+  // route. L'intégrité est RECALCULÉE à chaque lecture en marchant sur la chaîne : ici,
+  // « integrite: true » veut dire qu'aucune ligne n'a été altérée, réordonnée ou effacée depuis
+  // la genèse. Ce n'est pas un drapeau décoratif — c'est le résultat d'une vérification réelle.
+  if (u.pathname === '/api/audit') {
+    if (req.method !== 'GET') { json(res, 405, { ok: false, reply: 'Methode refusee : le grand livre d audit est une lecture (GET), il ne se vide pas.' }); return; }
+    const limite = Math.max(1, Math.min(500, parseInt(u.searchParams.get('limite') || '80', 10) || 80));
+    const c = chaineAudit();
+    const lisible = (x) => masquerCoordonnees(masquerSecrets(x));
+    const recents = c.lignes.slice(-limite).map(function (r) {
+      return r ? ({
+        heure: r.ts, categorie: lisible(r.cat), agent: lisible(r.agent), action: lisible(r.action),
+        detail: lisible(r.detail), hash: r.hash, precedent: r.prev
+      }) : ({ invalide: true, note: 'ligne illisible — la chaine est rompue ici' });
+    });
+    json(res, 200, {
+      ok: true, instance: ESSAI ? 'essai' : 'prod',
+      contrat: "Journal d audit append-only a chainage sha256 : chaque ligne porte l empreinte de la precedente. Ce que le cerveau ecrit ici, aucune route ne peut le rayer. Les coordonnees et secrets sont masques a l affichage ; la valeur reste gravee intacte sur le disque.",
+      fichier: path.basename(cheminAudit()),
+      total_lignes: c.total,
+      integrite: c.cassure < 0,
+      premiere_cassure: c.cassure < 0 ? null : c.cassure,
+      lignes: recents
+    });
     return;
   }
 

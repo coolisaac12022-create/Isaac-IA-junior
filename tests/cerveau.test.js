@@ -224,6 +224,53 @@ async function familleDroits() {
   test('une question d ONYX (etat de l academie) passe, sans refus', q.status === 200 && !((q.data || {}).refus === true), JSON.stringify(q.data || {}).slice(0, 160));
 }
 
+// —— Audit (Orange #13) : le grand livre est une chaîne que rien ne falsifie en silence ——
+async function familleAudit() {
+  section('[AUDIT] le grand livre a chainage sha256 rend un verdict d integration');
+  // On declenche un moment de securite frais (une origine etrangere refusee) pour etre sur
+  // d'avoir au moins une ligne ACCES, puis on relit le grand livre.
+  await post('/api/command', {}, { headers: { Origin: 'http://evil.example', 'Content-Type': 'application/json' } });
+  const r = await get('/api/audit?limite=200', { headers: { Origin: BASE } });
+  const d = r.data || {};
+  test('GET /api/audit = 200 ok', r.status === 200 && d.ok === true, 'status ' + r.status);
+  test('le contrat dit append-only + chainage sha256', /append-only/.test(String(d.contrat)) && /sha256/.test(String(d.contrat)));
+  test('integrite est un booleen et total_lignes un nombre', typeof d.integrite === 'boolean' && typeof d.total_lignes === 'number', JSON.stringify({ i: d.integrite, t: d.total_lignes }));
+  test('le grand livre a des lignes (les refus de ce run y sont)', Array.isArray(d.lignes) && d.lignes.length >= 1, 'lignes ' + (d.lignes || []).length);
+  test('le fichier nomme est celui de l instance d essai', /journal-audit\.essai\.log/.test(String(d.fichier)), d.fichier);
+  const aUnAcces = (d.lignes || []).some((l) => l.categorie === 'ACCES' && /^REFUS/.test(String(l.action)));
+  test('un refus d origine etrangere y est grave (categorie ACCES / REFUS-403)', aUnAcces, JSON.stringify((d.lignes || []).slice(-3)));
+
+  // Chaine : chaque ligne renvoyee pointe sur le hash de la precedente (maillon verifie).
+  let chaineOk = true;
+  const L = d.lignes || [];
+  for (let i = 1; i < L.length; i++) { if (L[i] && L[i - 1] && L[i].precedent !== L[i - 1].hash) { chaineOk = false; break; } }
+  test('les maillons se suivent (precedent[i] == hash[i-1])', chaineOk && L.length >= 2, 'verifie sur ' + L.length + ' lignes');
+
+  // Infalsifiable : on RE-CALCULE le sha256 nous-memes sur le fichier BRUT (les champs non
+  // masques du disque). Si quelqu'un avait edite un detail, cette empreinte ne collerait plus.
+  const brute = (() => { try { return fs.readFileSync(path.join(RACINE, 'journal-audit.essai.log'), 'utf8').split(/\r?\n/).filter(Boolean); } catch (e) { return []; } })();
+  test('le grand livre existe sur le disque', brute.length >= 1, brute.length + ' ligne(s) brute(s)');
+  let empreinteOk = true;
+  for (const lg of brute.slice(-8)) {
+    let rec = null; try { rec = JSON.parse(lg); } catch (e) { empreinteOk = false; break; }
+    const calc = crypto.createHash('sha256').update([rec.ts, rec.cat, rec.agent, rec.action, rec.detail, rec.prev].join('\u0001')).digest('hex');
+    if (calc !== rec.hash) { empreinteOk = false; break; }
+  }
+  test('l empreinte sha256 de chaque ligne colle a son contenu (re-calculee ici)', empreinteOk);
+  // Detection : retoucher le detail d une ligne (ici en memoire, le fichier reste intact)
+  // DOIT casser l empreinte. C'est la tout le sens de la chaine — on ne peut pas mentir
+  // apres coup sur une ligne sans que le calcul ne le voie.
+  if (brute.length) {
+    let une = null; try { une = JSON.parse(brute[brute.length - 1]); } catch (e) {}
+    if (une) {
+      const falsifiee = Object.assign({}, une, { detail: String(une.detail) + ' X' });
+      const hFaux = crypto.createHash('sha256').update([falsifiee.ts, falsifiee.cat, falsifiee.agent, falsifiee.action, falsifiee.detail, falsifiee.prev].join('\u0001')).digest('hex');
+      test('retoucher une ligne casserait son empreinte (la falsification se voit)', hFaux !== une.hash);
+    }
+  }
+  test('la route est en lecture seule : POST /api/audit = 405', (await post('/api/audit', { effacer: true }, { headers: { Origin: BASE } })).status === 405);
+}
+
 // —— Frontend : le Command Center ne transporte aucun secret et tient son correctif ——
 async function familleFrontend() {
   section('[FRONTEND] aucun secret servi au navigateur + correctifs Phases 5-7 tenus');
@@ -284,6 +331,7 @@ async function familleFrontend() {
     try { await familleSecurite(); } catch (e) { test('famille SECURITE sans exception', false, String((e && e.message) || e)); }
     try { await familleMemoire(); } catch (e) { test('famille MEMOIRE sans exception', false, String((e && e.message) || e)); }
     try { await familleDroits(); } catch (e) { test('famille DROITS sans exception', false, String((e && e.message) || e)); }
+    try { await familleAudit(); } catch (e) { test('famille AUDIT sans exception', false, String((e && e.message) || e)); }
   }
   try { await familleFrontend(); } catch (e) { test('famille FRONTEND sans exception', false, String((e && e.message) || e)); }
 
