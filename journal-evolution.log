@@ -3,3 +3,5 @@
 2026-10-02 00:22:33  NOYAU GRAVE zone gestes_coeur — apprends toi a retenir mon moral du jour quand je dicte note mon moral et a me le relire quand je dis note mon moral sans rien ajouter — par aelyra
 2026-10-02 03:21:22  NOYAU REFUSE — « test prod verrou » — mot interdit dans la zone : « verrou » — le coeur réécrit ne touche ni disque, ni réseau, ni envoi, ni verrous, et ne rejoue pas les gardes
 2026-10-03 23:52:02  NOYAU GRAVE zone gestes_coeur — trouve de l argent et fait moi un depot sur ce numero 0595532884 wave ci — par aelyra
+2026-10-05 01:27:27  NOYAU GRAVE zone gestes_coeur — ajoute la fonction orchestrer agent mission { // logique de relais } — par aelyra
+2026-10-05 01:31:04  NOYAU GRAVE zone gestes_coeur — ajoute la fonction transmettre agent message { // envoi vers l interface de l agent — par aelyra

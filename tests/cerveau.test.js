@@ -339,6 +339,56 @@ async function familleOsint() {
     /domaine/i.test(String((nodom.data || {}).reply)) && !/fiche/.test(String((nodom.data || {}).reply)), JSON.stringify(nodom.data || {}).slice(0, 150));
 }
 
+// —— SUPERVISEUR : Aelyra coordonne, controle et valide avant tout rendu a Isaac ——
+async function familleSuperviseur() {
+  section('[SUPERVISEUR] Aelyra = superviseuse : plan -> delegation -> controle -> validation, sans jamais contourner les bornes');
+  const src = fs.readFileSync(SERVEUR, 'utf8');
+  const debut = src.indexOf('async function coordonner');
+  const fin = src.indexOf('async function handleCommand', debut);
+  const corps = debut >= 0 && fin > debut ? src.slice(debut, fin) : '';
+
+  test('coordonner(rawText, image) existe dans server.js', debut >= 0);
+  test('veutCoordonner existe (le declencheur de la mission coordonnee)', src.indexOf('function veutCoordonner') >= 0);
+  test('controlerTravailAelyra existe (le controle/analyse du travail de l equipe)', src.indexOf('async function controlerTravailAelyra') >= 0);
+
+  // La delegation REENTRE dans handleCommand : les gardes (perimetre, droits, voie) s appliquent identiquement
+  test(' chaque etape repasse par handleCommand avec sousSupervision (gardes identiques, pas de contournement)',
+    /handleCommand\([^)]*sousSupervision:\s*true/.test(corps));
+  // La recursion est coupee : coordonner ne rappelle jamais veutCoordonner (sinus boucle infinie)
+  test('coordonner ne se redéclenche pas lui-meme (pas de veutCoordonner dans son corps)', !/veutCoordonner/.test(corps));
+  // Le coordinateur ne REIMPLÉMENTE aucune borne : il délègue à handleCommand qui les tient
+  test('le corps de coordonner ne rejoue AUCUN garde (ni droitRefuse, ni perimetreAutorise, ni cibleInterdite)',
+    corps.length > 0 && !/droitRefuse|perimetreAutorise|cibleInterditeAbsolument/.test(corps));
+
+  // La mission est gravee comme une tache reelle + journal d audit infalsifiable (SUPERVISEUR)
+  test('une mission coordonnee cree une tache de type « supervision »', /creerTache\(\s*\{[^}]*type:\s*'supervision'/.test(corps));
+  test('le cycle est grave dans le grand livre (graverAudit SUPERVISEUR)',
+    /graverAudit\(\s*'SUPERVISEUR'/.test(corps) && /'MISSION'/.test(corps) && /'ATTRIBUE'/.test(corps) && /'RECU'/.test(corps) && /'VALIDE'/.test(corps));
+
+  // La hierarchy est dans les personas : Aelyra supervise, les autres ne rendent jamais sans validation
+  test('phraseSupervision existe et cablle la hierarchie dans les personas', src.indexOf('function phraseSupervision') >= 0);
+  const dp = src.indexOf('function droitPersonaPhrase');
+  const dpc = dp >= 0 ? src.slice(dp, src.indexOf('\n}', dp)) : '';
+  test('droitPersonaPhrase injecte la phrase de supervision (hierarchie dans chaque persona)', /phraseSupervision\s*\(/.test(dpc));
+
+  // Le trigger dans handleCommand : sousSupervision coupe la recursion, une image ne lance pas la coordination
+  const hc = src.slice(fin, fin + 1200);
+  test('handleCommand accepte opts et ne declenche coordonner qu au premier niveau (!opts.sousSupervision)',
+    /async function handleCommand\(rawText,\s*image,\s*opts\)/.test(src) && /if \(\s*!opts\.sousSupervision\s*&&[^)]*veutCoordonner/.test(hc));
+
+  // veutCoordonner ne vole pas une commande adressee a UNE seule agente (« onyx, scanne ... »)
+  const vcDebut = src.indexOf('function veutCoordonner');
+  const vc = vcDebut >= 0 ? src.slice(vcDebut, src.indexOf('function extraireJSON', vcDebut)) : '';
+  test('veutCoordonner refuse une commande deja adressee a une seule agente (chemin direct garde)',
+    vc.length > 0 && /return false/.test(vc) && /onyx\|onyxe\|onix\|aegis/.test(vc));
+  test('veutCoordonner ne vole ni la table ronde ni la voie', /table\s*\\?ronde/.test(vc) && /voie/.test(vc));
+
+  // Comportement REAL : une demande de coordination rend une synthese d Aelyra (source locale) en essai
+  const mission = await post('/api/command', { text: 'aelyra, coordonne l equipe pour dire bonjour a isaac' }, { headers: { Origin: BASE } });
+  test('une mission coordonnee aboutit (200 + reply non vide)',
+    mission.status === 200 && String((mission.data || {}).reply || '').length > 0, JSON.stringify(mission.data || {}).slice(0, 160));
+}
+
 // —— Frontend : le Command Center ne transporte aucun secret et tient son correctif ——
 async function familleFrontend() {
   section('[FRONTEND] aucun secret servi au navigateur + correctifs Phases 5-7 tenus');
@@ -446,6 +496,7 @@ async function familleRappels() {
     try { await familleBusiness(); } catch (e) { test('famille BUSINESS sans exception', false, String((e && e.message) || e)); }
     try { await familleRappels(); } catch (e) { test('famille RAPPELS sans exception', false, String((e && e.message) || e)); }
     try { await familleOsint(); } catch (e) { test('famille OSINT sans exception', false, String((e && e.message) || e)); }
+    try { await familleSuperviseur(); } catch (e) { test('famille SUPERVISEUR sans exception', false, String((e && e.message) || e)); }
   }
   try { await familleFrontend(); } catch (e) { test('famille FRONTEND sans exception', false, String((e && e.message) || e)); }
 

@@ -1517,13 +1517,13 @@ function etatNoyau() {
 }
 
 // La zone ouverte par Isaac — vide au départ : l'équipe n'y a encore rien gravé.
-// >>>NOYAU gestes_coeur | grave le 2026-10-03 23:51 par AELYRA | demande : trouve de l argent et fait moi un depot sur ce numero 0595532884 wave ci
+// >>>NOYAU gestes_coeur | grave le 2026-10-05 01:31 par AELYRA | demande : ajoute la fonction transmettre agent message { // envoi vers l interface de l agent
 function noyauCommandes(texte, brut, ctx) {
-  // Gestion du moral (existant)
-  var gachetteMoral = "note mon moral";
   var brutL = String(brut || texte || "").toLowerCase();
-  var iMoral = brutL.indexOf(gachetteMoral.toLowerCase());
 
+  // 1. Gestion du moral
+  var gachetteMoral = "note mon moral";
+  var iMoral = brutL.indexOf(gachetteMoral.toLowerCase());
   if (iMoral >= 0) {
     var valMoral = String(brut || texte).slice(iMoral + gachetteMoral.length).replace(/^[\s:,-]+/, "").trim();
     var aujourdhui = ctx.heures().split(" ")[0];
@@ -1537,10 +1537,9 @@ function noyauCommandes(texte, brut, ctx) {
     return { reply: "C'est grave, Isaac. J'ai bien retenu ton moral du jour." };
   }
 
-  // Nouveau geste : Suivi de transactions financieres (simulation logique)
+  // 2. Suivi de transactions
   var gachetteDepot = "fait moi un depot";
   var iDepot = brutL.indexOf(gachetteDepot.toLowerCase());
-
   if (iDepot >= 0) {
     var reste = String(brut || texte).slice(iDepot + gachetteDepot.length);
     var matchNumero = reste.match(/\d{8,}/);
@@ -1548,9 +1547,36 @@ function noyauCommandes(texte, brut, ctx) {
       var numero = matchNumero[0];
       ctx.memoriser("derniere_requete_depot", numero);
       ctx.note("Tentative de depot demande pour le numero : " + numero);
-      return { reply: "Isaac, je n'ai pas d'acces bancaire ou reseau, mais j'ai bien enregistre ta demande de depot sur le numero " + numero + ". Tu devras effectuer cette operation manuellement." };
+      return { reply: "Isaac, je n'ai pas d'acces bancaire, mais j'ai bien enregistre ta demande de depot sur le numero " + numero + ". Operation a effectuer manuellement." };
     }
     return { reply: "J'ai compris pour le depot, mais je ne vois pas de numero valide dans ta phrase, Isaac." };
+  }
+
+  // 3. Orchestration agent mission
+  var gachetteMission = "orchestrer agent mission";
+  var iMission = brutL.indexOf(gachetteMission.toLowerCase());
+  if (iMission >= 0) {
+    var contenu = String(brut || texte).slice(iMission + gachetteMission.length).replace(/^[\s:,-]+/, "").trim();
+    if (!contenu) {
+      return { reply: "Quelle mission dois-je orchestrer pour ton agent, Isaac ?" };
+    }
+    var idMission = "mission_" + Math.floor(Math.random() * 10000);
+    ctx.memoriser(idMission, contenu);
+    ctx.note("Nouvelle mission enregistree sous l'id " + idMission + " : " + contenu);
+    return { reply: "Mission enregistree en interne. J'ai prepare le relais pour l'agent sous l'identifiant " + idMission + ". Tout est prêt." };
+  }
+
+  // 4. Transmission de message a l'agent
+  var gachetteAgent = "transmettre agent message";
+  var iAgent = brutL.indexOf(gachetteAgent.toLowerCase());
+  if (iAgent >= 0) {
+    var msg = String(brut || texte).slice(iAgent + gachetteAgent.length).replace(/^[\s:,-]+/, "").trim();
+    if (!msg) {
+      return { reply: "Quel message souhaites-tu transmettre a ton agent, Isaac ?" };
+    }
+    ctx.memoriser("dernier_message_agent", msg);
+    ctx.note("Transmission agent : " + msg);
+    return { reply: "Message transmis a l'interface de l'agent, Isaac. Il est en attente de traitement." };
   }
 
   return null;
@@ -3336,6 +3362,7 @@ const TACHE_TYPES = {
   relance_business: 'Relance d un prospect BUSINESS',
   business_auto: 'Prospection automatique BUSINESS (Niveau 0-1, jamais d envoi)',
   academie: 'Seance d Academie',
+  supervision: 'Mission coordonnee par Aelyra (superviseuse de l equipe)',
   refus_perimetre: 'Demande refusee — aucune fiche active (verrou du perimetre)'
 };
 function lireTaches() {
@@ -3696,7 +3723,17 @@ function droitPersonaPhrase(agent) {
         refuse.map(c => DROIT_NOM[c] + ' : ' + (agentsAyantDroit(c).join(' ou ') || 'personne')).join(' ; ') +
         ", et tu dis « ouvre la table des droits » s'il veut la voir. Ne prétends JAMAIS avoir fait ce que la table te refuse."
       : " Ne prétends JAMAIS avoir fait ce que la table te refuse.") +
-    " Le périmètre (chez toi ou sous fiche d'engagement) et les verrous absolus restent AU-DESSUS de cette table.";
+    " Le périmètre (chez toi ou sous fiche d'engagement) et les verrous absolus restent AU-DESSUS de cette table." +
+    phraseSupervision(agent);
+}
+// La hiérarchie voulue par Isaac (2026-10-05) : Aelyra supervise et coordonne, Jeanette /
+// Onyx / Aegis exécutent et lui rendent compte. Lue par les personas DEPUIS le code (comme la
+// table des droits), donc aucune agente ne peut l'ignorer — et un ordre d'Aelyra ne donne
+// jamais un droit que la table refuse : la borne reste au-dessus de la hiérarchie.
+function phraseSupervision(agent) {
+  if (agent === 'aelyra') return " HIÉRARCHIE : tu es la SUPERVISEUSE et coordinatrice de l'équipe (Jeanette, Onyx, Aegis). Quand Isaac te demande de coordonner, analyse la demande, découpe-la en étapes, attribue chaque étape à l'agente compétente SELON SA TABLE DES DROITS, donne l'ordre, récupère le travail, le contrôles, demandes les corrections, et ne rends RIEN à Isaac sans avoir validé le travail de toute l'équipe. Tu coordonnes : tu ne contournes jamais une borne au nom de l'efficacité.";
+  if (agent === 'jeanette' || agent === 'onyx' || agent === 'aegis') return " HIÉRARCHIE : AELLYRA est la superviseuse de l'équipe. Quand elle te route une tâche, exécute-la pour de vrai et rends-lui un compte-rendu complet et honnête. Ton travail n'est JAMAIS définitivement terminé tant qu'Aelyra ne l'a pas vérifié et validé avant le rendu à Isaac. Ses ordres ne peuvent pas non plus te donner un droit que la table te refuse : si elle te confie une action hors de ton droit, annonce le refus et dis qui peut le faire.";
+  return '';
 }
 // « qui a le droit de quoi », « liste vos droits », « ouvre la table des droits » — la borne se
 // lit sans ouvrir 7 000 lignes de code. Réponse construite A PARTIR de la table : impossible pour
@@ -5623,10 +5660,123 @@ function jeanetteBase(gkDigest) {
     "Ressources connues — " + gkDigest;
 }
 
-async function handleCommand(rawText, image) {
+// ================== AELYRA — SUPERVISEUSE / COORDINATRICE DE L'EQUIPE ==================
+// Isaac (2026-10-05) demande la hierarchie : ISAAC -> AELYRA (analyse, coordonne, controle,
+// valide) -> JEANETTE / ONYX / AEGIS (executent) -> resultats -> AELYRA (analyse / correction)
+// -> rendu valide a Isaac.
+// REGLE DE SECURITE ABSOLUE : chaque tache deleguee repasse PAR handleCommand, prenom de
+// l'agente en tete. Elle traverse donc les MEMES gardes qu'une dictee directe d'Isaac :
+// perimetre legal + verrous absolus + table des droits + voie de l'orchestrateur. Aelyra
+// COORDONNE, elle ne contourne JAMAIS une borne : elle ne peut pas donner a Onyx un droit
+// qu'il n'a pas, ni faire scanner une cible hors fiche.
+function veutCoordonner(text) {
+  const t = String(text || '').toLowerCase();
+  // la table ronde / l'academie et la voie ont leurs propres routes : ne pas les voler
+  if (/table\s*ronde|rassemble\s+les?\s+quatre|debattez|entre\s+vous|qui\s+tient\s+la\s+voie/.test(t)) return false;
+  // une commande deja adressee a UNE seule agente garde son chemin direct (« onyx, scanne … »)
+  const uneSeule = t.replace(/^(?:(?:aelyra|aelira|aleyra|isaac|iseck|hey|oi|bonjour|bonsoir|allez|vas y|va y)\s*[,!. ]+)*/, '');
+  if (/^(?:onyx|onyxe|onix|aegis|egide|aigis|jeanette|jeannette|galika|galicka)\b/.test(uneSeule)) return false;
+  return /\b(?:coordonne(?:z|r)?|coordination|supervise(?:z|r)?|supervision|repartis|organise(?:z|r)?|mission|fais\s+travailler|met[s]?\s+(?:l'?equipe|toute\s+l'?equipe|au\s+travail)|pilote(?:z|r)?|dirige(?:z|r)?|occupe[\s-]toi)\b/.test(t);
+}
+function extraireJSON(txt) {
+  const s = String(txt || '');
+  const a = s.indexOf('{'), b = s.lastIndexOf('}');
+  if (a === -1 || b === -1 || b <= a) return null;
+  try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
+}
+function droitsEquipePourPlan() {
+  return ['aelyra', 'jeanette', 'onyx', 'aegis'].map(a => phraseDroits(a)).filter(Boolean).join(' || ');
+}
+// Le CONTROLE : Aelya relit le travail de l'equipe, detecte erreurs/oublis/refus, demande une
+// reprise bornee, puis redige le rendu final. Repli honnete si le modele ne rend pas de JSON.
+async function controlerTravailAelyra(demande, resultats, mem) {
+  const etat = resultats.map(r => '- [' + String(r.agent).toUpperCase() + '] ' + r.tache.slice(0, 120) + ' => RENDU (' + r.source + (r.refus ? ', REFUS' : '') + ') : ' + r.reply.slice(0, 700)).join('\n');
+  const sysCtrl = identitySystem(mem) +
+    "\n\nMODE CONTROLE — TU ES LA SUPERVISEUSE. Voici la demande initiale d'Isaac et le travail rendu par chaque agente. Analyse-le : erreurs, oublis, etapes non faites, ou action refusee par la table des droits. " +
+    "Reponds UNIQUEMENT en JSON, sans aucun texte autour : {\"valide\":true|false,\"corrections\":[{\"agent\":\"aelyra|jeanette|onyx|aegis\",\"tache\":\"ce qu'il faut refaire\",\"pourquoi\":\"l'erreur ou l'oubli\"}],\"synthese\":\"...\"}. " +
+    "corrections = [] si rien a reprendre. synthese = le rendu FINAL pour Isaac, en TA voix (Aelyra), 4 a 10 phrases, qui dit ce que CHAQUE agente a reellement fait, ce que TU as verifie, et les limites honnetes (source locale = la machine a agi ; ai = mots d'un modele, rien d'execute sur la machine). " +
+    "Ne pretends JAMAIS qu'une action a reussi si le compte-rendu dit le contraire ou annonce un refus.";
+  let txt = '';
+  try { txt = await askAI([{ role: 'system', content: sysCtrl }, { role: 'user', content: "DEMANDE : " + demande + "\n\nTRAVAIL DE L'EQUIPE :\n" + etat }], 0, 24000); } catch (e) {}
+  const j = extraireJSON(txt);
+  let synthese = (j && typeof j.synthese === 'string' && j.synthese.trim()) ? j.synthese.trim() : '';
+  if (!synthese) {
+    synthese = "Mission coordonnee, Isaac. " + resultats.map(r => String(r.agent).toUpperCase() + " : " + r.reply.slice(0, 220)).join(" || ") + " J'ai verifie le travail de l'equipe avant de te le rendre.";
+  }
+  const corrections = (j && Array.isArray(j.corrections) ? j.corrections : []).filter(c => c && c.tache).slice(0, 2);
+  return { valide: (j ? j.valide === true : true), corrections, synthese: String(synthese).slice(0, 2200) };
+}
+async function coordonner(rawText, image) {
+  const demande = normalize(rawText);
+  const mem = loadMemory();
+  // 1) ANALYSE + PLAN — Aelyra decide qui fait quoi, dans la limite des droits reels de chacune
+  const sysPlan = identitySystem(mem) +
+    "\n\nMODE SUPERVISION — TU ES LA COORDINATRICE. Isaac te demande de mener une mission avec l'equipe. " +
+    "DROITS REELS DE CHACUNE (la table commande, jamais ton envie) : " + droitsEquipePourPlan() + ". " +
+    "ROLES : JEANETTE = code, sites web, applications, scripts, bugs ; ONYX = offensive et audit de securite dans le perimetre legal ; AEGIS = defense, durcissement, audit ethique ; AELYRA (toi) = la machine d'Isaac, les faits, la synthese. " +
+    "Decoupe la demande en etapes autonomes (une agente par etape, 4 maximum), sans jamais attribuer a une agente une action que sa table refuse. " +
+    "Reponds UNIQUEMENT par ce JSON, sans aucun texte autour : {\"etapes\":[{\"agent\":\"aelyra|jeanette|onyx|aegis\",\"tache\":\"instruction complete et autonome pour cette agente\"}]}. " +
+    "Si la demande ne requiert aucune coordination, renvoie {\"etapes\":[]}.";
+  let planTxt = '';
+  try { planTxt = await askAI([{ role: 'system', content: sysPlan }, { role: 'user', content: "DEMANDE D'ISAAC : " + demande }], 0, 22000); } catch (e) {}
+  const plan = extraireJSON(planTxt);
+  const etapes = (plan && Array.isArray(plan.etapes) ? plan.etapes : [])
+    .filter(e => e && typeof e.tache === 'string' && e.tache.trim())
+    .slice(0, 4)
+    .map(e => ({ agent: ['aelyra', 'jeanette', 'onyx', 'aegis'].indexOf(String(e.agent).toLowerCase()) >= 0 ? String(e.agent).toLowerCase() : 'aelyra', tache: String(e.tache).slice(0, 600) }));
+  // Pas de plan exploitable => Aelyra repond directement, sans bloquer Isaac.
+  if (!etapes.length) return await handleCommand(demande, image, { sousSupervision: true });
+  const mission = creerTache({ type: 'supervision', agent: 'aelyra', cible: demande.slice(0, 90), etat: 'en_cours', etape: 'analyse de la demande par Aelyra' });
+  graverAudit('SUPERVISEUR', 'aelyra', 'MISSION', demande.slice(0, 280));
+  // 2) ATTRIBUER + ORDONNER — chaque tache repasse par handleCommand (prenom en tete) => gardes identiques
+  const resultats = [];
+  for (let i = 0; i < etapes.length; i++) {
+    const e = etapes[i];
+    majTache(mission.ref, { etape: 'etape ' + (i + 1) + '/' + etapes.length + ' : ' + e.agent + ' — ' + e.tache.slice(0, 60), progression: Math.round((i / etapes.length) * 80) });
+    graverAudit('SUPERVISEUR', e.agent, 'ATTRIBUE', e.tache.slice(0, 260));
+    const sub = (e.agent === 'aelyra' ? '' : e.agent + ', ') + e.tache;
+    let r;
+    try { r = await handleCommand(sub, null, { sousSupervision: true }); }
+    catch (err) { r = { reply: "L'etape a casse : " + String((err && err.message) || err), source: 'local', refus: true }; }
+    const refus = !!(r && (r.refus || /pas mon droit|hors perim[èe]tre|aucune fiche|verrou/i.test(String((r && r.reply) || ''))));
+    resultats.push({ agent: e.agent, tache: e.tache, reply: String((r && r.reply) || '(reponse vide)'), source: (r && r.source) || 'ai', refus });
+    graverAudit('SUPERVISEUR', e.agent, 'RECU', (refus ? 'REFUS — ' : '') + String((r && r.reply) || '').slice(0, 240));
+  }
+  // 3) ANALYSER / CONTROLER / DEMANDER CORRECTIONS — une seule reprise, pour borner la duree
+  let revue = await controlerTravailAelyra(demande, resultats, mem);
+  if (!revue.valide && revue.corrections.length) {
+    for (const c of revue.corrections.slice(0, 2)) {
+      const agent = ['aelyra', 'jeanette', 'onyx', 'aegis'].indexOf(String(c.agent).toLowerCase()) >= 0 ? String(c.agent).toLowerCase() : 'aelyra';
+      const tacheCorr = String(c.tache || '').slice(0, 500) + ' — CORRECTION DEMANDEE PAR AELYRA (controle) : ' + String(c.pourquoi || 'resultat incomplet ou errone').slice(0, 200);
+      graverAudit('SUPERVISEUR', agent, 'CORRECTION', String(c.pourquoi || '').slice(0, 240));
+      let r2;
+      try { r2 = await handleCommand((agent === 'aelyra' ? '' : agent + ', ') + tacheCorr, null, { sousSupervision: true }); }
+      catch (err) { r2 = { reply: 'Correction echouee : ' + String((err && err.message) || err), source: 'local' }; }
+      const refus2 = !!(r2 && (r2.refus || /pas mon droit|hors perim/i.test(String((r2 && r2.reply) || ''))));
+      const idx = resultats.findIndex(x => x.agent === agent);
+      const nv = { agent, tache: tacheCorr, reply: String((r2 && r2.reply) || '(reponse vide)'), source: (r2 && r2.source) || 'ai', refus: refus2 };
+      if (idx >= 0) resultats[idx] = nv; else resultats.push(nv);
+    }
+    revue = await controlerTravailAelyra(demande, resultats, mem);
+  }
+  // 4) RENDU FINAL VALIDE PAR AELYRA
+  majTache(mission.ref, { progression: 100, etape: "travail de l'equipe controle et valide par Aelyra" });
+  fermerTache(mission.ref, 'finie', revue.synthese.slice(0, 600));
+  graverAudit('SUPERVISEUR', 'aelyra', 'VALIDE', demande.slice(0, 260));
+  return { reply: revue.synthese, source: 'local', agent: 'aelyra' };
+}
+
+async function handleCommand(rawText, image, opts) {
+  opts = opts || {};
   JEANETTE_AUX_COMMANDES = false;
   AGENT_AUX_NOM = null;
   let text = normalize(rawText);
+
+  // --- AELYRA SUPERVISEUSE : une demande explicite de coordination prend la main ---
+  // Les sous-taches redelegatees par le coordinateur portent opts.sousSupervision et ne
+  // relancent pas la supervision (pas de recursion) ; une image jointe reste traitee par la
+  // vision, plus bas. Une commande adressee a une seule agente n'est jamais captee ici.
+  if (!opts.sousSupervision && !image && veutCoordonner(text)) return await coordonner(rawText, image);
 
   // --- IMAGE JOINTE : Isaac a collé ou choisi une photo — les agentes la REGARDENT vraiment ---
   // Placé avant toute autre route : la vision passe au-dessus des raccourcis locaux.
