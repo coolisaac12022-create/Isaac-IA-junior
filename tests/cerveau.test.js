@@ -331,6 +331,49 @@ async function familleFrontend() {
   test('le chien de garde ne mord plus pendant un arriere-plan', /if \(document\.hidden\) return;/.test(cc));
 }
 
+// —— Rappels vocaux (tâches #62 + #63) : durées en LETTRES comprises + libellé fidèle ——
+async function familleRappels() {
+  section('[RAPPELS] « dans deux heures » est compris, et le libellé garde le texte dicté');
+  const dir = (t) => post('/api/command', { text: t }, { headers: { Origin: BASE } });
+  const labelDe = (r) => { const m = String((r.data || {}).reply).match(/[«"]([^»"]*)[»"]/); return m ? m[1].trim() : ''; };
+  // Repartir d'un sandbox vide (isaac-rappels.essai.json, isolé et gitignoré).
+  await dir('annule tous mes rappels');
+
+  // #62 — la durée DICTÉE EN LETTRES doit être comprise (avant le correctif : rappel jamais créé).
+  const deux = await dir("rappelle moi de payer la facture dans deux heures");
+  const rDeux = String((deux.data || {}).reply);
+  test('#62 — « dans deux heures » crée bien un rappel (réponse « je vous rappelle »)', /rappelle/i.test(rDeux), rDeux.slice(0, 90));
+  test('#62 — la durée en lettres est convertie en chiffre (2 heures)', /2\s*heure/.test(rDeux), rDeux.slice(0, 90));
+  // #63 — le libellé est le texte dicté, sans l'heure collée ni le repli « votre rappel ».
+  const l1 = labelDe(deux);
+  test('#63 — le libellé contient « facture »', /facture/.test(l1), JSON.stringify(l1));
+  test('#63 — le libellé ne contient PAS l\'heure (« heure/minute/deux »)', !/heure|minute|deux|demi/.test(l1) && l1 !== 'votre rappel', JSON.stringify(l1));
+
+  // #62 — une heure absolue en lettres (« a six heures ») est comprise.
+  const six = await dir("reveille moi d'appeler mamie a six heures");
+  const rSix = String((six.data || {}).reply);
+  test('#62 — « a six heures » est compris (6h00)', /6h00|6 ?heures?/.test(rSix), rSix.slice(0, 90));
+  test('#63 — le libellé de la veille garde « mamie »', /mamie/.test(labelDe(six)), JSON.stringify(labelDe(six)));
+
+  // Non-régression : les durées en CHIFFRES marchent toujours.
+  const dix = await dir("rappelle moi de boire de l'eau dans 10 minutes");
+  test('#62 — les chiffres fonctionnent toujours (10 minutes)', /10\s*minute/.test(String((dix.data || {}).reply)), String((dix.data || {}).reply).slice(0, 90));
+
+  // Persistance réelle : « mes rappels » relit le fichier d'essai et retrouve le texte dicté.
+  const liste = await dir('mes rappels');
+  test('#62 — les rappels sont gravés et relus (« facture » dans la liste)', /facture/.test(String((liste.data || {}).reply)), String((liste.data || {}).reply).slice(0, 120));
+
+  // #63b — un verbe d'annulation ne doit PAS se faire voler par la branche « liste »
+  // (bug PROD trouvé le 2026-10-05 : « annule tous mes rappels » LISTAIT au lieu d'annuler).
+  const annule = await dir('annule tous mes rappels');
+  test('#63b — « annule tous mes rappels » est traité comme une annulation, pas une liste', /efface/i.test(String((annule.data || {}).reply)), String((annule.data || {}).reply).slice(0, 90));
+  const vide = await dir('mes rappels');
+  test('#63b — le fichier est bien vide après l annulation', /aucun rappel/i.test(String((vide.data || {}).reply)), String((vide.data || {}).reply).slice(0, 120));
+
+  // Grand ménage du sandbox pour ne rien laisser derrière le harnais.
+  await dir('annule tous mes rappels');
+}
+
 // ===================================== MAIN =====================================
 (async function principal() {
   console.log('\n================ HARNAIS DE TESTS DU CERVEAU ================');
@@ -374,6 +417,7 @@ async function familleFrontend() {
     try { await familleDroits(); } catch (e) { test('famille DROITS sans exception', false, String((e && e.message) || e)); }
     try { await familleAudit(); } catch (e) { test('famille AUDIT sans exception', false, String((e && e.message) || e)); }
     try { await familleBusiness(); } catch (e) { test('famille BUSINESS sans exception', false, String((e && e.message) || e)); }
+    try { await familleRappels(); } catch (e) { test('famille RAPPELS sans exception', false, String((e && e.message) || e)); }
   }
   try { await familleFrontend(); } catch (e) { test('famille FRONTEND sans exception', false, String((e && e.message) || e)); }
 

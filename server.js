@@ -141,17 +141,49 @@ function lireNotes() {
 }
 
 // « dans 10 minutes », « à 18h30 », « à 6 heures » → date future
+// Tâche #62 (2026-10-05) — le micro dicte souvent les durées EN LETTRES : « dans deux heures »,
+// « dans quinze minutes », « dans une demi-heure ». L'ancien parseur n'acceptait que des chiffres,
+// donc ces rappels ne partaient JAMAIS (la branche exige parseEcheance non-null). Ce pré-traducteur
+// convertit les noms de nombres français courants en chiffres, et les tours « demi/tiers/quart »
+// en minutes, SANS toucher au texte d'origine (utilisé pour le libellé, tâche #63).
+const MOTS_NOMBRES = {
+  une: 1, un: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10,
+  onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16,
+  dixsept: 17, dixhuit: 18, dixneuf: 19, vingt: 20, trente: 30, quarante: 40, cinquante: 50, soixante: 60
+};
+function motsEnChiffres(t) {
+  let s = ' ' + String(t || '').toLowerCase()
+    .replace(/[\u00e0-\u00ff]/g, 'a')            // accents → a (le texte est déjà normalisé, mais sécurité)
+    .replace(/[-']/g, '');                        // « vingt-deux », « s'appeler » → collés
+  // Compositions irrégulières d'abord (avant les dizaines seules).
+  s = s.replace(/\bvingt\s?(deux|trois|quatre|cinq|six|sept|huit|neuf)\b/g, (m, u) => String(20 + MOTS_NOMBRES[u]));
+  s = s.replace(/\btrente\s?(deux|trois|quatre|cinq|six|sept|huit|neuf)\b/g, (m, u) => String(30 + MOTS_NOMBRES[u]));
+  s = s.replace(/\bquarante\s?(deux|trois|quatre|cinq|six|sept|huit|neuf)\b/g, (m, u) => String(40 + MOTS_NOMBRES[u]));
+  s = s.replace(/\bcinquante\s?(deux|trois|quatre|cinq|six|sept|huit|neuf)\b/g, (m, u) => String(50 + MOTS_NOMBRES[u]));
+  s = s.replace(/\bsoixante\s?(dix|onze|douze|treize|quatorze|quinze|seize|dixsept|dixhuit|dixneuf)?\b/g,
+    (m, u) => String(60 + (u ? (MOTS_NOMBRES[u.replace(/\s/g, '')] || 0) : 0)));
+  // Un seul mot par tour : remplace les dizaines et unités isolées.
+  s = s.replace(/\b(un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dixsept|dixhuit|dixneuf|vingt|trente|quarante|cinquante|soixante)\b/g,
+    (m) => String(MOTS_NOMBRES[m] != null ? MOTS_NOMBRES[m] : m));
+  // Tours fractionnaires → minutes.
+  s = s.replace(/\b(\d*)\s*(?:demi|demie)\s*(?:heure|heures)\b/g, (m, n) => (Number(n) || 1) * 30 + ' minute');
+  s = s.replace(/\b(?:un|1)?\s*quart\s+dheure\b/g, '15 minute');
+  s = s.replace(/\b(?:un|1)?\s*tiers\s+dheure\b/g, '20 minute');
+  return s;
+}
+
 function parseEcheance(t) {
   const maintenant = Date.now();
-  let m = t.match(/dans\s+(\d{1,4})\s*(second|minute|heure|jour|seconde|semaine)/);
-  if (!m) m = t.match(/(?:minuteur|timer| compte a rebours|de|pendant)\s+(\d{1,4})\s*(second|minute|heure)s?/);
+  const tc = motsEnChiffres(t);                   // #62 : accepte « dans deux heures » comme « dans 2 heures »
+  let m = tc.match(/dans\s+(\d{1,4})\s*(second|minute|heure|jour|seconde|semaine)/);
+  if (!m) m = tc.match(/(?:minuteur|timer| compte a rebours|de|pendant)\s+(\d{1,4})\s*(second|minute|heure)s?/);
   if (m) {
     const n = parseInt(m[1], 10);
     const u = m[2];
     const mult = u.startsWith('second') ? 1e3 : u.startsWith('minute') ? 6e4 : u.startsWith('heure') ? 36e5 : u.startsWith('jour') ? 864e5 : 7 * 864e5;
     return { t: maintenant + n * mult, relatif: `dans ${n} ${u}${n > 1 ? 's' : ''}` };
   }
-  m = t.match(/(?:^|\s)(?:a|vers)\s*(\d{1,2})\s*(?:h\s*(\d{1,2})?|heures?\s*(\d{1,2})?|[:.](\d{2}))/);
+  m = tc.match(/(?:^|\s)(?:a|vers)\s*(\d{1,2})\s*(?:h\s*(\d{1,2})?|heures?\s*(\d{1,2})?|[:.](\d{2}))/);
   if (m) {
     const h = parseInt(m[1], 10);
     const min = parseInt(m[2] || m[3] || m[4] || '0', 10);
@@ -6681,15 +6713,32 @@ async function handleCommand(rawText, image) {
   if (/(?:rappelle|ne pas oublier|n oublie pas|thought? a faire|reveille|minuteur|timer|alarme|il est l heure de)/.test(text) &&
       parseEcheance(text)) {
     const e = parseEcheance(text);
-    const note = (text.match(/(?:rappelle (?:moi )?(?:de |que je dois |d |que )?|pense a|n oublie pas de|ne pas oublier de|reveille (?:moi )?)([^,]*?)(?:\s+a \d|\s+dans \d|\s+vers \d|$)/) || [])[1];
-    let propre = (note || ' votre rappel').replace(/\s+/g, ' ').trim() || 'votre rappel';
-    if (/^(?:a|vers|dans)\s*\d/.test(propre)) propre = 'votre rappel'; // l'énoncé était seulement l'heure
+    // Tâche #63 (2026-10-05) — l'ancien extracteur s'arrétait à « a <chiffre> » / « dans <chiffre> »,
+    // donc une durée DICTÉE EN LETTRES (« à six heures », « dans deux heures ») n'était pas coupée :
+    // l'heure restait collée au libellé, ou la note tombait vide et Isaac entendaient « votre rappel ».
+    // On construit le libellé en RETIRANT le verbe de commande puis TOUTE la clause d'échéance
+    // (chiffres OU lettres), et ce qui reste est vraiment ce qu'il faut se rappeler.
+    let propre = ' ' + String(text).toLowerCase() + ' ';
+    propre = propre.replace(/(?:rappelle moi|rappele moi|rappelle toi|reveille moi|il est l heure de|ne pas oublier de|n oublie pas de|pense a|thought a faire|thought a|message vocal|mon rappe?l)/g, ' ');
+    // échéances relatives et absolues, en lettres comme en chiffres. \b obligatoire autour des
+    // petits connecteurs (« a », « de ») sinon ils mangent une lettre à l'intérieur d'un mot.
+    propre = propre.replace(/\b(?:toutes?\s+les|dans|vers|a|compter du|compter de|demain|aujourd\s*hui|ce\s+soir|ce\s+matin)\b[\s,]+[\w'\- ]*?\b(?:\d+|une|un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dixsept|dixhuit|dixneuf|vingt|trente|quarante|cinquante|soixante|demi|demie|quart|tiers)\b[\w'\- ]*?\b(?:secondes?|minutes?|heures?|jours?|semaines?|h\b|matin|soir|midi|d\s*heures?)?/g, ' ');
+    propre = propre.replace(/\b\d{1,2}\s*(?:h\b|heures?|minutes?)/g, ' ').replace(/\b\d{1,2}[:.]\d{2}\b/g, ' ');
+    propre = propre.replace(/\b(?:heure|heures|minute|minutes|seconde|secondes|jour|jours|semaine|semaines|demain|matin|soir|midi|demi|demie|quart|tiers|dheure)\b/g, ' ');
+    // petits mots de liaison qui suivaient le verbe de commande (ni « au » ni « pour » : ils portent du sens) :
+    propre = propre.replace(/\b(?:de|du|des|que|qu|d|moi|me)\b/g, ' ');
+    propre = propre.replace(/[^a-zà-ÿ0-9' ]+/g, ' ').replace(/\s+/g, ' ').replace(/^['\s]+|['\s]+$/g, '').trim();
+    if (propre.length < 2) propre = 'votre rappel';
     const l = loadRappels();
     l.push({ t: e.t, note: propre });
     saveRappels(l);
     return { reply: `Entendu, Isaac : je vous rappelle « ${propre} » ${e.relatif.startsWith('dans') ? e.relatif : 'a ' + e.relatif}. Dites « mes rappels » pour la liste.`, source: 'system' };
   }
-  if (/(?:mes rappels|liste (?:des |les )?rappels|j ?ai (?:quoi )?comme rappels?|j ?ai quoi|comme rappel|quest ce que j ?ai (?:a )?(?:faire|ecrire|ecrit|prevu)|que dois je faire|rappels? en attente)/.test(text)) {
+  // ⚠️ Le verbe d'ANNULATION gagne toujours : « annule tous mes rappels » contient « mes rappels »,
+  // donc sans ce garde la branche LISTE interceptait la demande et le rappel n'était jamais effacé
+  // (prouvé sur PROD le 2026-10-05). On ne liste que si Isaac ne vient pas d'annuler.
+  if (!/(?:annule|supprime|efface|enleve)\b/.test(text) &&
+      /(?:mes rappels|liste (?:des |les )?rappels|j ?ai (?:quoi )?comme rappels?|j ?ai quoi|comme rappel|quest ce que j ?ai (?:a )?(?:faire|ecrire|ecrit|prevu)|que dois je faire|rappels? en attente)/.test(text)) {
     const l = loadRappels();
     if (!l.length) {
       const notes = await lireNotes();
