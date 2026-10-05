@@ -312,6 +312,33 @@ async function familleBusiness() {
   test('le harnais retablit l etat d origine (auto = ' + etaitArme + ')', retab.status === 200 && g2.data && g2.data.auto && !!g2.data.auto.auto === !!etaitArme, 'final : ' + JSON.stringify((g2.data || {}).auto || {}).slice(0, 80));
 }
 
+// —— OSINT défensif (tâche #32) : lecture de sources publiques, gardes AVANT tout réseau ——
+async function familleOsint() {
+  section('[OSINT] « surface exposee » lit les sources publiques, jamais un port, et rend le périmètre');
+  const src = fs.readFileSync(SERVEUR, 'utf8');
+  const debut = src.indexOf('async function osintSurfaceExposee');
+  const fin = src.indexOf('async function moduleOsint', debut);
+  const corps = debut >= 0 && fin > debut ? src.slice(debut, fin) : '';
+  test('osintSurfaceExposee existe dans server.js', debut >= 0);
+  test('moduleOsint (le routage) existe aussi', src.indexOf('async function moduleOsint') >= 0);
+  test('le corps ne balaye JAMAIS de ports (scanCible / lancerScan absents)', corps.length > 0 && !/scanCible|lancerScan/.test(corps));
+  test('le droit « scan » est vérifié en premier (droitRefuse)', /droitRefuse\s*\(\s*agent\s*,\s*.scan./.test(corps));
+  test('le périmètre est vérifié AVANT la frappe réseau (perimetreAutorise < tracerFrappe)',
+    corps.indexOf('perimetreAutorise') > -1 && corps.indexOf('tracerFrappe') > corps.indexOf('perimetreAutorise'));
+  test('le mode essai ne part pas sur le réseau (if (ESSAI) return)', /if \(ESSAI\) return/.test(corps));
+
+  // Les gardes se prouvent SANS réseau : une cible hors fiche refuse avant la moindre requête DNS.
+  const aegis = await post('/api/command', { text: 'aegis, surface exposee example.com' }, { headers: { Origin: BASE } });
+  test('#32 — un domaine sans fiche est REFUSÉ (fiche demandée), et rien n a été interrogé',
+    aegis.status === 200 && (aegis.data || {}).refus === true && /fiche/i.test(String((aegis.data || {}).reply)), JSON.stringify(aegis.data || {}).slice(0, 150));
+  const biz = await post('/api/command', { text: 'business, surface exposee example.com' }, { headers: { Origin: BASE } });
+  test('#32 — BUSINESS n a pas le droit de cartographier (refus nommé)',
+    (biz.data || {}).refus === true && /aelyra|onyx|aegis/i.test(String((biz.data || {}).reply)), JSON.stringify(biz.data || {}).slice(0, 150));
+  const nodom = await post('/api/command', { text: 'aegis, surface exposee' }, { headers: { Origin: BASE } });
+  test('#32 — sans domaine dicté, la réponse demande le nom de domaine',
+    /domaine/i.test(String((nodom.data || {}).reply)) && !/fiche/.test(String((nodom.data || {}).reply)), JSON.stringify(nodom.data || {}).slice(0, 150));
+}
+
 // —— Frontend : le Command Center ne transporte aucun secret et tient son correctif ——
 async function familleFrontend() {
   section('[FRONTEND] aucun secret servi au navigateur + correctifs Phases 5-7 tenus');
@@ -418,6 +445,7 @@ async function familleRappels() {
     try { await familleAudit(); } catch (e) { test('famille AUDIT sans exception', false, String((e && e.message) || e)); }
     try { await familleBusiness(); } catch (e) { test('famille BUSINESS sans exception', false, String((e && e.message) || e)); }
     try { await familleRappels(); } catch (e) { test('famille RAPPELS sans exception', false, String((e && e.message) || e)); }
+    try { await familleOsint(); } catch (e) { test('famille OSINT sans exception', false, String((e && e.message) || e)); }
   }
   try { await familleFrontend(); } catch (e) { test('famille FRONTEND sans exception', false, String((e && e.message) || e)); }
 

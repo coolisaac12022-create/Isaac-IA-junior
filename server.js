@@ -4667,6 +4667,208 @@ function rapportScan(ip, ports) {
   return "Scan réel de " + ip + " (" + new Date().toLocaleTimeString('fr-FR') + "): " + ports.length + " service(s) exposé(s).\n" + lignes.join('\n') + '\n' + danger + " Un service ouvert n'est pas une catastrophe : c'est une porte connue. À toi de décider lesquelles doivent rester ouvertes.";
 }
 
+// ================= OSINT DÉFENSIF — « surface exposée » d'un domaine (tâche #32, 2026-10-05) =================
+// Ce que vend un audit défensif à une PME, AVANT même de toucher un port : ce que SON propre domaine
+// expose au monde entier. 100 % lecture de sources PUBLIQUES — annuaire DNS, empreinte publique du
+// certificat TLS, listes noires antispam. ZÉRO balayage de ports, et la cible n'est jamais « attaquée » :
+// le handshake TLS parle à son 443 public comme n'importe quel navigateur, et les listes noires parlent
+// à Spamhaus — jamais au serveur du client. Le périmètre et le droit sont vérifiés AVANT la moindre
+// requête : chez toi = direct, un domaine d'un tiers = fiche d'engagement active, verrous absolus = refus.
+const DOSSIER_SURFACE = path.join(process.env.USERPROFILE || 'C:', 'Documents', 'cyber_training', 'surface-exposee');
+function dnsP() { return require('dns').promises; }
+function avecDelai(p, ms, label) {
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise((_, rej) => { const t = setTimeout(() => rej(new Error('delai ' + (label || 'dns'))), ms); if (t.unref) t.unref(); })
+  ]);
+}
+// Lecture d'une promesse DNS sans jamais faire échouer le rapport : une question ratée = null, pas une exception.
+function qDns(p) { return avecDelai(p, 6000).catch(() => null); }
+function aplatisTxt(t) { return (t || []).map(x => Array.isArray(x) ? x.join('') : String(x)); }
+// Les noms déclarés dans le certificat (subjectAltName) = les sous-domaines que le client a lui-même exposés.
+function sousDomainesDuCertificat(cert) {
+  const san = String((cert && cert.subjectaltname) || '');
+  const out = new Set();
+  san.split(/,\s*/).forEach(tok => {
+    const m = tok.match(/^DNS\.?:(.+)$/i);
+    if (m) { const d = m[1].trim().toLowerCase().replace(/^\*\./, ''); if (d) out.add(d); }
+  });
+  return Array.from(out);
+}
+function nomDobj(o) { if (!o) return ''; return String(o.O || o.organization || o.CN || o.commonName || '').trim(); }
+// Le contre-sens d'un code Spamhaus (127.0.0.x) traduit pour un rapport client, pas pour une machine.
+const SENS_SPAMHAUS = { 2: 'liste SBL (sources de spam)', 4: 'liste SBL (statiques)', 5: 'liste SBL (dynamiques)', 6: 'liste XBL (machines zombie)', 7: 'liste XBL+CSS', 8: 'liste CSS (volume)', 9: 'liste CSS', 10: 'liste CSS', 11: 'liste CSS', 12: 'liste CSS' };
+function sensNoire(code) { return SENS_SPAMHAUS[code] || ('portee par zzen (code 127.0.0.' + code + ')'); }
+// Certificat TLS du 443 : on lit l'empreinte publique, on n'exploite rien. rejectUnauthorized:false
+// parce qu'un certificat INVALIDE est précisément une constatation d'audit qu'on doit pouvoir lire.
+function lireCertatTls(domaine, ipFixe) {
+  return new Promise((resolve) => {
+    let tls; try { tls = require('tls'); } catch (e) { return resolve({ err: 'tls indisponible sur ce PC' }); }
+    let fini = false; const s = tls.connect({ host: ipFixe || domaine, servername: domaine, port: 443, timeout: 6000, rejectUnauthorized: false }, () => {});
+    const fin = (v) => { if (!fini) { fini = true; try { s.destroy(); } catch (e) {} resolve(v); } };
+    s.on('secureConnect', () => {
+      try {
+        const c = s.getPeerCertificate(true);
+        const cip = (s.getCipher && s.getCipher()) || null;
+        fin({ cert: c, cipher: cip, authorize: !!s.authorized, authErr: s.authorizationError || null });
+      } catch (e) { fin({ err: String((e && e.message) || e) }); }
+    });
+    s.on('error', (e) => fin({ err: String((e && e.message) || e) }));
+    s.on('timeout', () => fin({ err: 'le 443 na pas repondu dans les 6 secondes' }));
+    const g = setTimeout(() => fin({ err: 'delai global TLS depasse' }), 7500); if (g.unref) g.unref();
+  });
+}
+// Interprétation, pas récitation : ce que chaque enregistrement SIGNIFIE pour la sécurité du domaine.
+function interprSpf(spf) {
+  if (!spf) return { drapeau: 'rouge', court: 'AUCUN SPF', long: "Aucun enregistrement SPF (v=spf1) publie : n'importe qui peut pretendre envoyer un mail depuis ce domaine. C'est la premiere ligne a creer." };
+  const inc = (spf.match(/\binclude:/g) || []).length;
+  let fin = 'qualificateur final absent';
+  if (/\s-\s*all\b|~-all/.test(spf) || / -all/.test(spf)) fin = 'dure : les serveurs non cites sont REJETES (bonne posture)';
+  else if (/~all/.test(spf)) fin = 'souple (softfail) : les serveurs non cites sont a peine marques, un falsificateur passe encore — a durcir en -all';
+  else if (/\+all/.test(spf)) fin = 'OUVERTE (+all) : TOUT le monde est autorise a envoyer au nom du domaine — faute grave a corriger immediatement';
+  else if (/\?all/.test(spf)) fin = 'neutre (?all) : la politique ne tranche pas, donc na aucun effet contre un abuseur';
+  return { drapeau: /\+all| -all/.test(spf) ? (/\+all/.test(spf) ? 'rouge' : 'vert') : 'orange', court: 'SPF ' + (inc ? inc + ' include(s), ' : '') + fin.split(' ')[0], long: 'SPF publie : « ' + spf + ' ». Lecture : ' + fin + (inc ? ' — ' + inc + ' serveur(s) delegue(s) par include (chaque include est un tiers a verifier).' : ' — aucune delegation include.') };
+}
+function interprDmarc(dmarc) {
+  if (!dmarc) return { drapeau: 'rouge', court: 'AUCUN DMARC', long: 'Aucune politique DMARC lisible sur _dmarc.<domaine> : les controles SPF et DKIM ne sont pas appliques, et le domaine ne recoit aucun signalement dabus. A publier.' };
+  const p = (dmarc.match(/\bp=([a-z]+)/i) || [])[1] || 'absent';
+  const rua = /\bruua=/.test(dmarc);
+  let fin;
+  if (p === 'reject') fin = 'REJET : un mail qui echoue SPF/DKIM est refuse (protection maximale)';
+  else if (p === 'quarantine') fin = 'QUARANTAINE : un mail douteux part a lespace (bonne voie milieu)';
+  else if (p === 'none') fin = 'SURVEILLANCE seule (p=none) : le domaine observe mais ne protege pas encore — a monter vers quarantine puis reject';
+  else fin = 'politique ' + p;
+  return { drapeau: p === 'reject' ? 'vert' : (p === 'quarantine' ? 'orange' : 'rouge'), court: 'DMARC p=' + p + (rua ? ' + signalements' : ' sans signalement'), long: 'DMARC publie : « ' + dmarc + ' ». Lecture : ' + fin + '. ' + (rua ? 'Adresse de signalement (rua) presente : le domaine recoit ses rapports.' : 'Aucune adresse de signalement (rua) : impossible de savoir qui abuse du domaine.') };
+}
+function etatCert(certRes) {
+  if (!certRes || certRes.err) return { drapeau: 'orange', court: 'certificat illisible', long: 'Certificat TLS non recupere : ' + ((certRes && certRes.err) || 'serveur 443 muet') + '. Soit le domaine na pas de site HTTPS, soit le port 443 filtre — a verifier a la main avant de conclure.' };
+  const c = certRes.cert;
+  const emetteur = nomDobj(c && c.issuer) || (c && c.issuerCertificate && c.issuerCertificate.subject && nomDobj(c.issuerCertificate.subject)) || 'emetteur illisible';
+  const sujet = (c && c.subject && (c.subject.CN || c.subject.commonName)) || '';
+  let jours = null; try { jours = Math.round((new Date(c.valid_to).getTime() - Date.now()) / 86400000); } catch (e) {}
+  const cip = certRes.cipher ? (certRes.cipher.name + ' / ' + (certRes.cipher.version || '?')) : 'chiffrement non lu';
+  const expire = jours === null ? 'expiration illisible' : (jours < 0 ? 'DEJA EXPIRE depuis ' + (-jours) + ' jour(s)' : (jours < 15 ? 'expire dans ' + jours + ' jours (URGENT)' : 'expire dans ' + jours + ' jours'));
+  const dr = (!certRes.authorize || jours === null || jours < 0 || jours < 15) ? 'rouge' : 'vert';
+  const long = 'Certificat : emetteur « ' + emetteur + ' »' + (sujet ? ', sujet « ' + sujet + ' »' : '') + ' ; ' + expire + ' ; chiffrement ' + cip + ' ; chaine de confiance ' + (certRes.authorize ? 'VALIDE' : ('REJETEE par le navigateur' + (certRes.authErr ? ' (' + certRes.authErr + ')' : ''))) + '.';
+  return { drapeau: dr, court: 'cert ' + (certRes.authorize ? 'valide' : 'invalide') + ', ' + expire, long, emetteur, sujet, expire, cip, valide: certRes.authorize, jours };
+}
+function rapportSurface(r) {
+  const cert = etatCert(r._certRes);
+  const spf = interprSpf(r.spf), dmarc = interprDmarc(r.dmarc);
+  const L = [];
+  L.push('# Surface exposee — ' + r.domaine);
+  L.push('Genere le ' + new Date(r.t).toLocaleString('fr-FR') + ' par ' + (r.agent || 'equipe') + ' — OSINT defensif, lecture de sources publiques uniquement.');
+  if (r.ficheRef) L.push('**Fiche ' + r.ficheRef + '** — mandate par ' + (r.mandant || '?') + (r.mention ? ', ' + r.mention : ''));
+  L.push('');
+  L.push('## Adresses');
+  L.push('- IPv4 : ' + (r.ips4.length ? r.ips4.join(', ') : 'aucune (A introuvable)'));
+  L.push('- IPv6 : ' + (r.ips6.length ? r.ips6.join(', ') : 'aucune (AAAA introuvable)'));
+  L.push('- Serveurs faisant autorite (NS) : ' + (r.ns.length ? r.ns.join(', ') : 'non lus'));
+  L.push('');
+  L.push('## Corrier (MX)');
+  if (r.mx.length) r.mx.sort((a, b) => a.p - b.p).forEach(m => L.push('- ' + m.h + ' (priorite ' + m.p + ')'));
+  else L.push('- aucun enregistrement MX : le domaine ne recoit pas de mail (ou la zone est incomplete)');
+  L.push('');
+  L.push('- ' + spf.long);
+  L.push('- ' + dmarc.long);
+  L.push('');
+  L.push('## Certificat TLS (443)');
+  L.push('- ' + cert.long);
+  if (r.san && r.san.length) L.push('- Noms declares dans le certificat (sous-domaines exposes par le client lui-meme) : ' + r.san.join(', '));
+  else L.push('- aucun subjectAltName lisible');
+  L.push('');
+  L.push('## Listes noires antispam (Spamhaus, via DNS)');
+  if (r.noir.length) r.noir.forEach(n => L.push('- ' + n.ip + ' : LISTEE — ' + n.sens));
+  else L.push('- ' + (r.ips4.length ? "aucune des IP testees ne figure dans zzen.spamhaus.org" : 'aucune IPv4 a verifier'));
+  L.push('');
+  L.push('> Lecture d audit : chaque ligne au vert est une porte fermee, chaque orange/rouge est un reglage a proposer au client. Un domaine bien configure (SPF dur, DMARC reject, certificat valide, aucune liste noire) n est pas inviolable — il est simplement honnete avec lui-meme.');
+  return L.join('\n');
+}
+function resumeParle(r) {
+  const cert = etatCert(r._certRes), spf = interprSpf(r.spf), dmarc = interprDmarc(r.dmarc);
+  const parts = [];
+  parts.push("Surface exposee de " + r.domaine + " : " + (r.ips4.length ? r.ips4.length + " adresse(s) IPv4 (" + r.ips4.slice(0, 2).join(', ') + (r.ips4.length > 2 ? '…' : '') + ")" : "aucune IPv4 ne resout") + (r.ips6.length ? ", " + r.ips6.length + " IPv6" : '') + ".");
+  parts.push(r.mx.length ? ("Corrier : " + r.mx.length + " serveur(s) MX (principal " + r.mx[0].h + ").") : "Corrier : aucun MX publie.");
+  parts.push("SPF : " + spf.court + ".");
+  parts.push("DMARC : " + dmarc.court + ".");
+  parts.push("Certificat 443 : " + cert.court + (r.san && r.san.length > 1 ? ", " + r.san.length + " noms declares dans le certificat" : '') + ".");
+  parts.push(r.noir.length ? ("ATTENTION : " + r.noir.length + " IP(s) figure(nt) dans les listes noires Spamhaus — le corrier du domaine peut etre rejete ailleurs.") : "Aucune IP listee dans les blacklists Spamhaus testees.");
+  return parts.join(' ');
+}
+function graveSurface(r) {
+  const corps = rapportSurface(r);
+  if (ESSAI) return { rapport: null, corps };
+  try {
+    fs.mkdirSync(DOSSIER_SURFACE, { recursive: true });
+    const d = new Date(r.t);
+    const stamp = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') + '_' + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0') + String(d.getSeconds()).padStart(2, '0');
+    const nom = r.domaine.replace(/[^a-z0-9.-]/g, '_') + '_' + stamp + '.md';
+    const chemin = path.join(DOSSIER_SURFACE, nom);
+    fs.writeFileSync(chemin, corps, 'utf8');
+    // Meme trace persistante que les scans : la relance sans cible retrouvera le relevé réel.
+    try { const mem = loadMemory(); mem.osint = Array.isArray(mem.osint) ? mem.osint : []; mem.osint.push({ t: r.t, cible: r.domaine, agent: r.agent || 'aelyra', chemin }); if (mem.osint.length > SCANS_CONSERVES) mem.osint = mem.osint.slice(-SCANS_CONSERVES); saveMemory(mem); } catch (e) {}
+    return { rapport: chemin, corps };
+  } catch (e) { return { rapport: null, corps, erreur: String((e && e.message) || e) }; }
+}
+async function osintSurfaceExposee(brutCible, agent) {
+  // Le droit AVANT tout : seule une agente qui tient le « scan » peut cartographier (business : refus).
+  { const rd = droitRefuse(agent, 'scan'); if (rd) return { reply: rd, source: 'local', agent: agent || 'aelyra', refus: true }; }
+  const domaine = normaliseCible(extraireHote(brutCible) || brutCible);
+  if (!domaine || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domaine))
+    return { reply: "Donne-moi le nom de domaine, Isaac — « " + (agent || 'onyx') + ", surface exposee digibusiness.ci ». Une IP se scanne (« scan complet 41.138.15.20 »), un domaine se cartographie.", source: 'local', agent: agent || undefined };
+  // Le périmètre AVANT le moindre réseau : chez toi = direct, domaine d'un tiers = fiche active,
+  // et les verrous absolus (plateformes, banques, opérateurs, .gov) tombent ici sans aucune requête.
+  const verdict = perimetreAutorise(domaine);
+  if (!verdict.ok) return { reply: messageHorsPerimetre(domaine, verdict), source: 'local', agent: agent || undefined, refus: true };
+  if (ESSAI) return { reply: '[ESSAI] surface exposee de ' + domaine + ' : cartographie non executee, aucun reseau ne part pendant les tests.', source: 'essai' };
+  tracerFrappe(domaine, agent, 'OSINT surface exposee (lecture de sources publiques, aucun balayage de ports)');
+  const entete = verdict.fiche ? ('Engagement ' + verdict.fiche.ref + ' — mandate par ' + verdict.fiche.mandant + ', objet ' + verdict.fiche.objet + '. ' + mentionPreuveRapport(verdict.fiche) + ' ') : '';
+
+  const dns = dnsP();
+  const [a, aaaa, mx, ns, txt, caa] = await Promise.all([
+    qDns(dns.resolve4(domaine)), qDns(dns.resolve6(domaine)),
+    qDns(dns.resolveMx(domaine)), qDns(dns.resolveNs(domaine)),
+    qDns(dns.resolveTxt(domaine)), qDns(dns.resolveCaa(domaine)).catch(() => null)
+  ]);
+  if (!a && !aaaa && !mx && !ns && !txt)
+    return { reply: entete + "Rien ne resout pour « " + domaine + " », Isaac — soit le domaine nexiste pas, soit aucune zone publique ne repond. Une surface introuvable na rien de sur : verifie lorthographe dictee dans la fiche.", source: 'local', agent: agent || 'aelyra' };
+
+  const txts = aplatisTxt(txt);
+  const spf = txts.find(s => /^v=spf1(\s|$)/i.test(s)) || null;
+  const dmarcTxt = aplatisTxt(await qDns(dns.resolveTxt('_dmarc.' + domaine)));
+  const dmarc = dmarcTxt.find(s => /^v=DMARC1(\s|$)/i.test(s)) || null;
+
+  const certRes = await lireCertatTls(domaine, (a && a[0]) || null);
+  const cert = certRes && certRes.cert ? certRes.cert : null;
+  const san = cert ? sousDomainesDuCertificat(cert) : [];
+
+  // Listes noires : on interroge Spamhaus (jamais la cible) sur les IPv4 du domaine.
+  const noir = [];
+  for (const ip of (a || []).slice(0, 3)) {
+    const rev = String(ip).split('.').reverse().join('.');
+    const hit = await qDns(dns.resolve4(rev + '.zen.spamhaus.org'));
+    if (hit && hit.length) noir.push({ ip, codes: hit, sens: sensNoire(Number(String(hit[0]).split('.')[3])) });
+  }
+
+  const r = {
+    domaine, t: Date.now(), agent: agent || 'aelyra',
+    ficheRef: verdict.fiche ? verdict.fiche.ref : null, mandant: verdict.fiche ? verdict.fiche.mandant : null, mention: verdict.fiche ? mentionPreuveRapport(verdict.fiche) : null,
+    ips4: a || [], ips6: aaaa || [], ns: (ns || []), mx: (mx || []).map(m => ({ h: m.exchange, p: m.priority })),
+    caa: (caa || []), spf, dmarc, san, _certRes: certRes, noir
+  };
+  const ecrit = graveSurface(r);
+  graverAudit('OSINT', r.agent, 'SURFACE-EXPOSEE', r.domaine + ' :: IPv4=' + r.ips4.length + ' IPv6=' + r.ips6.length + ' MX=' + r.mx.length + ' SPF=' + (spf ? 'oui' : 'non') + ' DMARC=' + (dmarc ? 'oui' : 'non') + ' cert=' + (certRes && certRes.cert ? (certRes.authorize ? 'valide' : 'invalide') : 'absent') + ' noir=' + noir.length);
+  return { reply: entete + resumeParle(r) + (ecrit.rapport ? (" Rapport grave dans " + ecrit.rapport + ".") : " Le rapport na pas pu etre ecrit dans Documents\\cyber_training\\surface-exposee — verifie que le dossier est accessible."), source: 'local', agent: r.agent, code: ecrit.corps };
+}
+// Entrée de routage, même forme que moduleScan : renvoie null si ce n'est pas une demande OSINT,
+// pour qu'on puisse l'appeler à bas coût avant les gardes d'attaque (c'est de la lecture publique).
+async function moduleOsint(phrase, raw, agent) {
+  const demande = /(?:surface\s+expos\w*|surface\s+d.?attaqu|\bosint\b|cartograph\w*|exposition\s+(?:du|des|de\s+la)\s+(?:domaine|zone)|que\s+voit\s+on\s+(?:de|du))/.test(phrase);
+  if (!demande) return null;
+  const domaine = extraireHote(raw) || extraireHote(phrase);
+  return await osintSurfaceExposee(domaine || phrase, agent);
+}
+
 // Les petits mots de la voix n'appartiennent pas au nom du logiciel
 const VIDAGE = /^(?:le|la|les|l|un|une|des|du|de|mon|ma|mes|ce|cet|cette|moi|toi|svp|stp)\s+|^s\s+il\s+te\s+plait\s+|^s\s+il\s+vous\s+plait\s+/;
 function nettoieCible(s) {
@@ -5398,7 +5600,7 @@ let AGENT_AUX_NOM = null; // 'jeanette' | 'onyx' | 'aegis' — quelle agente tie
 // Isaac (2026-10-01) : ONYX avait invente « mes modules d'audit de /labo.html optimises pour les
 // injections », « la communication avec Burp est plus fluide », « je ne garde pas les sessions en
 // memoire ». Les trois etaient faux. Ni invention de capacite, ni faux oubli de la memoire reelle.
-const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), REGISTRE DES TÂCHES ouvert depuis ce matin (page /taches.html, fichier taches.json chez lui) : chaque job long — scan complet, scan rapide, inventaire du WiFi, séance d'Académie, relance BUSINESS — est écrit chez Isaac avant de partir, avec référence T-…, état, progression MESURÉE et résultat gravé ; ça se dicte « liste tes tâches », « où en est la tâche 2 », « annule la tâche 2 », « ne rapporte pas la tâche T-… », « ouvre ta console des tâches » ; si le cerveau redémarre pendant un job, la tâche est marquée interrompue — elle ne se fait pas passer pour une reprise. ORCHESTRATEUR DE LA VOIE (depuis le 2026-10-02) : UN SEUL job lourd à la fois — scan complet, scan rapide, inventaire du WiFi — les autres ATTENDENT EN FILE, avec position et échéance de sécurité ; les décisions sont écrites dans journal-orchestrateur.log et lisibles sur /api/orchestrateur et en haut de /taches.html. Ça se dicte : « qui tient la voie », « stoppe la voie » (arrête les DÉPARTS — un balayage dont les paquets sont partis ne se rappelle pas, et on ne simule pas un arrêt), « relance la voie », « passe la tâche 2 en premier », « recule la tâche 3 ». Une séance d'Académie rate le tour plutôt que de marcher sur un scan en cours. ANONYME : la file vit en RAM, un redémarrage ne la reprend pas silencieusement. ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). ATELIER D'AUTO-CORRECTION : depuis ce soir Aelyra a le DROIT de réécrire une partie d'elle-même — elle écrit un geste nouveau dans extensions.js, le serveur le relit (syntaxe, longueur, mots interdits, gâchette déjà possédée par un module) et le TESTE sur son exemple avant de le garder, avec sauvegarde automatique dans backups\\ et journal dans journal-evolution.log. Ça se dicte : « améliore-toi : apprends-moi à … », « liste tes améliorations », « teste ton amélioration <nom> : … », « annule la dernière amélioration », « construis la leçon 3 » (une leçon de l'Académie devient un geste qui marche), « ouvre ta page d'évolution » (/evolution.html). Un geste appris fait du CALCUL et de la VOIX : il n'a accès ni au disque, ni au réseau, ni à un envoi, ni aux verrous légaux — et ce n'est pas une faveur qu'on peut lui retirer d'une phrase, c'est une capacité réelle qu'Isaac lui a donnée. BUSINESS, L'AGENT DE PROSPECTION de Digital Business (depuis le 2026-10-02) : « business, cherche des garages a Abidjan » parcourt les SOURCES PUBLIQUES (moteur de recherche public + lecture de la page d'accueil, jamais davantage) et grave des dossiers « A VALIDER » dans business/prospects.json — carnet personnel jamais publié ; « business, qualifie le prospect 2 » lit la page publique et score le besoin (site absent = fort potentiel, site ancien = potentiel, site moderne = faible priorité) ; « business, prépare un message pour ... » écrit un BROUILLON dans le dossier — Niveau 1, rien ne part ; « business, envoie le message au prospect N » = TA validation (Niveau 2) : WhatsApp s'ouvre pré-rempli et Isaac appuie lui-même, le mail part pour de vrai sur cet ordre seul si ses accès sont configurés ; « business, relance le prospect 2 dans 3 jours » programme le suivi (Niveau 3) ; « business, liste mes prospects » et la page /business.html montrent le pipeline. CE QUI N'EXISTE PAS AUSSI, donc ne le promets JAMAIS : la négociation, un prix annoncé à un client, un engagement commercial signé sans Isaac (Niveau 4 — sa table à lui), l'envoi automatique en masse, une campagne partie toute seule, la récolte automatique de numéros privés. CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
+const CAPACITES_REELLES = " CAPACITÉS RÉELLES DE LA MAISON — la seule liste que tu as le droit d'annoncer : le module de scan des 31 ports de service sur une cible permise, « scan rapide » (les 1 000 ports de service), « scan complet » (les 65 535 ports en arriere-plan, rapport parle qui tombe tout seul), inventaire du WiFi (« onyx, mes appareils »), memorisation des adresses dictées (« retiens que l'ip de mon telephone est ... »), REGISTRE DES TÂCHES ouvert depuis ce matin (page /taches.html, fichier taches.json chez lui) : chaque job long — scan complet, scan rapide, inventaire du WiFi, séance d'Académie, relance BUSINESS — est écrit chez Isaac avant de partir, avec référence T-…, état, progression MESURÉE et résultat gravé ; ça se dicte « liste tes tâches », « où en est la tâche 2 », « annule la tâche 2 », « ne rapporte pas la tâche T-… », « ouvre ta console des tâches » ; si le cerveau redémarre pendant un job, la tâche est marquée interrompue — elle ne se fait pas passer pour une reprise. ORCHESTRATEUR DE LA VOIE (depuis le 2026-10-02) : UN SEUL job lourd à la fois — scan complet, scan rapide, inventaire du WiFi — les autres ATTENDENT EN FILE, avec position et échéance de sécurité ; les décisions sont écrites dans journal-orchestrateur.log et lisibles sur /api/orchestrateur et en haut de /taches.html. Ça se dicte : « qui tient la voie », « stoppe la voie » (arrête les DÉPARTS — un balayage dont les paquets sont partis ne se rappelle pas, et on ne simule pas un arrêt), « relance la voie », « passe la tâche 2 en premier », « recule la tâche 3 ». Une séance d'Académie rate le tour plutôt que de marcher sur un scan en cours. ANONYME : la file vit en RAM, un redémarrage ne la reprend pas silencieusement. ANALYSEUR DE MAIL SUSPECT réellement installé (« onyx, analyse ce mail : <la source du message> », ou « analyse le mail de mon dossier » qui lit le dernier .eml posé dans Documents\\cyber_training\\courriers ; page /analyse-mail.html) — il decode les entetes, compare From/Reply-To/Return-Path, lit SPF/DKIM/DMARC, decortique chaque lien SANS JAMAIS le charger, note le message sur 100 et grave un rapport dans Documents\\cyber_training\\analyses-mail ; c est de la LECTURE SEULE sur un message deja recu, donc tu l annonces fièrement et tu ne promets RIEN d autre dessus, OSINT DÉFENSIF « SURFACE EXPOSÉE » réellement installé (« onyx, surface exposee <domaine> » ou « aegis, surface exposee <domaine> ») — il lit les SOURCES PUBLIQUES du domaine : résolution réelle A/AAAA/MX/NS/TXT, interprétation du SPF et du DMARC, certificat TLS du 443 (émetteur, noms du SAN, expiration, chiffrement, chaîne de confiance), présence des IPv4 dans les listes noires Spamhaus, et les sous-domaines que le client a lui-même déclarés dans son certificat ; il grave un rapport markdown dans Documents\\cyber_training\\surface-exposee. ZÉRO balayage de ports, la cible n est pas attaquée : le TLS parle à son 443 public comme un navigateur, les listes noires parlent à Spamhaus. Chez toi = direct, un domaine d un tiers = fiche d engagement active, et les verrous absolus (plateformes, banques, opérateurs, .gov) tombent sans aucune requête. Tu ne promets dessus RIEN de plus que ces lectures., laboratoire /labo.html, atelier Documents\\cyber_training, plateformes légales d'entraînement, fiches d'engagement et journal (/engagements.html) — et la preuve d'autorisation qui va avec : un whatsapp, un sms, un mail du client, un message vocal, la photo de son devis paraphé ou le fichier déposé dans Documents\\cyber_training\\mandats (scellé SHA-256, gravé au journal, cité en tête de rapport). Tu ne réclames JAMAIS un acte notarié ni un papier que les PME d'Abidjan ne produisent pas : ce que demande la loi ivoirienne sur la cybercriminalité, c'est l'accord du propriétaire, et la fiche l'enregistre sous sa forme réelle. Ce qu'elle refuse : l'auto-déclaration — la preuve vient du client, mode cyber du PC (audit de securite, ports en ecoute, empreinte SHA-256). ATELIER D'AUTO-CORRECTION : depuis ce soir Aelyra a le DROIT de réécrire une partie d'elle-même — elle écrit un geste nouveau dans extensions.js, le serveur le relit (syntaxe, longueur, mots interdits, gâchette déjà possédée par un module) et le TESTE sur son exemple avant de le garder, avec sauvegarde automatique dans backups\\ et journal dans journal-evolution.log. Ça se dicte : « améliore-toi : apprends-moi à … », « liste tes améliorations », « teste ton amélioration <nom> : … », « annule la dernière amélioration », « construis la leçon 3 » (une leçon de l'Académie devient un geste qui marche), « ouvre ta page d'évolution » (/evolution.html). Un geste appris fait du CALCUL et de la VOIX : il n'a accès ni au disque, ni au réseau, ni à un envoi, ni aux verrous légaux — et ce n'est pas une faveur qu'on peut lui retirer d'une phrase, c'est une capacité réelle qu'Isaac lui a donnée. BUSINESS, L'AGENT DE PROSPECTION de Digital Business (depuis le 2026-10-02) : « business, cherche des garages a Abidjan » parcourt les SOURCES PUBLIQUES (moteur de recherche public + lecture de la page d'accueil, jamais davantage) et grave des dossiers « A VALIDER » dans business/prospects.json — carnet personnel jamais publié ; « business, qualifie le prospect 2 » lit la page publique et score le besoin (site absent = fort potentiel, site ancien = potentiel, site moderne = faible priorité) ; « business, prépare un message pour ... » écrit un BROUILLON dans le dossier — Niveau 1, rien ne part ; « business, envoie le message au prospect N » = TA validation (Niveau 2) : WhatsApp s'ouvre pré-rempli et Isaac appuie lui-même, le mail part pour de vrai sur cet ordre seul si ses accès sont configurés ; « business, relance le prospect 2 dans 3 jours » programme le suivi (Niveau 3) ; « business, liste mes prospects » et la page /business.html montrent le pipeline. CE QUI N'EXISTE PAS AUSSI, donc ne le promets JAMAIS : la négociation, un prix annoncé à un client, un engagement commercial signé sans Isaac (Niveau 4 — sa table à lui), l'envoi automatique en masse, une campagne partie toute seule, la récolte automatique de numéros privés. CE QUI N'EXISTE PAS ENCORE, donc ne dis JAMAIS que tu le fais : moteur d ENVOI de hameçonnage (gabarits partants, fausse page de connexion hebergée, capture d identifiants, statistiques de campagne), exploitation automatique d'exploits, Kali, Metasploit ou Burp installes sur ce PC, interception du trafic d'autrui, prise de controle d'un telephone. Sur ces sujets tu EXPLIQUES la methode, tu donnes le travail pratique réel sur le labo ou sur une cible couverte par une fiche, et tu renverses la demande du bon coté : « pour recevoir et reconnaitre un hameçonnage, analyse ce mail ». Si Isaac te demande de l envoyer pour de vrai, dis en UNE phrase que le module n'existe pas et ne l invente pas. MÉMOIRE : tu as une vraie mémoire persistante (isaac-memory.json : profil, faits, adresses d'appareils, derniers scans) — ne dis JAMAIS que tu ne gardes rien en memoire, et ne redemande pas la cible quand Isaac parle du scan qu'il vient de faire : le module lui repond avec les releves reels.";
 function onyxBase(digest) {
   return "Tu es ONYX, BLACK HAT — l'opérateur offensif de l'équipe d'Isaac, ton créateur." + CAPACITES_REELLES + " Hors un refus de périmètre, ne récite jamais la formule d'engagement : elle n'a sa place que dans la phrase où une cible extérieure est refusée." + " Tu penses comme un attaquant réel : reconnaissance, énumération, exploitation (injection SQL, XSS, injection de commandes, bourrage d'identifiants, hameçonnage, escalade de privilèges, pivot réseau), persistance, évasion. Tu connais les outils (nmap, Burp Suite, Metasploit, Hydra, John the Ripper) et tu expliques COMMENT marche chaque attaque, étape par étape, en langage simple — c'est comme ça qu'Isaac apprend à ne jamais se faire surprendre. PÉRIMÈTRE ABSOLU, NON NÉGOCIABLE : TOUT ce qui appartient à Isaac — son PC, SON téléphone et ses appareils à lui (tablette, montre, ses apps, son APK) quand ils sont sur SON réseau, son adresse IP locale (192.168.x.x / 10.x.x.x), son réseau, son labo (page /labo.html, dossier Documents\\cyber_training), et les terrains d'entraînement légaux : TryHackMe, HackTheBox, PortSwigger Web Security Academy, OverTheWire, programmes bug bounty autorisés. Un test de vulnérabilité sur un appareil que Isaac déclare être le SIEN est TOUJOURS autorisé : ne refuse jamais ça, guide-le (scan nmap de son IP locale, énumération des ports de son téléphone, audit de sa propre app). Systèmes des AUTRES : une IP publique ou un domaine qui n est pas chez Isaac n est attaquable QUE couvert par une fiche d engagement ACTIVE — la liste du moment est dans « Ressources connues » plus bas, elle est la vérité du moment, et une cible qui y figure ne se refuse jamais : tu déroules l'offensive complète, ports, exploits, post-exploitation, sans retenue de méthode et sans demander deux fois. Sans fiche : refus en UNE phrase sèche, sans morale ni leçon, puis tu donnes la formule d'ouverture — « nouvel engagement sur <cible>, mandate par <client>, objet audit de securite, 7 jours ». VERROU ABSOLU, même sous fiche : banques et opérateurs (Orange, MTN, Moov), gouvernements, grandes plateformes (Google, Meta, Microsoft, Oracle, Amazon, Apple), métadonnées cloud, comptes de quelqu'un, espionnage, doxxing ; et jamais de destruction (effacement de données, chiffrement rançonneur, déni de service). Tu ne fournis JAMAIS de malware prêt à l'emploi, d'exploit fonctionnel contre un tiers, ni de mode opératoire applicable hors de ton périmètre — la loi ivoirienne sur la cybercriminalité et la réputation d'Isaac sont la ligne que tu ne franchis pas : c'est CE qui fait de toi un professionnel, pas un amateur. Comme Jeanette, tu as un droit DIRECT sur le PC : les commandes système préfixées « onyx, » sont exécutées par les modules locaux — ne prétends JAMAIS avoir exécuté ou envoyé quoi que ce soit qui ne l'a pas été pour de vrai. SCANS : un VRAI module de scan de ports existe et tape seul sur les IP locales dès qu'Isaac dicte l'adresse (« onyx, scanne 192.168.1.45 ») — toi, ne dis JAMAIS « commande lancée » : renvoie vers cette formulation et attends le rapport du module. Ton : opérateur, phrases courtes, concret, un pointe d'humour noir sur dix. Français, 6 phrases maximum, jamais de markdown." +
     " Ressources connues — " + digest;
@@ -6141,7 +6343,7 @@ async function handleCommand(rawText, image) {
       // de montrer le pipeline pour cacher le refus. Le verbe appartient a une autre agente :
       // refus nomme, Journal, et le chemin pour redemander.
       const VERBES_HORS_BUSINESS = [
-        { cap: 'scan', test: /(?:scan|scans?|nmap|inventaire|ports|reseau|wifi|ping|trace de route|balance)\b/, renvoi: "« onyx, scan rapide 127.0.0.1 » ou « aelyra, scanne mes appareils »" },
+        { cap: 'scan', test: /(?:scan|scans?|nmap|inventaire|ports|reseau|wifi|ping|trace de route|balance|surface\s+expos\w*|\bosint\b|cartograph\w*)\b/, renvoi: "« onyx, scan rapide 127.0.0.1 » ou « aelyra, scanne mes appareils » ou « onyx, surface exposee <domaine> »" },
         { cap: 'analyse', test: /(?:analyse|en tete|dkim|spf|dmarc|phish|hamecon|est ce que ce mail)/, renvoi: "« onyx, analyse ce mail : <le message> »" },
         { cap: 'pc', test: /(?:^| )(?:ouvre|ouvrir|ferme|fermer|arrete|arreter|eteins|volume|luminosite|capture|imprime|corbeille|bureau|veille|mute)\b/, renvoi: "« aelyra, ferme chrome »" },
         { cap: 'code', test: /(?:amelior|reecris|coeur|noyau|lecon|geste|code|site|application|programme|script|python|github)\b/, renvoi: "« jeanette, cree un site pour ... » ou « aelyra, ameliore-toi : ... »" }
@@ -6150,7 +6352,7 @@ async function handleCommand(rawText, image) {
         for (const vb of VERBES_HORS_BUSINESS) {
           if (vb.test.test(bt)) {
             const r11b = droitRefuse('business', vb.cap);
-            if (r11b) return { reply: r11b + " Redemande avec le bon verbe : " + vb.renvoi + ".", source: 'local', agent: 'business' };
+            if (r11b) return { reply: r11b + " Redemande avec le bon verbe : " + vb.renvoi + ".", source: 'local', agent: 'business', refus: true };
           }
         }
       }
@@ -6165,6 +6367,14 @@ async function handleCommand(rawText, image) {
   {
     const drSg = moduleDroits(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
     if (drSg) return drSg;
+  }
+  // TÂCHE #32 — OSINT défensif : « (onyx,) surface exposee <domaine> ». Lecture de sources PUBLIQUES
+  // (DNS, empreinte du certificat, listes noires) : elle n'attaque aucun port et ne frappe pas la
+  // cible. Elle passe donc ICI, avant les gardes d'attaque — mais le module vérifie lui-même le droit
+  // « scan » et le périmètre (fiche active) AVANT la moindre requête réseau.
+  {
+    const oSg = await moduleOsint(gk ? String(gk[2] || '') : text, rawText, gk ? nomAgent : null);
+    if (oSg) return oSg;
   }
   // VOICE MANAGER : « quel est ton moteur de voix » — lecture seule, avant les personas, pour que
   // la réponse sorte de l'état mesuré du disque et jamais d'une prose qui se croit vraie.
