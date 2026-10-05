@@ -2801,6 +2801,55 @@ const SOUS_DOSSIERS_BUSINESS = ['prospects', 'contacts', 'entreprises', 'convers
 try { fs.mkdirSync(DOSSIER_BUSINESS, { recursive: true }); SOUS_DOSSIERS_BUSINESS.forEach(s => fs.mkdirSync(path.join(DOSSIER_BUSINESS, s), { recursive: true })); } catch (e) {}
 const CHEMIN_PROSPECTS = path.join(DOSSIER_BUSINESS, ESSAI ? 'prospects.essai.json' : 'prospects.json');
 const CHEMIN_JOURNAL_BUSINESS = path.join(DOSSIER_BUSINESS, ESSAI ? 'journal.essai.log' : 'journal.log');
+// ORANGE #12 (2026-10-05) — la prospection AUTOMATIQUE. Isaac a choisi son plafond : « prospecter
+// + préparer seule ». Sur un secteur qu'IL a dicté et une cadence qu'IL a réglée, BUSINESS parcourt
+// les MÊMES sources publiques (Niveau 0), qualifie et rédige des brouillons (Niveau 1) — et S'ARRÊTE
+// là. Rien ne part sans son « envoie » (Niveau 2) : le tick n'appelle JAMAIS busEnvoyer. auto:false
+// par défaut tant qu'Isaac n'a pas armé la machine ; l'instance d'essai ne lève jamais le nez du disque.
+const CHEMIN_BUSINESS_CONFIG = path.join(DOSSIER_BUSINESS, ESSAI ? 'config.essai.json' : 'config.json');
+const BUSINESS_CONFIG_DEFAUT = {
+  auto: false, secteur: '', ville: 'Abidjan',
+  intervalle_min: 720,     // un tour toutes les 12 h par défaut ; réglable à la voix
+  max_par_tick: 3,         // nombre de nouveaux dossiers qualifiés + rédigés par tour (le moteur public est plafonné à 8 par recherche)
+  dernier_tick: 0, total_ticks: 0, total_prets: 0
+};
+function lireBusinessConfig() {
+  try {
+    const d = JSON.parse(fs.readFileSync(CHEMIN_BUSINESS_CONFIG, 'utf8'));
+    if (d && typeof d === 'object') return Object.assign({}, BUSINESS_CONFIG_DEFAUT, d);
+  } catch (e) {}
+  return Object.assign({}, BUSINESS_CONFIG_DEFAUT);
+}
+function ecrireBusinessConfig(c) {
+  try { fs.mkdirSync(DOSSIER_BUSINESS, { recursive: true }); } catch (e) {}
+  try { fs.writeFileSync(CHEMIN_BUSINESS_CONFIG, JSON.stringify(c, null, 2), 'utf8'); return true; } catch (e) { return false; }
+}
+// armer / régler / désarmer la prospection automatique, avec garde-fous durs dans le CODE :
+// plafond de cadence (jamais plus d'un tour par heure), borne de qualification par tour, secteur obligatoire.
+function businessAutoRegler(o) {
+  const c = lireBusinessConfig();
+  const rep = { ok: true, config: c };
+  if (o.auto === true) {
+    const secteur = String(o.secteur != null ? o.secteur : c.secteur).trim();
+    if (secteur.length < 3) return { ok: false, erreur: 'il me faut le secteur à surveiller : « business, surveille les garages a abidjan toutes les 12 heures »' };
+    c.secteur = secteur.slice(0, 60);
+    const ville = String(o.ville != null ? o.ville : c.ville).trim();
+    c.ville = (ville || 'Abidjan').slice(0, 40);
+    if (o.intervalle_min != null) c.intervalle_min = Math.max(60, Math.min(10080, Number(o.intervalle_min) || 720));
+    c.auto = true;
+  } else if (o.auto === false) {
+    c.auto = false;
+  } else {
+    if (o.secteur != null && String(o.secteur).trim().length >= 3) c.secteur = String(o.secteur).trim().slice(0, 60);
+    if (o.ville != null && String(o.ville).trim()) c.ville = String(o.ville).trim().slice(0, 40);
+    if (o.intervalle_min != null) c.intervalle_min = Math.max(60, Math.min(10080, Number(o.intervalle_min) || c.intervalle_min));
+    if (o.max_par_tick != null) c.max_par_tick = Math.max(1, Math.min(8, Number(o.max_par_tick) || c.max_par_tick));
+  }
+  ecrireBusinessConfig(c);
+  rep.config = c;
+  journalBusiness('AUTO-CONFIG :: auto=' + c.auto + ' :: secteur=' + (c.secteur || '-') + ' :: ville=' + c.ville + ' :: cadence=' + c.intervalle_min + 'min :: max/tour=' + c.max_par_tick);
+  return rep;
+}
 
 function lireProspects() {
   try {
@@ -3178,6 +3227,67 @@ function busResume() {
   return { resume, top };
 }
 
+// ---------- ORANGE #12 (2026-10-05) : LA PROSPECTION AUTOMATIQUE ----------
+// Le même réveil périodique que l'Académie, appliqué au carnet de Digital Business. Isaac a fixé
+// le plafond à « prospecter + préparer seule » : ce tick parcourt les sources publiques (Niveau 0),
+// qualifie les nouveaux dossiers et écrit des brouillons (Niveau 1). Il s'ARRÊTE là. Il n'appelle
+// jamais busEnvoyer (Niveau 2 = « envoie » dicté par Isaac pour CE dossier) et ne touche jamais la
+// table du Niveau 4 (prix/négociation), qui n'existe pas dans la machine. auto:false tant qu'Isaac
+// n'a pas armé, et l'instance d'essai ne lève jamais le nez du disque (garde ESSAI).
+async function businessAutoTick() {
+  if (!IS_LOCAL) return;                        // jamais sur l'instance hébergée
+  if (ESSAI) return;                            // une instance de test ne prospecte pas et ne grave rien chez Isaac
+  const c0 = lireBusinessConfig();
+  if (c0.auto !== true) return;                 // Isaac n'a pas armé la prospection automatique
+  if (Date.now() - SERVEUR_T0 < 120 * 1000) return;   // le cerveau vient de démarrer, on le laisse souffler
+  const intervalleMs = Math.max(60, Number(c0.intervalle_min) || 720) * 60 * 1000;
+  if (c0.dernier_tick && Date.now() - c0.dernier_tick < intervalleMs) return;
+  // Orange #10 : un tour de prospection rate plutôt que de marcher sur un balayage qui tient la voie.
+  { const genante = voieGenante(); if (genante) { journalOrchestrateur('BUSINESS auto a cede la voie — ' + genante + ' ; tour reessaye au prochain reveil'); return; } }
+
+  const tTick = creerTache({ type: 'business_auto', cible: (c0.secteur || '?') + ' — ' + (c0.ville || 'Abidjan'), agent: 'business', etape: 'prospection automatique : lecture des sources publiques' });
+  journalBusiness('AUTO-DEPART :: ' + c0.secteur + ' a ' + c0.ville + ' :: tour ' + ((c0.total_ticks || 0) + 1));
+  let decouverts = [], qualifies = 0, prets = 0, reason = null;
+  try {
+    // NIVEAU 0 — la même recherche publique que la voix, plafonnée à 8 dossiers, dédupliquée.
+    const r = await busRecherche(c0.secteur, c0.ville);
+    if (r && r.ok && Array.isArray(r.ajoutes)) decouverts = r.ajoutes;
+    else if (r && r.erreur) reason = r.erreur;
+    // NIVEAU 1 — qualifier et rédiger un nombre BORNE de nouveaux dossiers. Jamais d'envoi.
+    const aPreparer = decouverts.slice(0, Math.max(1, Math.min(8, Number(c0.max_par_tick) || 3)));
+    for (const p of aPreparer) {
+      majTache(tTick.ref, { etape: 'qualification de ' + p.entreprise + ' (' + (qualifies + 1) + '/' + aPreparer.length + ')' });
+      try { const q = await busQualifier(p.ref); if (q && q.ok) qualifies++; } catch (e) {}
+      try { const m = await busPreparerMessage(p.ref); if (m && m.ok) prets++; } catch (e) {}
+    }
+  } catch (e) { reason = String((e && e.message) || e); }
+
+  // Récrire l'état du cycle : dernier_tick + compteurs, relus depuis le disque pour ne rien écraser
+  // si Isaac a réglé la cadence pendant que le tour tournait.
+  const c1 = lireBusinessConfig();
+  c1.dernier_tick = Date.now();
+  c1.total_ticks = (Number(c1.total_ticks) || 0) + 1;
+  c1.total_prets = (Number(c1.total_prets) || 0) + prets;
+  ecrireBusinessConfig(c1);
+
+  const resume = decouverts.length + ' dossier(s) decouvert(s), ' + prets + ' brouillon(s) pret(s) a relire' + (reason ? ' — ' + reason : '');
+  fermerTache(tTick.ref, 'finie', resume + '. Rien n est parti : Niveau 1. Isaac relit puis dit « business, envoie le message au prospect … ».');
+  // La preuve vit dans le grand livre, pas seulement dans une phrase console.
+  try { graverAudit('BUSINESS', 'business', 'AUTO-TICK', resume + ' :: secteur ' + c1.secteur + ' a ' + c1.ville + ' :: tour ' + c1.total_ticks); } catch (e) {}
+  journalBusiness('AUTO-FIN :: ' + resume);
+  // Un rappel discret : la prospection automatique prépare, c'est Isaac qui tranche.
+  try {
+    if (prets > 0) {
+      const l = loadRappels();
+      l.push({ t: Date.now() + 60 * 1000, note: "BUSINESS — prospection automatique : " + prets + " nouveau(x) brouillon(s) « " + c1.secteur + " » t'attendent sur /business.html. Rien nest parti.", envoye: false });
+      saveRappels(l);
+    }
+  } catch (e) {}
+  console.log('[Business auto] ' + resume);
+}
+setInterval(businessAutoTick, 5 * 60 * 1000);   // reveille la machine toutes les 5 min ; le tick se rate lui-même hors cadence
+setTimeout(businessAutoTick, 130 * 1000);       // premier passage peu après le demarrage
+
 // ---------- ORANGE #9 (2026-10-02) : LE TASK MANAGER ----------
 // Ce que Isaac a demandé : « un vrai gestionnaire de tâches ». Ce qui existait : une file en RAM
 // (rappelsDuJour) vidée à la lecture, et des scans longs qui partent sans nulle part où dire où ils
@@ -3192,6 +3302,7 @@ const TACHE_TYPES = {
   scan_rapide: 'Scan rapide (1 000 ports de service)',
   inventaire: 'Inventaire des appareils du WiFi',
   relance_business: 'Relance d un prospect BUSINESS',
+  business_auto: 'Prospection automatique BUSINESS (Niveau 0-1, jamais d envoi)',
   academie: 'Seance d Academie',
   refus_perimetre: 'Demande refusee — aucune fiche active (verrou du perimetre)'
 };
@@ -5859,7 +5970,7 @@ async function handleCommand(rawText, image) {
     if (veutBus) {
       // ORANGE #11 : « onyx, cherche des garages a Abidjan » ne prospecte pas — le carnet
       // commercial appartient a Business (et a la maison quand personne n'est nommee).
-      if (gk && nomAgent) { const r11 = droitRefuse(nomAgent, 'business'); if (r11) return { reply: r11, source: 'local', agent: nomAgent }; }
+      if (gk && nomAgent) { const r11 = droitRefuse(nomAgent, 'business'); if (r11) return { reply: r11, source: 'local', agent: nomAgent, refus: true }; }
       const bt = normalize(String((mBus && mBus[1]) || text).trim()) || 'etat pipeline';
       const brutBus = String(rawText || text);
       const resteBrut = (brutBus.match(/:\s*(.+)$/) || [])[1] || '';
@@ -5879,6 +5990,43 @@ async function handleCommand(rawText, image) {
       }
       if (/(?:ouvre|montre|affiche|va sur)\b/.test(bt) && /page|console|tableau|atelier|dossier|business|prospection/.test(bt) && !/prospects?\b.*(liste|etat)/.test(bt)) {
         return { reply: "La voici, Isaac : la console de prospection. Chaque dossier porte l'entreprise, le secteur, le contact que TU as dicté, la source publique, le besoin détecté à la lecture de la page d'accueil, le brouillon, le statut — et rien n'est jamais parti sans toi.", source: 'system', ...PAGE_BUS };
+      }
+      // ORANGE #12 — la prospection AUTOMATIQUE : l'ordre d'armer, le réglage de cadence, l'arrêt,
+      // l'état. Tout est gardé par le droit « business » (déjà vérifié plus haut) et plafonné dans le
+      // code à « prospecter + préparer » : un cycle ne peut PAS envoyer, et ne part que si Isaac a armé.
+      if (/^(?:surveille|arre?te de surveiller|arrete la veille|regle|parametre|etat de la|etat du|liste veille|desactive|coupe|stoppe)?\b.*prospection|surveille|^regle\b.*prospect|auto.?(?:prospect|business|surveillance)|cycle business/.test(bt)) {
+        const c = lireBusinessConfig();
+        const veutArret = /desactive|coupe|stoppe|arrete|arrete|stop|e-teins|eteins|suspend/.test(bt) && !/combien|etat/.test(bt);
+        const veutReglage = /^regle\b|^parametre\b|régler|regler/.test(bt);
+        const veutEtat = /etat|status|o\u00f9 en es|combien de|actif|arm[eé]?/.test(bt) && !/surveille|desactive|regle/.test(bt);
+        if (veutArret) {
+          const r = businessAutoRegler({ auto: false });
+          return { reply: "Prospection automatique arrêtée, Isaac. Plus aucun cycle ne se lancera tant que tu ne dis pas « business, surveille les <secteur> a <ville> toutes les <n> heures ».", source: 'local', ...PAGE_BUS };
+        }
+        if (veutEtat && !veutReglage && !/surveille/.test(bt)) {
+          const l = lireProspects();
+          const prets = l.filter(p => p.statut === 'MESSAGE_PRET').length;
+          const dernier = c.dernier_tick ? new Date(c.dernier_tick).toLocaleString('fr-FR') : 'aucun cycle pour l instant';
+          return { reply: c.auto
+            ? "Prospection automatique ARMÉE, Isaac : je surveille « " + c.secteur + " » a " + c.ville + ", un cycle toutes les " + (c.intervalle_min / 60) + " h, " + c.max_par_tick + " dossier(s) préparé(s) par tour. Dernier passage : " + dernier + " (" + (c.total_ticks || 0) + " cycle(s), " + (c.total_prets || 0) + " brouillon(s) graves). " + prets + " brouillon(s) attendent ta relecture — RIEN ne part sans ton « envoie »."
+            : "La prospection automatique est ÉTEINTE. Pour l'armer : « business, surveille les garages a abidjan toutes les 12 heures ». Je chercherai, je qualifierai, je rédigerai — et je m'arrêterai au brouillon.", source: 'local', ...PAGE_BUS };
+        }
+        const mSurveille = bt.match(/surveille[rs]?\s+(?:les?\s+|du\s+|de\s+|des\s+)?([a-z0-9' \-]{3,60}?)\s+(?:a|au|aux|dans|sur)\s+([a-z' \-]{2,40})/);
+        const mSecteur = bt.match(/(?:prospection|auto)\s+(?:sur|portant sur|sur le secteur)\s+([a-z0-9' \-]{3,60})/);
+        const secteurVu = (mSurveille && mSurveille[1]) || (mSecteur && mSecteur[1]) || (veutReglage ? c.secteur : null);
+        const villeVu = (mSurveille && mSurveille[2]) || (bt.match(/(?:a|au|aux|dans|sur)\s+([a-z' \-]{2,40})\s+(?:toutes|chaque|tous)/i) || [])[1] || (veutReglage ? c.ville : null);
+        const mHeures = bt.match(/toutes?\s+les?\s+(\d+)\s*(?:heures?|h|jours?|j|minutes?|min)/i) || bt.match(/(\d+)\s*(?:heures?|h|minutes?|min)\b/i);
+        let intervalle = null;
+        if (mHeures) {
+          const n = Number(mHeures[1]); const u = String(mHeures[0]).toLowerCase();
+          intervalle = /min/.test(u) ? n : (/jour|\bj\b/.test(u) ? n * 24 * 60 : n * 60);
+        }
+        if (secteurVu || intervalle != null) {
+          const r = businessAutoRegler({ auto: true, secteur: secteurVu != null ? secteurVu.replace(/^des?\s+/, '') : null, ville: villeVu, intervalle_min: intervalle });
+          if (!r.ok) return { reply: "Je ne peux pas armer la prospection, Isaac : " + r.erreur + ".", source: 'local' };
+          const cf = r.config;
+          return { reply: "Prospection automatique armée, Isaac : je surveille « " + cf.secteur + " » a " + cf.ville + ", un cycle toutes les " + (cf.intervalle_min / 60) + " h, " + cf.max_par_tick + " dossier(s) préparé(s) par tour — Niveau 0 et 1 seulement. Je ne toucherai JAMAIS a l'envoi : chaque brouillon attendra ton « business, envoie ». Le premier passage tombe dans quelques instants.", source: 'local', ...PAGE_BUS };
+        }
       }
       // NIVEAU 0 — la recherche sur sources publiques.
       let mRech = bt.match(/^(?:cherche|trouve|deniche|prospecte|repere)\s+(?:moi\s+)?(?:des\s+|plusieurs\s+)?([a-z0-9' \-]{3,60}?)\s+(?:a|au|aux|dans|pres|vers|sur|pour|autour de)\s+([a-z' \-]{2,40})(?:\s+(?:cote.?ivoire|ci|abidjan.?)?)?\s*$/);
@@ -8288,6 +8436,14 @@ const server = http.createServer(async (req, res) => {
             rep = busNoter(cible, String(recu.texte || ''));
           } else if (recu.action === 'supprimer') {
             rep = busSupprimer(cible);
+          } else if (recu.action === 'auto') {
+            // Orange #12 : le bouton de /business.html arme ou règle le cycle. Le droit « business »
+            // garde déjà la route (policy + table) ; le tick ne peut PAS envoyer, quoi qu'on envoie ici.
+            rep = businessAutoRegler({
+              auto: recu.auto === true ? true : (recu.auto === false ? false : null),
+              secteur: recu.secteur, ville: recu.ville,
+              intervalle_min: recu.intervalle_min, max_par_tick: recu.max_par_tick
+            });
           } else { rep = { ok: false, erreur: 'action inconnue' }; code = 400; }
           if (!rep.ok && code === 200) code = 400;
         } catch (e) { rep = { ok: false, erreur: String(e.message || e) }; code = 400; }
@@ -8306,6 +8462,7 @@ const server = http.createServer(async (req, res) => {
       journal: journalB,
       dossier: DOSSIER_BUSINESS,
       sousDossiers: SOUS_DOSSIERS_BUSINESS,
+      auto: lireBusinessConfig(),
       regles: {
         niveau0: 'recherche et qualification sur sources publiques uniquement — pages publiques lues, jamais attaquées, jamais d espace connecté',
         niveau1: 'le message est un brouillon grave dans le dossier ; rien ne part',

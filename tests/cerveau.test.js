@@ -271,6 +271,47 @@ async function familleAudit() {
   test('la route est en lecture seule : POST /api/audit = 405', (await post('/api/audit', { effacer: true }, { headers: { Origin: BASE } })).status === 405);
 }
 
+// —— Prospection automatique (Orange #12) : elle peut chercher et rédiger, JAMAIS envoyer ——
+async function familleBusiness() {
+  section('[BUSINESS AUTO] le cycle Niveau 0-1 existe, mais la machine ne peut pas envoyer seule');
+  // 1. LA PREUVE DANS LE CODE (pas dans une promesse console). On isole le corps de la fonction
+  //    businessAutoTick dans server.js et on jure qu il n appelle jamais busEnvoyer (Niveau 2),
+  //    qu il garde l instance d essai au chaud (if (ESSAI) return) et la machine locale seule.
+  const src = fs.readFileSync(SERVEUR, 'utf8');
+  const debut = src.indexOf('async function businessAutoTick');
+  const fin = src.indexOf('setInterval(businessAutoTick', debut);
+  const corps = debut >= 0 && fin > debut ? src.slice(debut, fin) : '';
+  test('businessAutoTick existe dans server.js', debut >= 0);
+  test('son corps n appelle JAMAIS busEnvoyer (le cycle ne peut pas envoyer)', corps.length > 0 && !/busEnvoyer\s*\(/.test(corps), 'envoye ? ' + /busEnvoyer\s*\(/.test(corps));
+  test('son corps ne touche pas la table du Niveau 4 (prix/negociation)', corps.length > 0 && !/negocie|le prix|un devis|tarif|signe le contrat/.test(corps));
+  test('le cycle se rate lui-meme sur l instance d essai (if (ESSAI) return)', /if \(ESSAI\) return/.test(corps));
+  test('le cycle ne tourne que sur la machine locale (if (!IS_LOCAL) return)', /if \(!IS_LOCAL\) return/.test(corps));
+  test('le cycle cede la voie a un job lourd (voieGenante)', /voieGenante/.test(corps));
+  test('le cycle grave sa trace dans le grand livre (graverAudit)', /graverAudit/.test(corps));
+
+  // 2. LE REGLAGE PAR LA ROUTE. Par defaut l auto est ETEINTE ; on l arme, on le relit, on le
+  //    retablit. Tout ceci ecrit dans business/config.essai.json (isole, gitignore) — jamais chez Isaac.
+  const g0 = await get('/api/business', { headers: { Origin: BASE } });
+  test('GET /api/business = 200 et expose un objet auto', g0.status === 200 && g0.data && g0.data.ok === true && g0.data.auto && typeof g0.data.auto.auto === 'boolean', JSON.stringify((g0.data || {}).auto || {}).slice(0, 120));
+  const etaitArme = !!(g0.data && g0.data.auto && g0.data.auto.auto);
+
+  const arme = await post('/api/business', { action: 'auto', auto: true, secteur: 'zztest harnais', ville: 'Abidjan', intervalle_min: 120 }, { headers: { Origin: BASE } });
+  test('POST action=auto (maison/aelyra) arme le cycle', arme.status === 200 && arme.data && arme.data.ok === true && arme.data.config && arme.data.config.auto === true, JSON.stringify(arme.data || {}).slice(0, 140));
+  test('la cadence est bornee par le code (minimum 1 h)', arme.data && arme.data.config && Number(arme.data.config.intervalle_min) >= 60, JSON.stringify((arme.data || {}).config || {}).slice(0, 120));
+  const g1 = await get('/api/business', { headers: { Origin: BASE } });
+  test('le GET reluu confirme auto=true et le secteur grave', g1.data && g1.data.auto && g1.data.auto.auto === true && /zztest harnais/.test(String(g1.data.auto.secteur)), JSON.stringify((g1.data || {}).auto || {}).slice(0, 120));
+
+  // 3. LE GARDE-FOU DE DROIT : une agente sans capacite « business » ne peut PAS armer. ONYX n a
+  //    pas le droit business ; la demande est refusee et nomme celle qui peut.
+  const onyx = await post('/api/command', { text: 'onyx, business, surveille les garages a abidjan toutes les 12 heures' }, { headers: { Origin: BASE } });
+  test('ONYX ne peut pas armer la prospection (refus nomme qui peut)', onyx.status === 200 && (onyx.data || {}).refus === true && /business|aelyra/i.test(String((onyx.data || {}).reply)), JSON.stringify(onyx.data || {}).slice(0, 160));
+
+  // 4. RETABLIR l etat d origine pour ne rien laisser arme derriere le harnais.
+  const retab = await post('/api/business', { action: 'auto', auto: etaitArme }, { headers: { Origin: BASE } });
+  const g2 = await get('/api/business', { headers: { Origin: BASE } });
+  test('le harnais retablit l etat d origine (auto = ' + etaitArme + ')', retab.status === 200 && g2.data && g2.data.auto && !!g2.data.auto.auto === !!etaitArme, 'final : ' + JSON.stringify((g2.data || {}).auto || {}).slice(0, 80));
+}
+
 // —— Frontend : le Command Center ne transporte aucun secret et tient son correctif ——
 async function familleFrontend() {
   section('[FRONTEND] aucun secret servi au navigateur + correctifs Phases 5-7 tenus');
@@ -332,6 +373,7 @@ async function familleFrontend() {
     try { await familleMemoire(); } catch (e) { test('famille MEMOIRE sans exception', false, String((e && e.message) || e)); }
     try { await familleDroits(); } catch (e) { test('famille DROITS sans exception', false, String((e && e.message) || e)); }
     try { await familleAudit(); } catch (e) { test('famille AUDIT sans exception', false, String((e && e.message) || e)); }
+    try { await familleBusiness(); } catch (e) { test('famille BUSINESS sans exception', false, String((e && e.message) || e)); }
   }
   try { await familleFrontend(); } catch (e) { test('famille FRONTEND sans exception', false, String((e && e.message) || e)); }
 

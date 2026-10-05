@@ -73,6 +73,19 @@
   </section>
 
   <section class="carte">
+    <h2>Prospection automatique — Niveau 0 et 1 seulement</h2>
+    <div class="note" style="color:#8a8a8a;font-size:12px;margin-bottom:8px">Isaac armant ce cycle laisse BUSINESS chercher, qualifier et rédiger seule, sur un secteur et une cadence qu'IL a choisis. <b>Le cycle ne peut pas envoyer</b> : rien ne part sans ton « business, envoie ». Le grand livre note chaque passage.</div>
+    <div id="auto-etat" class="meta">Lecture…</div>
+    <div class="barre" style="margin-top:8px">
+      <label style="margin:0">Cadence (heures)</label>
+      <input id="auto-heures" type="number" min="1" max="168" value="12" style="width:90px">
+      <button class="bout" id="auto-arme">Armer le cycle sur ce secteur</button>
+      <button class="bout sec" id="auto-stop">Arrêter le cycle</button>
+      <span id="auto-msg"></span>
+    </div>
+  </section>
+
+  <section class="carte">
     <h2>Le carnet — chaque dossier, tel qu'il tourne</h2>
     <div id="prospects"><div class="vide">Lecture…</div></div>
   </section>
@@ -134,6 +147,14 @@ function rendu(e) {
   const rg = document.getElementById('regles');
   if (e.regles) {
     rg.innerHTML = '<b>Niveau 0 — recherche.</b> ' + esc(e.regles.niveau0) + '<br><b>Niveau 1 — message.</b> ' + esc(e.regles.niveau1) + '<br><b>Niveau 2 — envoi.</b> ' + esc(e.regles.niveau2) + '<br><b>Niveau 3 — suivis.</b> ' + esc(e.regles.niveau3) + '<br><b>Niveau 4.</b> ' + esc(e.regles.niveau4);
+  }
+  const ae = document.getElementById('auto-etat');
+  if (ae) {
+    const a = e.auto || {};
+    const dernier = a.dernier_tick ? new Date(a.dernier_tick).toLocaleString('fr-FR') : 'aucun cycle pour l\'instant';
+    ae.innerHTML = a.auto
+      ? '<b style="color:#9be8b4">ARMÉ</b> — je surveille « ' + esc(a.secteur || '') + ' » a ' + esc(a.ville || '') + ', toutes les ' + ((a.intervalle_min || 720) / 60) + ' h, ' + (a.max_par_tick || 3) + ' dossier(s) prépare(s) par tour. Dernier passage : ' + esc(dernier) + ' · ' + (a.total_ticks || 0) + ' cycle(s), ' + (a.total_prets || 0) + ' brouillon(s). Rien ne part sans ton « envoie ».'
+      : '<b style="color:#8a8a8a">ÉTEINT</b> — entre un secteur en haut de page puis « Armer le cycle » pour laisser BUSINESS chercher, qualifier et rédiger seule (Niveau 0-1). Rien ne partira sans toi.';
   }
   const jo = document.getElementById('journal');
   jo.className = e.journal ? '' : 'vide';
@@ -225,6 +246,23 @@ document.getElementById('chercher').onclick = async () => {
   rafraichir();
 };
 document.getElementById('tout').onclick = () => rafraichir();
+// Prospection automatique — le bouton arme/règle/arrête le cycle Niveau 0-1 (jamais l'envoi).
+const autoMsg = (t) => { const s = document.getElementById('auto-msg'); if (s) s.textContent = t; };
+document.getElementById('auto-arme').onclick = async () => {
+  const secteur = document.getElementById('secteur').value.trim();
+  if (secteur.length < 3) { autoMsg('Donne le secteur en haut de page d\'abord.'); return; }
+  const heur = Number(document.getElementById('auto-heures').value) || 12;
+  const b = document.getElementById('auto-arme'); b.disabled = true; autoMsg('Armage du cycle…');
+  const { http, j } = await api({ action: 'auto', auto: true, secteur, ville: document.getElementById('ville').value.trim() || 'Abidjan', intervalle_min: Math.max(1, Math.min(168, heur)) * 60 });
+  b.disabled = false;
+  autoMsg(j.ok ? ('Cycle armé sur « ' + secteur + ' ».' + (j.auto ? '' : '')) : ('Refusé : ' + (j.erreur || ('HTTP ' + http))));
+  rafraichir();
+};
+document.getElementById('auto-stop').onclick = async () => {
+  const { j } = await api({ action: 'auto', auto: false });
+  autoMsg(j.ok ? 'Cycle arrêté.' : ('Refusé : ' + (j.erreur || '')));
+  rafraichir();
+};
 rafraichir();
 setInterval(rafraichir, 15000);
 </script>
