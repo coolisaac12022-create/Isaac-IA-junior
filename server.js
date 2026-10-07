@@ -1972,7 +1972,12 @@ async function askSitePro(description) {
     if (/^index/.test(nom)) nom = 'index.html';
     fichiers[nom] = contenu;
   }
-  if (!fichiers['index.html']) fichiers['index.html'] = out; // l'IA n'a pas respecté le format : on emballe tout dans la page
+  // L'IA devait répondre en plusieurs ===FICHIER: nom=== : si aucun marqueur n'a été
+  // trouvé (ou aucun n'a produit index.html), elle n'a PAS respecté le format, et on ne
+  // doit jamais prétendre avoir livré « plusieurs fichiers » quand il n'y en a qu'un seul
+  // emballé de force. On retient ce repli pour le dire honnêtement dans la réponse.
+  const replisurUnFichier = !fichiers['index.html'];
+  if (replisurUnFichier) fichiers['index.html'] = out; // on emballe tout dans la page, mais on ne le cache pas
   if (Object.keys(fichiers).length === 1 && !/\bdoctype\b/i.test(out)) return null;
   const slug = normalize(description).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'site';
   const dossier = 'isaac-' + slug + '-' + Date.now().toString(36).slice(-4);
@@ -1990,10 +1995,17 @@ async function askSitePro(description) {
     lang: { ext: 'html', nom: 'Site web complet (HTML + CSS + JavaScript)' },
     fileName: 'index.html',
     code: fichiers['index.html'].slice(0, 20000),
-    reply: `Site complet livré, Isaac : ${noms.length} fichiers (${noms.join(', ')}) dans le dossier ${dossier}. ` +
-      (IS_LOCAL
-        ? "index.html s'ouvre dans votre navigateur, VS Code montre le dossier entier. Chaque fichier a son rôle : la structure dans index.html, la beauté dans styles.css, la vie dans script.js. Modifiez n'importe lequel, rechargez (F5)."
-        : "Cliquez sur « Voir le site en direct » : la structure est dans index.html, le style dans styles.css, la vie dans script.js."),
+    reply: replisurUnFichier
+      // Repli HONNÊTE : le cerveau IA n'a pas respecté le format multi-fichiers demandé,
+      // Jeanette le dit au lieu d'annoncer un succès « plusieurs fichiers » qui n'en est pas un.
+      ? `Isaac, le cerveau IA n'a pas respecté le découpage en plusieurs fichiers cette fois-ci : je t'ai livré UN SEUL fichier (index.html, CSS et JS inclus dedans) dans le dossier ${dossier}, pas le vrai multi-fichiers demandé. ` +
+        (IS_LOCAL
+          ? "index.html s'ouvre quand même dans votre navigateur. Redites « jeanette, crée un site complet pour ... » pour retenter un vrai découpage, ou dites « jeanette, crée un vrai site complet avec base de données pour ... » pour le full-stack."
+          : "Cliquez sur le lien pour voir le résultat. Redites la même commande pour retenter un vrai découpage en plusieurs fichiers.")
+      : `Site complet livré, Isaac : ${noms.length} fichiers (${noms.join(', ')}) dans le dossier ${dossier}. ` +
+        (IS_LOCAL
+          ? "index.html s'ouvre dans votre navigateur, VS Code montre le dossier entier. Chaque fichier a son rôle : la structure dans index.html, la beauté dans styles.css, la vie dans script.js. Modifiez n'importe lequel, rechargez (F5)."
+          : "Cliquez sur « Voir le site en direct » : la structure est dans index.html, le style dans styles.css, la vie dans script.js."),
     fileUrl: '/isaac-code/' + dossier + '/index.html',
   };
 }
@@ -8951,6 +8963,10 @@ const server = http.createServer(async (req, res) => {
       const lisible = (x) => masquerCoordonnees(masquerSecrets(x));
 
       // — Le fichier lui-même, mesuré à l'instant (aucun chiffre décoratif).
+      // Avant le premier « retiens que... », isaac-memory.json n'existe pas encore : statSync
+      // lève ENOENT. Ce n'est pas une mesure impossible, c'est un fichier qui n'existe pas
+      // ENCORE — un octets:0 vrai vaut mieux qu'un fichier:null qui fait croire à une panne
+      // de lecture (un zéro ici est un zéro vrai, comme ailleurs dans cette maison).
       let fichier = null;
       try {
         const st = fs.statSync(MEMORY_FILE);
@@ -8962,7 +8978,12 @@ const server = http.createServer(async (req, res) => {
           modifie_lisible: new Date(st.mtimeMs).toLocaleString('fr-FR'),
           echanges_par_seconde: Math.max(0, Math.round((Date.now() - st.mtimeMs) / 1000))
         };
-      } catch (e) { fichier = null; }
+      } catch (e) {
+        fichier = (e && e.code === 'ENOENT')
+          ? { nom: path.basename(MEMORY_FILE), dossier: __dirname, octets: 0, modifie: null,
+              modifie_lisible: 'jamais écrit', echanges_par_seconde: null, pas_encore_cree: true }
+          : null;
+      }
 
       // — Le dépôt public ne doit PAS contenir cette mémoire : on relit le .gitignore.
       let gitignore = { verifie: false, mentionne: null, motif: '' };

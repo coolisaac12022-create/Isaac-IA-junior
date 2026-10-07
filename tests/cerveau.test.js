@@ -180,7 +180,10 @@ async function familleMemoire() {
   test('neuf : stats.scans est un nombre', d.stats && typeof d.stats.scans === 'number', JSON.stringify(d.stats));
   test('neuf : ou_c_est_grave nomme le fichier de memoire', /isaac-memory/.test(String(d.ou_c_est_grave)), d.ou_c_est_grave);
   test('neuf : hors_depot dit la verite verifiee (gitignore)', d.hors_depot && d.hors_depot.verifie === true && d.hors_depot.mentionne === true, JSON.stringify(d.hors_depot));
-  test('neuf : fichier.octets mesure (> 0)', d.fichier && d.fichier.octets > 0, JSON.stringify(d.fichier));
+  // Avant le premier « retiens que... » sur une instance fraiche, isaac-memory.json n'existe
+  // pas encore : un octets:0 vrai (pas_encore_cree:true) est la reponse honnete, pas un plantage.
+  // fichier doit toujours etre un objet mesure (jamais null) et octets un nombre >= 0.
+  test('neuf : fichier.octets mesure (nombre >= 0, jamais null)', d.fichier && typeof d.fichier.octets === 'number' && d.fichier.octets >= 0, JSON.stringify(d.fichier));
   test('neuf : academie.auto est un booleen', d.academie && typeof d.academie.auto === 'boolean', JSON.stringify(d.academie));
   test('neuf : contrat declare la lecture seule', /ne se vide pas/.test(String(d.contrat)));
 
