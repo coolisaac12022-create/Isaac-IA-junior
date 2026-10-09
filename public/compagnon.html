@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#04070d">
+<title>Compagnon — Isaac IA</title>
+<style>
+  :root {
+    --fond: #04070d;
+    --panneau: rgba(13, 22, 34, .82);
+    --bord: rgba(0, 210, 255, .22);
+    --cyan: #00d2ff;
+    --cyan-doux: rgba(0, 210, 255, .12);
+    --texte: #d7e9f5;
+    --texte-faible: #7fa3bd;
+    --aelyra: #00d2ff;
+    --jeanette: #b07bff;
+    --onyx: #ff4d5e;
+    --aegis: #3dff9e;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--fond); color: var(--texte);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+    padding-top: env(safe-area-inset-top);
+  }
+  /* Fond animé discret */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1;
+    background:
+      radial-gradient(600px 300px at 50% -80px, rgba(0,210,255,.10), transparent 70%),
+      radial-gradient(400px 400px at 90% 110%, rgba(0,210,255,.06), transparent 70%);
+  }
+  /* ---------- En-tête ---------- */
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid var(--bord);
+    background: linear-gradient(180deg, rgba(6,12,20,.95), rgba(6,12,20,.75));
+    backdrop-filter: blur(8px);
+  }
+  .logo {
+    width: 38px; height: 38px; border-radius: 50%; flex: none;
+    border: 2px solid var(--cyan);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 15px; color: var(--cyan);
+    box-shadow: 0 0 14px rgba(0,210,255,.35), inset 0 0 10px rgba(0,210,255,.15);
+    animation: pulse 3s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { box-shadow: 0 0 22px rgba(0,210,255,.55), inset 0 0 12px rgba(0,210,255,.25); } }
+  .titre h1 { margin: 0; font-size: 16px; letter-spacing: 2px; color: var(--cyan); }
+  .titre p { margin: 2px 0 0; font-size: 11px; color: var(--texte-faible); }
+  #statut {
+    margin-left: auto; font-size: 10px; letter-spacing: 1px;
+    display: flex; align-items: center; gap: 6px; color: var(--texte-faible);
+    white-space: nowrap;
+  }
+  #statut .dot { width: 9px; height: 9px; border-radius: 50%; background: #ff4d5e; box-shadow: 0 0 8px #ff4d5e; }
+  #statut.ok .dot { background: #3dff9e; box-shadow: 0 0 8px #3dff9e; }
+  #statut.ok { color: #3dff9e; }
+  /* ---------- Sélecteur d'agente ---------- */
+  #agents { display: flex; gap: 8px; padding: 10px 14px 4px; }
+  #agents button {
+    flex: 1; padding: 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: 1px;
+    background: var(--panneau); color: var(--texte-faible);
+    border: 1px solid var(--bord); border-radius: 10px; cursor: pointer;
+    transition: all .2s;
+  }
+  #agents button.actif { color: #04121a; border-color: transparent; }
+  #agents button[data-agent="aelyra"].actif { background: var(--aelyra); box-shadow: 0 0 14px rgba(0,210,255,.5); }
+  #agents button[data-agent="jeanette"].actif { background: var(--jeanette); box-shadow: 0 0 14px rgba(176,123,255,.5); }
+  #agents button[data-agent="onyx"].actif { background: var(--onyx); box-shadow: 0 0 14px rgba(255,77,94,.5); }
+  #agents button[data-agent="aegis"].actif { background: var(--aegis); box-shadow: 0 0 14px rgba(61,255,158,.5); }
+  /* ---------- Actions rapides ---------- */
+  #rapides { display: flex; gap: 8px; padding: 8px 14px; overflow-x: auto; scrollbar-width: none; }
+  #rapides::-webkit-scrollbar { display: none; }
+  #rapides button {
+    flex: none; padding: 8px 14px; font-size: 12px;
+    background: var(--cyan-doux); color: var(--cyan);
+    border: 1px solid var(--bord); border-radius: 20px; cursor: pointer;
+    white-space: nowrap;
+  }
+  #rapides button:active { background: rgba(0,210,255,.25); }
+  /* ---------- Conversation ---------- */
+  #chat {
+    flex: 1; overflow-y: auto; padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 10px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .msg {
+    max-width: 88%; padding: 10px 13px; border-radius: 14px;
+    font-size: 14px; line-height: 1.45; word-wrap: break-word;
+    animation: apparait .25s ease-out;
+  }
+  @keyframes apparait { from { opacity: 0; transform: translateY(6px); } }
+  .msg.moi { align-self: flex-end; background: rgba(0,210,255,.16); border: 1px solid var(--bord); border-bottom-right-radius: 4px; }
+  .msg.elle { align-self: flex-start; background: var(--panneau); border: 1px solid rgba(255,255,255,.07); border-bottom-left-radius: 4px; }
+  .msg.elle .qui { display: block; font-size: 10px; letter-spacing: 1.5px; margin-bottom: 4px; font-weight: 700; }
+  .msg.elle[data-agent="aelyra"] .qui { color: var(--aelyra); }
+  .msg.elle[data-agent="jeanette"] .qui { color: var(--jeanette); }
+  .msg.elle[data-agent="onyx"] .qui { color: var(--onyx); }
+  .msg.elle[data-agent="aegis"] .qui { color: var(--aegis); }
+  .msg.saisie { opacity: .6; font-style: italic; }
+  /* ---------- Zone de saisie ---------- */
+  footer {
+    padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--bord);
+    background: linear-gradient(0deg, rgba(6,12,20,.97), rgba(6,12,20,.85));
+    backdrop-filter: blur(8px);
+  }
+  #barre { display: flex; gap: 10px; align-items: center; }
+  #champ {
+    flex: 1; padding: 13px 16px; font-size: 15px; color: var(--texte);
+    background: rgba(255,255,255,.05); border: 1px solid var(--bord);
+    border-radius: 26px; outline: none;
+  }
+  #champ:focus { border-color: var(--cyan); box-shadow: 0 0 10px rgba(0,210,255,.25); }
+  #micro, #envoi {
+    width: 52px; height: 52px; flex: none; border-radius: 50%;
+    border: 1px solid var(--bord); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-size: 22px;
+    transition: all .2s; color: var(--texte);
+  }
+  #micro { background: var(--panneau); }
+  #micro.ecoute {
+    background: #ff4d5e; border-color: #ff4d5e; color: #fff;
+    animation: ecoute 1s ease-in-out infinite;
+  }
+  @keyframes ecoute { 50% { box-shadow: 0 0 24px rgba(255,77,94,.7); transform: scale(1.06); } }
+  #envoi { background: var(--cyan); border-color: var(--cyan); color: #04121a; font-size: 20px; }
+  #envoi:active { transform: scale(.93); }
+  #astuce { text-align: center; font-size: 10px; color: var(--texte-faible); margin-top: 8px; letter-spacing: .5px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">IJ</div>
+  <div class="titre">
+    <h1>COMPAGNON</h1>
+    <p>Isaac IA Juniors — dans votre poche</p>
+  </div>
+  <div id="statut"><span class="dot"></span><span id="statutTxt">CONNEXION…</span></div>
+</header>
+
+<div id="agents">
+  <button data-agent="aelyra" class="actif">AELYRA</button>
+  <button data-agent="jeanette">JEANETTE</button>
+  <button data-agent="onyx">ONYX</button>
+  <button data-agent="aegis">AEGIS</button>
+</div>
+
+<div id="rapides">
+  <button data-cmd="quelle heure est-il">🕐 Heure</button>
+  <button data-cmd="mes rappels">⏰ Rappels</button>
+  <button data-cmd="météo Abidjan">🌤️ Météo</button>
+  <button data-cmd="niveau de batterie">🔋 Batterie</button>
+  <button data-cmd="quelle est mon IP">🌐 Mon IP</button>
+</div>
+
+<div id="chat"></div>
+
+<footer>
+  <div id="barre">
+    <button id="micro" title="Parler">🎙️</button>
+    <input id="champ" type="text" placeholder="Écrivez à votre agente…" autocomplete="off" enterkeyhint="send">
+    <button id="envoi" title="Envoyer">➤</button>
+  </div>
+  <div id="astuce">Connecté au PC d'Isaac — vos données restent chez vous</div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var BASE = location.origin; // même serveur que le PC
+  var agent = "aelyra";
+  var noms = { aelyra: "AELYRA", jeanette: "JEANETTE", onyx: "ONYX", aegis: "AEGIS" };
+  var chat = document.getElementById("chat");
+  var champ = document.getElementById("champ");
+  var statut = document.getElementById("statut");
+  var statutTxt = document.getElementById("statutTxt");
+  var micro = document.getElementById("micro");
+  var envoiBtn = document.getElementById("envoi");
+  var parle = true;
+
+  function defiler() { chat.scrollTop = chat.scrollHeight; }
+
+  function bulle(texte, moi, qui) {
+    var d = document.createElement("div");
+    d.className = "msg " + (moi ? "moi" : "elle");
+    if (!moi && qui) {
+      d.setAttribute("data-agent", qui);
+      var s = document.createElement("span");
+      s.className = "qui";
+      s.textContent = noms[qui] || qui.toUpperCase();
+      d.appendChild(s);
+    }
+    var t = document.createElement("span");
+    t.textContent = texte;
+    d.appendChild(t);
+    chat.appendChild(d);
+    defiler();
+    return d;
+  }
+
+  function dire(texte) {
+    if (!parle || !("speechSynthesis" in window)) return;
+    try {
+      speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(texte.slice(0, 400));
+      u.lang = "fr-FR"; u.rate = 1;
+      speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+
+  var attente = false;
+  function envoyer(texte) {
+    texte = (texte || "").trim();
+    if (!texte || attente) return;
+    attente = true;
+    bulle(texte, true);
+    champ.value = "";
+    var tmp = bulle("…", false, agent);
+    tmp.classList.add("saisie");
+    fetch(BASE + "/api/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: agent + ", " + texte })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      tmp.remove();
+      attente = false;
+      var rep = (data && data.reply) || "Pas de réponse, Isaac.";
+      var qui = (data && data.agent) || agent;
+      bulle(rep, false, qui);
+      dire(rep);
+    })
+    .catch(function () {
+      tmp.remove();
+      attente = false;
+      bulle("Connexion au PC perdue — vérifiez qu'Isaac tourne et que vous êtes sur le même Wi-Fi.", false, agent);
+    });
+  }
+
+  // Sélecteur d'agente
+  document.getElementById("agents").addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (!b) return;
+    agent = b.getAttribute("data-agent");
+    var btns = this.querySelectorAll("button");
+    for (var i = 0; i < btns.length; i++) btns[i].classList.remove("actif");
+    b.classList.add("actif");
+    bulle("Vous parlez maintenant à " + noms[agent] + ".", false, agent);
+  });
+
+  // Actions rapides
+  document.getElementById("rapides").addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (b) envoyer(b.getAttribute("data-cmd"));
+  });
+
+  envoiBtn.addEventListener("click", function () { envoyer(champ.value); });
+  champ.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") envoyer(champ.value);
+  });
+
+  // Micro (reconnaissance vocale du téléphone)
+  var reco = null, enEcoute = false;
+  micro.addEventListener("click", function () {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { bulle("La reconnaissance vocale n'est pas supportée par ce navigateur.", false, agent); return; }
+    if (enEcoute && reco) { reco.stop(); return; }
+    reco = new SR();
+    reco.lang = "fr-FR";
+    reco.interimResults = false;
+    reco.onstart = function () { enEcoute = true; micro.classList.add("ecoute"); };
+    reco.onend = function () { enEcoute = false; micro.classList.remove("ecoute"); };
+    reco.onerror = function () { enEcoute = false; micro.classList.remove("ecoute"); };
+    reco.onresult = function (ev) {
+      var txt = ev.results[0][0].transcript;
+      envoyer(txt);
+    };
+    try { reco.start(); } catch (e) {}
+  });
+
+  // Vérification de la connexion
+  function ping() {
+    fetch(BASE + "/api/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "ping" })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function () {
+      statut.classList.add("ok");
+      statutTxt.textContent = "EN LIGNE";
+    })
+    .catch(function () {
+      statut.classList.remove("ok");
+      statutTxt.textContent = "HORS LIGNE";
+    });
+  }
+  ping();
+  setInterval(ping, 15000);
+
+  // Message d'accueil
+  bulle("Compagnon connecté. Parlez ou écrivez — je transmets au PC d'Isaac.", false, "aelyra");
+})();
+</script>
+</body>
+</html>

@@ -1,58 +1,87 @@
 @echo off
 chcp 65001 >nul
-title Installer Isaac IA Juniors dans le systeme
+title Installation Isaac IA Juniors v2
 cd /d "%~dp0"
 set "PROJ=%~dp0"
 
 echo.
-echo   ==================================================
-echo    INSTALLATION D'ISAAC IA JUNIORS DANS LE SYSTEME
-echo   ==================================================
+echo   ============================================================
+echo     ISAAC IA JUNIORS — Installation
+echo     L'equipe d'Isaac : Aelyra, Jeanette, Onyx, Aegis
+echo   ============================================================
 echo.
 
-REM --- 1. Verifier que Node.js est la ---
+REM --- 1. Node.js : verifier, sinon proposer le telechargement ---
 where node >nul 2>&1
 if errorlevel 1 (
-  echo   [ERREUR] Node est introuvable dans le chemin Windows.
-  echo   Installez-le d'abord sur https://nodejs.org puis relancez ce fichier.
+  echo   [!] Node.js n'est pas installe. Il est indispensable.
   echo.
+  choice /C ON /M "  Telecharger et installer Node.js maintenant (O) ou quitter (N)"
+  if errorlevel 2 (
+    echo   Installez Node.js sur https://nodejs.org puis relancez ce fichier.
+    pause
+    exit /b 1
+  )
+  echo   Telechargement de Node.js LTS...
+  powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://nodejs.org/dist/latest-v20.x/node-v20.18.1-x64.msi' -OutFile \"$env:TEMP\node-lts.msi\""
+  if errorlevel 1 (
+    echo   [ERREUR] Telechargement impossible. Installez Node.js manuellement.
+    pause
+    exit /b 1
+  )
+  echo   Installation de Node.js...
+  msiexec /i "%TEMP%\node-lts.msi" /qn /norestart
+  echo   [OK] Node.js installe. Relancez ce fichier pour continuer.
   pause
-  exit /b 1
+  exit /b 0
 )
-echo   [OK] Node.js detecte.
+for /f "tokens=*" %%v in ('node --version') do set NODEV=%%v
+echo   [OK] Node.js %NODEV% detecte.
 
-REM --- 2. Detecter le navigateur + creer les raccourcis (via PowerShell) ---
+REM --- 2. Port 3777 libre ? ---
+powershell -NoProfile -Command "$c = Get-NetTCPConnection -LocalPort 3777 -State Listen -ErrorAction SilentlyContinue; if ($c) { exit 1 } else { exit 0 }"
+if errorlevel 1 (
+  echo   [!] Le port 3777 est deja utilise — Isaac tourne peut-etre deja.
+  echo       Fermez l'autre instance avant de continuer.
+  pause
+)
+
+REM --- 3. Raccourcis + demarrage auto (PowerShell) ---
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJ%install-step.ps1"
 if errorlevel 1 (
   echo   [ERREUR] L'installation PowerShell a echoue.
-  echo.
   pause
   exit /b 1
 )
-echo   [OK] Navigateur enregistre + demarrage auto avec Windows installe
+echo   [OK] Demarrage automatique avec Windows
 echo   [OK] Raccourci Bureau : "Isaac IA Juniors"
+echo   [OK] Lanceur silencieux : isaac-launch.vbs
+
+REM --- 4. Adresse du compagnon mobile (Wi-Fi local) ---
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
+  for /f "tokens=*" %%b in ("%%a") do set "IP=%%b" & goto :ipok
+)
+:ipok
+echo.
+echo   [OK] Compagnon mobile : sur votre telephone (meme Wi-Fi),
+echo       ouvrez http://%IP%:3777/compagnon.html
 
 echo.
-echo   [OK] Lanceur silencieux : isaac-launch.vbs
-echo.
 echo   Isaac s'eveille maintenant...
-echo.
 timeout /t 2 /nobreak >nul
 start "" wscript "%PROJ%isaac-launch.vbs"
 
 echo.
-echo   ==================================================
-echo    Terminee ! Isaac est desormais dans votre systeme.
+echo   ============================================================
+echo     Termine ! Isaac est dans votre systeme.
 echo.
-echo    - A chaque demarrage du PC, il se reveillera seul.
-echo    - Double-cliquez sur "Isaac IA Juniors" (Bureau)
-echo      pour le reveiller a tout moment.
-echo    - Dans la fenetre : cliquez une fois, puis dites
-echo      "Isaac, ..." pour lui parler.
+echo     - Au demarrage du PC, il se reveille seul.
+echo     - Double-cliquez "Isaac IA Juniors" (Bureau) pour le reveiller.
+echo     - Cliquez une fois dans la fenetre, puis dites "Isaac, ..."
+echo     - Telephone : http://%IP%:3777/compagnon.html (meme Wi-Fi)
 echo.
-echo    Pour le retirer du systeme : supprimez le raccourci
-echo    "Isaac IA Juniors" dans le dossier Demarrage
-echo    (Win+R, tapez shell:startup) et sur le Bureau.
-echo   ==================================================
+echo     Pour le retirer : supprimez "Isaac IA Juniors" du dossier
+echo     Demarrage (Win+R, tapez shell:startup) et du Bureau.
+echo   ============================================================
 echo.
 pause
