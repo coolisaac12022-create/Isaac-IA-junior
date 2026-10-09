@@ -697,6 +697,12 @@ function rendrePanneauVoix() {
   h += '<div class="voix-dictee"><label>Langue du micro (dictée) <select id="voixDictee">'
     + LANGUES_DICTEE.map(c => '<option value="' + c + '"' + (c === LANGUE_DICTEE ? ' selected' : '') + '>' + c + '</option>').join('')
     + '</select></label><small>Le micro peut écouter en anglais ou en espagnol ; en revanche le cerveau ne comprend vos ORDRES qu en français. La lecture des réponses, elle, suit la langue de chaque phrase (voir chaque ligne).</small></div>';
+  h += '<div class="voix-dictee"><label>Moteur du micro <select id="voixMoteur">'
+    + '<option value="auto"' + (MOTEUR_VOCAL === 'auto' ? ' selected' : '') + '>auto — hors-ligne si possible</option>'
+    + '<option value="horsligne"' + (MOTEUR_VOCAL === 'horsligne' ? ' selected' : '') + '>hors-ligne (Whisper, 100 % local)</option>'
+    + '<option value="navigateur"' + (MOTEUR_VOCAL === 'navigateur' ? ' selected' : '') + '>navigateur (serveurs Google)</option>'
+    + '</select></label><small>Le moteur hors-ligne transcrit sur votre PC : il marche même si votre opérateur bloque les serveurs vocaux de Google. Premier usage : téléchargement unique du modèle (~75 Mo), ensuite plus aucun réseau.</small>'
+    + '<span class="voix-tag" id="voixMoteurEtat">moteur actif : ' + moteurVocalNom + '</span></div>';
   for (const p of PARLENCES) {
     const cfg = CONF_VOIX[p];
     const optsLangue = ['<option value="auto"' + (cfg.langue === 'auto' ? ' selected' : '') + '>auto (suivant la phrase)</option>']
@@ -737,6 +743,18 @@ function rendrePanneauVoix() {
     try { localStorage.setItem('ij-dictee', LANGUE_DICTEE); } catch (e) {}
     appliquerLangueDictee();
     addMsg('Aelyra', 'Le micro écoute désormais en ' + LANGUE_DICTEE + ', Isaac. Vos ordres restent en français.');
+  };
+  const moteurSel = f('#voixMoteur');
+  if (moteurSel) moteurSel.onchange = async () => {
+    MOTEUR_VOCAL = moteurSel.value;
+    try { localStorage.setItem('ij-moteur-vocal', MOTEUR_VOCAL); } catch (e) {}
+    stopListening();
+    addMsg('Isaac IA Juniors', 'Changement de moteur vocal, Isaac...');
+    await initialiserMoteurVocal();
+    const etat = f('#voixMoteurEtat');
+    if (etat) etat.textContent = 'moteur actif : ' + moteurVocalNom;
+    addMsg('Isaac IA Juniors', 'Moteur vocal actif : ' + (moteurVocalNom === 'horsligne' ? 'hors-ligne (Whisper, 100 % local)' : 'navigateur') + ', Isaac.');
+    if (moteurVocalNom === 'horsligne') speak('Moteur hors-ligne activé. Je vous écoute sans passer par internet.');
   };
   tout('.v-langue').forEach(s => { s.onchange = () => {
     const p = s.dataset.p; CONF_VOIX[p].langue = s.value; saveConfVoix(); rendrePanneauVoix();
@@ -945,6 +963,13 @@ async function processCommand(text) {
   // Réponses instantanées côté client
   const t = text.toLowerCase();
   const estGK = GK_MOTS.test(t);
+  // Diagnostic micro : test en conditions réelles avec verdict précis (ne part pas au serveur)
+  if (!image && /\b(micro|microphone|voix|dict[eé]e)\b/.test(t) && /\b(test|teste[rz]?|diagnostic|diagnostique|marche|fonctionne|probl[eè]me)\b/.test(t)) {
+    await diagnosticMicro();
+    processing = false;
+    setState(null, wakeMode ? veilleMsg(agentActif) : 'En attente de vos ordres, Isaac');
+    return;
+  }
   // Un vrai travail (projet, application, cahier des charges) ne se laisse JAMAIS détourner
   // par une réponse instantanée : le mot « date » tout seul ne doit pas déclencher la date du jour.
   const estTravail = /(?:projet|application|appli|site|page|code|html|css|javascript|localstorage|objectif|contrainte|fonction|tableau|formulaire|marionnette)/.test(t) || t.length > 140;
@@ -955,7 +980,7 @@ async function processCommand(text) {
   else if (/qui (est|es) ton cr[ée]ateur|qui t a cr[ée]e|qui est ton (p[èe]re|ma[îi]tre|createur)|mon nom/.test(t)) local = "C'est vous, Isaac ! Vous êtes mon créateur. Je suis Aelyra, née de votre imagination.";
   else if (/^(merci)/.test(t)) local = 'Avec plaisir, Isaac. C est mon rôle auprès de mon créateur.';
   else if (/au revoir|bonne nuit|à plus/.test(t)) local = 'Au revoir, Isaac. Je reste en veille pour vous.';
-  else if (/^(ça va|ca va|comment vas tu|comment ça va)/.test(t)) local = 'Tous mes circuits fonctionnent à plein régime, Isaac. Et vous, mon créateur, comment allez-vous ?';
+  else if (/^(ça va|ca va|comment vas[- ]?tu|comment ça va)/.test(t)) local = 'Tous mes circuits fonctionnent à plein régime, Isaac. Et vous, mon créateur, comment allez-vous ?';
   else if (/\b(quelle heure|il est quelle heure|l heure)\b/.test(t)) {
     const n = new Date();
     local = `Il est ${n.getHours()} heures ${String(n.getMinutes()).padStart(2, '0')}, Isaac.`;
@@ -974,17 +999,34 @@ async function processCommand(text) {
     if (local && !estGK && !image) {
       reply = local;
     } else {
-      const res = await fetch('/api/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, image })
-      });
+      // Correctif 2026-10-09 (audit) : timeout réel sur le fetch + verrou libéré
+      // dans tous les cas. Sans ça, un serveur qui ne répond jamais figeait
+      // `processing` à true pour toujours : l'interface devenait muette.
+      const controleur = new AbortController();
+      const garde = setTimeout(() => controleur.abort(), 45000);
+      let res;
+      try {
+        res = await fetch('/api/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, image }),
+          signal: controleur.signal
+        });
+      } finally { clearTimeout(garde); }
       data = await res.json();
       reply = data.reply || "Je n'ai pas de réponse, Isaac.";
       if (data.agent && AGENT_WHO[data.agent]) agent = data.agent;
       // Le serveur peut demander l'ouverture d'une page dans ce navigateur
       if (data.open) {
-        try { window.open(data.open, '_blank'); } catch (e) { addMsg('Isaac IA Juniors', 'Votre navigateur a bloqué la nouvelle fenêtre, Isaac. Autorisez les pop-ups pour ce site.'); }
+        // Correctif 2026-10-09 (audit) : en mode vocal, l'appel arrive après
+        // plusieurs secondes de parole — l'activation utilisateur a expiré et
+        // Chrome bloque le popup en retournant null SANS lever d'exception.
+        // On détecte le blocage et on propose un lien cliquable à la place.
+        let fenetre = null;
+        try { fenetre = window.open(data.open, '_blank'); } catch (e) { fenetre = null; }
+        if (!fenetre) {
+          addMsg('Isaac IA Juniors', 'Votre navigateur a bloqué la nouvelle fenêtre, Isaac. Cliquez ici pour l\'ouvrir : ' + data.open);
+        }
       }
       if (data.code) codeGenere = { code: data.code, url: data.fileUrl, file: data.file };
     }
@@ -1031,17 +1073,244 @@ async function processCommand(text) {
   processing = false;
 }
 
-// ---------- Reconnaissance vocale ----------
-let netErrors = 0, wakePauseUntil = 0;
-if (SpeechRecognition) {
-  recognition = new SpeechRecognition();
-  recognition.lang = LANGUE_DICTEE;
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-  recognition.continuous = false;
+// ---------- Diagnostic micro : test en conditions réelles, avec verdict précis ----------
+// Teste la dictée avec le MOTEUR ACTIF (hors-ligne ou navigateur) ; promesse {ok, texte|erreur}
+async function testerDictee(delaiMs) {
+  let rec;
+  if (moteurVocalNom === 'horsligne') {
+    rec = new MoteurHorsLigne();
+    rec.lang = LANGUE_DICTEE;
+    addMsg('Isaac IA Juniors', 'Chargement du modèle hors-ligne si besoin (une seule fois)...');
+    rec.onprogres = (pct, phase) => { if (phase === 'telechargement') setState('loading', 'Modèle vocal : ' + pct + ' %...'); };
+    try { await rec._charger(); }
+    catch (e) { return { ok: false, erreur: 'moteur-indisponible' }; }
+  } else {
+    rec = new SpeechRecognition();
+    rec.lang = LANGUE_DICTEE; rec.interimResults = false; rec.maxAlternatives = 1;
+  }
+  return new Promise((resolve) => {
+    let fini = false;
+    const done = (v) => { if (!fini) { fini = true; resolve(v); } };
+    const timer = setTimeout(() => { try { rec.stop(); } catch (e) {} done({ ok: false, erreur: 'no-speech' }); }, delaiMs || 9000);
+    rec.onresult = (ev) => { clearTimeout(timer); done({ ok: true, texte: ev.results[ev.results.length - 1][0].transcript.trim() }); };
+    rec.onerror = (ev) => { clearTimeout(timer); done({ ok: false, erreur: ev.error }); };
+    rec.onend = () => { clearTimeout(timer); done({ ok: false, erreur: 'no-speech' }); };
+    try { rec.start(); } catch (e) { clearTimeout(timer); done({ ok: false, erreur: 'demarrage' }); }
+  });
+}
 
-  recognition.onresult = (event) => {
-    netErrors = 0; // le réseau vocal répond : on repart proprement
+async function diagnosticMicro() {
+  addMsg('Isaac IA Juniors', 'Diagnostic du micro en cours, Isaac...');
+  addMsg('Isaac IA Juniors', 'Moteur vocal actif : ' + (moteurVocalNom === 'horsligne' ? 'hors-ligne (Whisper, 100 % local)' : 'navigateur (serveurs Google)') + '.');
+  // 1. Moteur disponible ?
+  if (moteurVocalNom === 'navigateur' && !SpeechRecognition) {
+    const msg = 'Ce navigateur ne supporte pas la reconnaissance vocale. Utilisez Chrome ou Edge (dernière version), Isaac.';
+    addMsg('Isaac IA Juniors', '❌ ' + msg);
+    speak(msg);
+    return;
+  }
+  addMsg('Isaac IA Juniors', moteurVocalNom === 'horsligne'
+    ? '✅ Moteur hors-ligne : la transcription se fait sur votre PC, aucun serveur.'
+    : '✅ Reconnaissance vocale supportée par ce navigateur.');
+  // 2. Permission + présence du micro (demande explicite = message d'erreur précis)
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(tr => { try { tr.stop(); } catch (e) {} });
+    addMsg('Isaac IA Juniors', '✅ Microphone autorisé et détecté.');
+  } catch (e) {
+    const nom = (e && e.name) || '';
+    if (nom === 'NotAllowedError' || nom === 'SecurityError') {
+      addMsg('Isaac IA Juniors', '❌ Microphone REFUSÉ. Cliquez sur le cadenas (ou l\'icône micro) dans la barre d\'adresse → autorisez le microphone → rechargez la page, Isaac.');
+    } else if (nom === 'NotFoundError' || nom === 'OverconstrainedError') {
+      addMsg('Isaac IA Juniors', '❌ Aucun microphone détecté par Windows. Branchez un micro ou vérifiez : Paramètres → Son → Entrée, Isaac.');
+    } else {
+      addMsg('Isaac IA Juniors', '❌ Micro inaccessible (' + nom + '). Vérifiez qu\'aucune autre application (Zoom, Discord, Teams...) ne le monopolise, Isaac.');
+    }
+    speak('Le microphone est inaccessible. Suivez les instructions affichées, Isaac.');
+    return;
+  }
+  // 3. Test réel de dictée avec le moteur actif : la preuve par l'exemple
+  addMsg('Isaac IA Juniors', '🎤 Parlez maintenant, Isaac — dites par exemple « bonjour » ...');
+  setState('listening', 'Test du micro : parlez !');
+  const verdict = await testerDictee(9000);
+  if (verdict.ok) {
+    addMsg('Isaac IA Juniors', '✅ Micro PARFAIT — je vous ai entendu : « ' + verdict.texte + ' ». La dictée fonctionne, Isaac.');
+    speak('Test réussi, Isaac, je vous entends parfaitement.');
+  } else if (verdict.erreur === 'network' || verdict.erreur === 'service-not-allowed') {
+    addMsg('Isaac IA Juniors', '⚠️ Le micro marche, mais les SERVEURS VOCAUX de Google ne répondent pas depuis votre connexion. Passez au moteur hors-ligne : panneau voix → « Moteur du micro » → hors-ligne. Ou essayez en partage de connexion téléphone / VPN, Isaac.');
+    speak('Le micro fonctionne, mais les serveurs vocaux sont injoignables. Passez au moteur hors-ligne, Isaac.');
+  } else if (verdict.erreur === 'moteur-indisponible') {
+    addMsg('Isaac IA Juniors', '❌ Le moteur hors-ligne n\'a pas pu charger son modèle (connexion requise UNE fois pour le télécharger). Vérifiez votre connexion puis relancez le test, Isaac.');
+  } else if (verdict.erreur === 'not-allowed') {
+    addMsg('Isaac IA Juniors', '❌ Permission micro refusée pendant le test. Autorisez-la via le cadenas dans la barre d\'adresse, Isaac.');
+  } else {
+    addMsg('Isaac IA Juniors', '❌ Je n\'ai rien entendu. Parlez plus fort, rapprochez-vous du micro, ou vérifiez le volume d\'entrée dans Paramètres Windows → Son, Isaac.');
+    speak('Je n\'ai rien entendu. Vérifiez votre microphone, Isaac.');
+  }
+}
+// ---------- Reconnaissance vocale : moteur navigateur OU moteur hors-ligne (Whisper) ----------
+// Le moteur hors-ligne transcrit sur le PC d'Isaac : il fonctionne même quand l'opérateur
+// bloque les serveurs vocaux de Google. Réglage : 'auto' (hors-ligne si possible), 'horsligne', 'navigateur'.
+const WHISPER_CDN = 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js';
+const WHISPER_MODELE = 'Xenova/whisper-tiny';
+let MOTEUR_VOCAL = 'auto';
+try { MOTEUR_VOCAL = localStorage.getItem('ij-moteur-vocal') || 'auto'; } catch (e) {}
+let moteurVocalNom = 'navigateur'; // moteur effectif : 'horsligne' | 'navigateur'
+let moteurVocalPret = false;
+
+function chargerLibWhisper(timeoutMs) {
+  if (window.transformers && window.transformers.pipeline) return Promise.resolve(window.transformers);
+  if (chargerLibWhisper._p) return chargerLibWhisper._p;
+  chargerLibWhisper._p = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('delai CDN')), timeoutMs || 12000);
+    const s = document.createElement('script');
+    s.src = WHISPER_CDN;
+    s.onload = () => { clearTimeout(timer); (window.transformers && window.transformers.pipeline) ? resolve(window.transformers) : reject(new Error('lib invalide')); };
+    s.onerror = () => { clearTimeout(timer); reject(new Error('CDN injoignable')); };
+    document.head.appendChild(s);
+  });
+  // En cas d'échec on oublie la promesse pour pouvoir réessayer plus tard
+  chargerLibWhisper._p.catch(() => { chargerLibWhisper._p = null; });
+  return chargerLibWhisper._p;
+}
+
+// Moteur 100% local : même interface que SpeechRecognition (start/stop/onresult/onerror/onend/lang)
+class MoteurHorsLigne {
+  constructor() {
+    this._langue = 'fr';
+    this.onresult = null; this.onerror = null; this.onend = null;
+    this.onprogres = null;
+    this.interimResults = false; this.maxAlternatives = 1; this.continuous = false; // compat API
+    this._pipe = null; this._chargement = null;
+    this._actif = false; this._transcriptionEnCours = false;
+    this._stream = null; this._ctx = null; this._proc = null; this._src = null;
+    this._morceaux = []; this._parole = false; this._silenceMs = 0; this._dureeMs = 0;
+  }
+  set lang(v) { // 'fr-FR' -> 'french', etc.
+    const b = String(v || 'fr').slice(0, 2).toLowerCase();
+    this._langue = { fr: 'french', en: 'english', es: 'spanish' }[b] || 'french';
+  }
+  get lang() { return this._langue; }
+  static async disponible() {
+    try { await chargerLibWhisper(8000); return true; } catch (e) { return false; }
+  }
+  _charger() {
+    if (this._pipe) return Promise.resolve(this._pipe);
+    if (this._chargement) return this._chargement;
+    this._chargement = (async () => {
+      const T = await chargerLibWhisper(15000);
+      if (this.onprogres) this.onprogres(0, 'chargement');
+      this._pipe = await T.pipeline('automatic-speech-recognition', WHISPER_MODELE, {
+        progress_callback: (p) => {
+          if (p && p.status === 'progress' && this.onprogres) {
+            const pct = Math.round((p.progress || 0) * 100);
+            this.onprogres(pct, 'telechargement');
+          }
+        }
+      });
+      if (this.onprogres) this.onprogres(100, 'pret');
+      return this._pipe;
+    })();
+    this._chargement.catch(() => { this._chargement = null; });
+    return this._chargement;
+  }
+  precharger() { this._charger().catch(() => {}); } // en tâche de fond, sans bloquer
+  // Capture 16 kHz mono + VAD énergétique : coupe auto après 1,4 s de silence
+  start() { this._demarrer().catch((e) => { this._erreur((e && e.code) || 'moteur-indisponible'); }); }
+  async _demarrer() {
+    if (this._actif || this._transcriptionEnCours) return;
+    await this._charger(); // peut lever -> 'moteur-indisponible'
+    if (this._actif) return;
+    try {
+      this._stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch (e) {
+      const nom = (e && e.name) || '';
+      throw { code: (nom === 'NotAllowedError' || nom === 'SecurityError') ? 'not-allowed' : 'micro-inaccessible' };
+    }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    this._ctx = new AC({ sampleRate: 16000 });
+    const tauxReel = this._ctx.sampleRate || 16000;
+    this._src = this._ctx.createMediaStreamSource(this._stream);
+    this._proc = this._ctx.createScriptProcessor(4096, 1, 1);
+    this._morceaux = []; this._parole = false; this._silenceMs = 0; this._dureeMs = 0;
+    const pasMs = 4096000 / tauxReel; // durée d'un bloc en ms
+    const SEUIL = 0.02, SILENCE_MAX = 1400, DUREE_MAX = 20000, ATTENTE_PAROLE = 9000;
+    this._proc.onaudioprocess = (ev) => {
+      if (!this._actif) return;
+      let data = ev.inputBuffer.getChannelData(0);
+      if (tauxReel !== 16000) data = sousEchantillonne(data, tauxReel, 16000);
+      this._morceaux.push(new Float32Array(data));
+      let somme = 0;
+      for (let i = 0; i < data.length; i += 4) somme += data[i] * data[i];
+      const rms = Math.sqrt(somme / Math.ceil(data.length / 4));
+      this._dureeMs += pasMs;
+      if (rms > SEUIL) { this._parole = true; this._silenceMs = 0; }
+      else this._silenceMs += pasMs;
+      if ((this._parole && this._silenceMs >= SILENCE_MAX) || this._dureeMs >= DUREE_MAX || (!this._parole && this._dureeMs >= ATTENTE_PAROLE)) {
+        this.stop();
+      }
+    };
+    this._src.connect(this._proc);
+    this._proc.connect(this._ctx.destination);
+    this._actif = true;
+  }
+  stop() {
+    if (!this._actif || this._transcriptionEnCours) return;
+    this._actif = false;
+    try { this._proc.disconnect(); } catch (e) {}
+    try { this._src.disconnect(); } catch (e) {}
+    try { this._ctx.close(); } catch (e) {}
+    try { this._stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    this._transcrire();
+  }
+  async _transcrire() {
+    this._transcriptionEnCours = true;
+    try {
+      const total = this._morceaux.reduce((a, m) => a + m.length, 0);
+      if (!this._parole || total < 8000) { this._fin('no-speech'); return; } // < 0,5 s : rien d'exploitable
+      const audio = new Float32Array(total);
+      let o = 0;
+      for (const m of this._morceaux) { audio.set(m, o); o += m.length; }
+      const out = await this._pipe(audio, { language: this._langue, task: 'transcribe' });
+      const texte = String((out && out.text) || '').trim();
+      if (texte) {
+        if (this.onresult) this.onresult({ results: [[{ transcript: texte }]] });
+      } else this._fin('no-speech');
+    } catch (e) {
+      this._erreur('transcription');
+    } finally {
+      this._transcriptionEnCours = false;
+      this._morceaux = [];
+      if (this.onend) { try { this.onend(); } catch (e) {} }
+    }
+  }
+  _erreur(code) { if (this.onerror) { try { this.onerror({ error: code }); } catch (e) {} } if (this.onend) { try { this.onend(); } catch (e) {} } }
+  _fin(code) { if (code && this.onerror) { try { this.onerror({ error: code }); } catch (e) {} } }
+}
+
+// Sous-échantillonnage simple (moyenne par paquets) vers 16 kHz
+function sousEchantillonne(data, de, vers) {
+  if (de === vers) return data;
+  const ratio = de / vers, n = Math.floor(data.length / ratio), out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const deb = Math.floor(i * ratio), fin = Math.min(data.length, Math.floor((i + 1) * ratio));
+    let s = 0; for (let j = deb; j < fin; j++) s += data[j];
+    out[i] = s / Math.max(1, fin - deb);
+  }
+  return out;
+}
+
+let netErrors = 0, wakePauseUntil = 0;
+
+// Branche les réactions (résultat/erreur/fin) sur un moteur, quel qu'il soit
+function brancherEcouteur(rec) {
+  rec.lang = LANGUE_DICTEE;
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  rec.continuous = false;
+
+  rec.onresult = (event) => {
+    netErrors = 0;
     const transcript = event.results[event.results.length - 1][0].transcript.trim();
     stopListening();
 
@@ -1062,16 +1331,27 @@ if (SpeechRecognition) {
     }
   };
 
-  recognition.onerror = (e) => {
+  rec.onerror = (e) => {
     stopListening();
-    if (e.error === 'not-allowed') {
+    // Bascule auto : le hors-ligne est tombé et on était en auto -> repli navigateur
+    if (e.error === 'moteur-indisponible' && MOTEUR_VOCAL === 'auto' && moteurVocalNom === 'horsligne' && SpeechRecognition) {
+      moteurVocalNom = 'navigateur';
+      recognition = brancherEcouteur(new SpeechRecognition());
+      addMsg('Isaac IA Juniors', 'Moteur hors-ligne indisponible pour le moment, Isaac — je bascule sur le moteur du navigateur.');
+      return;
+    }
+    if (e.error === 'moteur-indisponible') {
+      setState(null, 'Moteur hors-ligne indisponible');
+      addMsg('Isaac IA Juniors', 'Isaac, le moteur vocal hors-ligne n\'a pas pu démarrer (téléchargement du modèle impossible : vérifiez votre connexion une fois — ensuite il marche sans réseau).');
+    } else if (e.error === 'not-allowed') {
       setState(null, 'Microphone refusé — autorisez-le dans le navigateur');
       addMsg('Isaac IA Juniors', 'Isaac, le microphone est bloqué. Cliquez sur le cadenas dans la barre d\'adresse et autorisez le micro, puis réessayez.');
     } else if (e.error === 'network' || e.error === 'service-not-allowed') {
-      // La dictée du navigateur passe par les serveurs vocaux d'Internet : route opérateur lente ou bloquée
+      // La dictée du navigateur passe par les serveurs vocaux d'Internet : route opérateur lente ou bloquée.
+      // Astuce durable : réglez le « Moteur du micro » sur « hors-ligne » dans le panneau voix.
       netErrors++;
       if (netErrors === 1) {
-        addMsg('Isaac IA Juniors', 'Reconnaissance vocale indisponible (réseau), Isaac. Les serveurs vocaux du navigateur ne répondent pas depuis votre opérateur — je réessaie automatiquement. En attendant, vous pouvez m\'écrire vos ordres dans le champ du bas, je répondrai toujours à voix haute.');
+        addMsg('Isaac IA Juniors', 'Reconnaissance vocale indisponible (réseau), Isaac. Les serveurs vocaux du navigateur ne répondent pas depuis votre opérateur — je réessaie automatiquement. Astuce durable : réglez le « Moteur du micro » sur « hors-ligne » dans le panneau voix, il transcrit sur votre PC sans Google. En attendant, vous pouvez m\'écrire vos ordres dans le champ du bas, je répondrai toujours à voix haute.');
       }
       if (netErrors >= 3) {
         wakePauseUntil = Date.now() + 20000; // pause de 20 s : evite la boucle infinie d'erreurs
@@ -1080,14 +1360,17 @@ if (SpeechRecognition) {
         setState(null, 'Réseau vocal instable — nouvelle tentative (' + netErrors + '/3)...');
         wakePauseUntil = Date.now() + 3000;
       }
-    } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
-      setState(null, 'Erreur micro : ' + e.error);
-    } else {
+    } else if (e.error === 'no-speech' || e.error === 'aborted') {
       setState(null, wakeMode ? veilleMsg(agentActif) : 'En attente de vos ordres, Isaac');
+    } else if (e.error === 'micro-inaccessible') {
+      setState(null, 'Micro inaccessible');
+      addMsg('Isaac IA Juniors', 'Isaac, aucun microphone utilisable (vérifiez qu\'aucune autre application ne le monopolise : Zoom, Discord, Teams...).');
+    } else {
+      setState(null, 'Erreur micro : ' + e.error);
     }
   };
 
-  recognition.onend = () => {
+  rec.onend = () => {
     isListening = false;
     micBtn.classList.remove('recording');
     // En mode veille : on réécoute en permanence (en respectant la pause réseau éventuelle)
@@ -1096,7 +1379,36 @@ if (SpeechRecognition) {
       setTimeout(() => { if (wakeMode) startListening(true); }, attente);
     }
   };
+  // Progression du téléchargement du modèle (moteur hors-ligne uniquement)
+  if (rec instanceof MoteurHorsLigne) {
+    rec.onprogres = (pct, phase) => {
+      if (phase === 'telechargement') setState('loading', 'Modèle vocal hors-ligne : ' + pct + ' % (une seule fois, ensuite 100 % local)...');
+      else if (phase === 'pret' && !isListening) setState(null, 'Moteur vocal hors-ligne prêt, Isaac.');
+    };
+  }
+  return rec;
 }
+
+// Choix du moteur au démarrage : réglage manuel > auto (hors-ligne préféré)
+async function initialiserMoteurVocal() {
+  moteurVocalPret = false;
+  let choix = MOTEUR_VOCAL;
+  if (choix === 'auto') {
+    choix = (await MoteurHorsLigne.disponible()) ? 'horsligne' : 'navigateur';
+  }
+  if (choix === 'horsligne') {
+    moteurVocalNom = 'horsligne';
+    recognition = brancherEcouteur(new MoteurHorsLigne());
+    recognition.precharger(); // le modèle (~75 Mo) se télécharge une fois, en tâche de fond
+  } else if (SpeechRecognition) {
+    moteurVocalNom = 'navigateur';
+    recognition = brancherEcouteur(new SpeechRecognition());
+  } else {
+    recognition = null;
+  }
+  moteurVocalPret = true;
+}
+initialiserMoteurVocal();
 
 function startListening(silent) {
   if (!recognition || isListening) return;
@@ -1120,6 +1432,10 @@ function stopListening() {
 }
 
 micBtn.addEventListener('click', () => {
+  if (!moteurVocalPret) {
+    addMsg('Isaac IA Juniors', 'Moteur vocal en cours de chargement, Isaac — réessayez dans quelques secondes.');
+    return;
+  }
   if (!recognition) {
     addMsg('Isaac IA Juniors', 'Isaac, ce navigateur ne supporte pas la reconnaissance vocale. Utilisez Chrome ou Edge — ou écrivez-moi ci-dessous.');
     return;
