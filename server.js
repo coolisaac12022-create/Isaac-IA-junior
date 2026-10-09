@@ -10,6 +10,7 @@ const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { exec } = require('child_process');
 
 // Mode ESSAI (ISAAC_ESSAI=1) : on teste les intentions sans toucher le PC.
@@ -36,6 +37,16 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon'
 };
+
+// ---------- Garde-fous anti-crash (durcissement commercialisation, 2026-10-08) ----------
+// Un assistant qui tourne en continu ne doit JAMAIS mourir en silence sur une
+// exception non catchée : on journalise l'erreur et le processus survit.
+process.on('uncaughtException', (err) => {
+  try { console.error('[CRASH-GARDE] uncaughtException :', (err && err.stack) || err); } catch (e) {}
+});
+process.on('unhandledRejection', (raison) => {
+  try { console.error('[CRASH-GARDE] unhandledRejection :', (raison && raison.stack) || raison); } catch (e) {}
+});
 
 // ---------- Utilitaires ----------
 
@@ -86,13 +97,28 @@ const ENTREE = '^(?:(?:isaac|iseck|izak|isack|aelyra|aelira|aleyra|elyra|elira|j
 function run(cmd) {
   if (ESSAI) { console.log('[essai] aurait lancé :', cmd); return; }
   if (!IS_LOCAL) { console.log('[remote] commande PC ignorée:', cmd); return; }
-  exec(cmd, { windowsHide: true }, (err) => {
+  // Durcissement 2026-10-08 : timeout + maxBuffer pour éviter les processus zombies
+  // si une commande Windows ne termine jamais.
+  exec(cmd, { windowsHide: true, timeout: 60000, maxBuffer: 4 << 20 }, (err) => {
     if (err) console.error('[exec]', err.message);
   });
 }
 
-function openURL(url) {
-  run(`start "" "${url}"`);
+// ---------- Blindage anti-injection PowerShell (durcissement commercialisation, 2026-10-08) ----------
+// Tout texte dicté par l'utilisateur qui finit dans une ligne powershell.exe DOIT passer
+// par ici : on retire les guillemets qui permettent de sortir de la chaîne (' et "),
+// le backtick (caractère d'échappement PowerShell) et on aplatit les retours ligne.
+// Sans cela, un texte contenant " pouvait casser le -Command "..." et exécuter du code.
+function psSafe(s) {
+  return String(s == null ? '' : s).replace(/['"`]/g, '').replace(/[\r\n]+/g, ' ').slice(0, 4000);
+}
+
+// Ouvre un fichier/dossier via `start` en neutralisant les guillemets du chemin.
+// Un nom de fichier présent sur le disque pourrait contenir `"` et casser la
+// ligne de commande : on le retire systématiquement ici.
+function ouvrirChemin(p) {
+  const propre = String(p == null ? '' : p).replace(/"/g, '');
+  if (propre) run(`start "" "${propre}"`);
 }
 
 // Sortie texte d'une commande (pour lire l'état du PC : IP, batterie, wifi...)
@@ -162,9 +188,14 @@ function motsEnChiffres(t) {
   s = s.replace(/\bcinquante\s?(deux|trois|quatre|cinq|six|sept|huit|neuf)\b/g, (m, u) => String(50 + MOTS_NOMBRES[u]));
   s = s.replace(/\bsoixante\s?(dix|onze|douze|treize|quatorze|quinze|seize|dixsept|dixhuit|dixneuf)?\b/g,
     (m, u) => String(60 + (u ? (MOTS_NOMBRES[u.replace(/\s/g, '')] || 0) : 0)));
+  // Correctif 2026-10-09 (audit M4) : « quatre-vingt » et « quatre-vingt-dix… »
+  // n'étaient pas convertis — « dans quatre-vingt-dix minutes » perdait le rappel
+  // en silence. Après collage des traits d'union : « quatrevingtdix ».
+  s = s.replace(/\bquatrevingt\s?(dix|onze|douze|treize|quatorze|quinze|seize|dixsept|dixhuit|dixneuf)?\b/g,
+    (m, u) => String(80 + (u ? (MOTS_NOMBRES[u.replace(/\s/g, '')] || 0) : 0)));
   // Un seul mot par tour : remplace les dizaines et unités isolées.
-  s = s.replace(/\b(un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dixsept|dixhuit|dixneuf|vingt|trente|quarante|cinquante|soixante)\b/g,
-    (m) => String(MOTS_NOMBRES[m] != null ? MOTS_NOMBRES[m] : m));
+  s = s.replace(/\b(un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dixsept|dixhuit|dixneuf|vingt|trente|quarante|cinquante|soixante|quatrevingt)\b/g,
+    (m) => String(m === 'quatrevingt' ? 80 : (MOTS_NOMBRES[m] != null ? MOTS_NOMBRES[m] : m)));
   // Tours fractionnaires → minutes.
   s = s.replace(/\b(\d*)\s*(?:demi|demie)\s*(?:heure|heures)\b/g, (m, n) => (Number(n) || 1) * 30 + ' minute');
   s = s.replace(/\b(?:un|1)?\s*quart\s+dheure\b/g, '15 minute');
@@ -222,16 +253,19 @@ setInterval(() => {
 }, 15000);
 
 
-function fetchText(url, timeoutMs = 9000, maxBytes = 300000) {
+function fetchText(url, timeoutMs = 9000, maxBytes = 300000, redirRestantes = 8) {
   return new Promise((resolve) => {
     const proto = url.startsWith('https') ? https : http;
     // UA de navigateur : Wikipedia et beaucoup de sites bloquent les UA « bot » (403)
     const req = proto.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36', 'Accept-Language': 'fr-FR,fr;q=0.9' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();
+        // Durcissement 2026-10-08 : compteur de redirections — un serveur malveillant
+        // ne peut plus provoquer une récursion infinie (stack overflow).
+        if (redirRestantes <= 0) return resolve(null);
         let suivant = res.headers.location;
         try { suivant = new URL(suivant, url).href; } catch (e) { return resolve(null); } // relative → absolue
-        return resolve(fetchText(suivant, timeoutMs, maxBytes));
+        return resolve(fetchText(suivant, timeoutMs, maxBytes, redirRestantes - 1));
       }
       if (res.statusCode >= 400) { res.resume(); return resolve(null); }
       let data = ''; let fini = false;
@@ -324,9 +358,11 @@ function memoriserNumero(contact, digits) {
 function executerEnvoi(pe) {
   const tel = String(pe.tel || '').replace(/\D/g, '');
   const txt = String(pe.texte || '').trim();
-  if (txt) run(`powershell -NoProfile -Command "'${txt.replace(/'/g, '')}' | Set-Clipboard"`);
+  // Durcissement 2026-10-08 : passe par copierPresse (psSafe) au lieu d'une
+  // sanitization locale incomplète — une seule fonction blindée, un seul endroit à auditer.
+  if (txt) copierPresse(txt);
   const url = 'whatsapp://send?phone=+' + tel + (txt ? '&text=' + encodeURIComponent(txt) : '');
-  run(`powershell -NoProfile -Command "Start-Process '${url.replace(/'/g, '')}'"`);
+  run(`powershell -NoProfile -Command "Start-Process '${psSafe(url)}'"`);
   return {
     reply: txt
       ? `Je lance WhatsApp sur la conversation du +${tel}, Isaac, avec votre message deja ecrit dans la zone de saisie : verifiez-le puis appuyez sur Entree pour l'envoyer vous-meme. Le texte est aussi dans le presse-papiers (Ctrl+V). Si l'application ne repond pas, dites-le moi, je passerai par le navigateur.`
@@ -340,7 +376,7 @@ function executerEnvoi(pe) {
 // mot de passe applicatif Gmail (isaac-keys.json, jamais publié). WhatsApp et
 // Facebook interdisent l'envoi automatique par un tiers : là, la fenêtre s'ouvre,
 // le texte est collé, et Isaac appuie sur Entrée/Envoyer lui-même. JAMAIS mentir.
-const MAIL_RE = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,4}/;
+const MAIL_RE = /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,4}$/;
 const PSEUDO_RE = /^[A-Za-z0-9._]{5,32}$/;
 
 function valeurContact(cle, contact) {
@@ -444,7 +480,8 @@ function envoyerSmtp(dest, sujet, corps) {
 }
 
 function copierPresse(txt) {
-  run(`powershell -NoProfile -Command "'${String(txt).replace(/'/g, '').replace(/[\r\n]+/g, ' ')}' | Set-Clipboard"`);
+  const propre = psSafe(txt);
+  if (propre) run(`powershell -NoProfile -Command "'${propre}' | Set-Clipboard"`);
 }
 function ouvrirMailto(dest, sujet, corps) {
   const url = 'mailto:' + dest +
@@ -1288,6 +1325,21 @@ function enDehorsDesZonesNoyau(texte) {
   return hors + texte.slice(last);
 }
 
+// ---------- Durcissement du contrôle du noyau auto-écrit (commercialisation, 2026-10-08) ----------
+// La liste noire de mots seule est contournable par concaténation ('proc'+'ess'),
+// par échappements unicode (\u0070rocess → process pour le parser JS) ou par
+// décodage dynamique (String.fromCharCode, atob). On contrôle donc aussi une forme
+// « dé-obfusquée » du code : échappements résolus, contenu des chaînes concaténé.
+const NOYAU_INTERDITS_EXTRA = /\b(fromCharCode|atob|btoa|Buffer|charCodeAt)\b/;
+function deobfusquerPourControle(code) {
+  let c = String(code || '');
+  c = c.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  c = c.replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  // Concatène le contenu des littéraux de chaîne : 'proc'+'ess' → 'process'
+  const sansGuillemets = c.replace(/(['"`])((?:\\\1|(?!\1).)*)\1/g, '$2');
+  return c + '\n' + sansGuillemets.replace(/\+/g, '');
+}
+
 function verifieCodeNoyau(code) {
   const erreurs = [];
   const c = String(code || '').trim();
@@ -1296,15 +1348,22 @@ function verifieCodeNoyau(code) {
   if (/(?:>>>|<<<)\s*NOYAU/.test(c)) erreurs.push('une zone ne peut pas ouvrir ni fermer une zone : pas de marqueur NOYAU dans le code');
   const lignes = c.split('\n').length;
   if (lignes > MAX_LIGNES_NOYAU) erreurs.push('zone trop longue : ' + lignes + ' lignes, maximum ' + MAX_LIGNES_NOYAU);
-  const interdit = c.match(NOYAU_INTERDITS);
+  // Durcissement 2026-10-08 : contrôle sur le code brut ET sur sa forme dé-obfusquée.
+  const controle = deobfusquerPourControle(c);
+  const interdit = controle.match(NOYAU_INTERDITS) || controle.match(NOYAU_INTERDITS_EXTRA);
   if (interdit) erreurs.push('mot interdit dans la zone : « ' + interdit[0] + ' » — le coeur réécrit ne touche ni disque, ni réseau, ni envoi, ni verrous, et ne rejoue pas les gardes');
   return erreurs;
 }
 
 function evaluerZoneNoyau(code) {
-  const fn = new Function('"use strict";\n' + code + '\nreturn typeof noyauCommandes === "function" ? noyauCommandes : null;');
-  const f = fn();
-  if (!f) throw new Error('la zone ne declare aucune fonction noyauCommandes exploitable');
+  // Durcissement 2026-10-08 : fini le `new Function` (portée globale complète).
+  // La zone est évaluée dans un bac à sable `vm` au contexte quasi vide, avec un
+  // timeout : une boucle infinie accidentelle ne peut plus figer le serveur.
+  const bac = { console: { log() {}, warn() {}, error() {} } };
+  vm.createContext(bac);
+  vm.runInContext('"use strict";\n' + String(code), bac, { timeout: 4000 });
+  const f = bac.noyauCommandes;
+  if (typeof f !== 'function') throw new Error('la zone ne declare aucune fonction noyauCommandes exploitable');
   return f;
 }
 
@@ -1356,6 +1415,9 @@ function demarrerTestNoyau(contenu) {
     } catch (e) {
       return fini({ ok: false, erreur: 'demarrage du test impossible : ' + String((e && e.message) || e) });
     }
+    proc.on('error', (e) => {
+      fini({ ok: false, erreur: 'le test n a pas pu demarrer : ' + String((e && e.message) || e) + ' — rien na ete change' });
+    });
     proc.on('exit', () => {
       if (!regle) fini({ ok: false, erreur: 'le noyau candidat est mort au demarrage — rien na ete change' });
     });
@@ -1829,6 +1891,14 @@ async function askWikipediaRaw(question) {
     const arr = JSON.parse(raw);
     const title = arr && arr.query && arr.query.search && arr.query.search[0] && arr.query.search[0].title;
     if (!title) return null;
+    // Garde-fou pertinence (2026-10-09) : Wikipédia renvoie parfois un article
+    // sans rapport quand la requête est floue (« API » → « Christine Angot »).
+    // On exige qu'au moins un mot significatif de la question apparaisse dans
+    // le titre — sinon on rend null plutôt qu'une absurdité présentée comme réponse.
+    const motsQ = new Set(normalize(q).split(/\s+/).filter(w => w.length > 2));
+    const motsT = normalize(title).split(/\s+/).filter(w => w.length > 2);
+    const pertinent = motsT.some(w => motsQ.has(w)) || [...motsQ].some(w => normalize(title).includes(w));
+    if (!pertinent) return null;
     const sum = await fetchText('https://fr.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(title), 7000);
     const data = JSON.parse(sum);
     if (data && data.extract) return data.extract.slice(0, 500);
@@ -2257,7 +2327,9 @@ async function publierSite(nomSite) {
   await lancer('git add public/sites', { cwd: __dirname });
   const rStat = await lancer('git status --porcelain public/sites', { cwd: __dirname });
   if (rStat.out.trim()) {
-    const rCommit = await lancer('git commit -m "Site Jeanette publie : ' + choisi + '"', { cwd: __dirname });
+    // Durcissement 2026-10-08 : le nom du dossier vient du disque — on neutralise les
+    // guillemets pour empêcher toute injection dans la ligne de commande git.
+    const rCommit = await lancer('git commit -m "Site Jeanette publie : ' + String(choisi).replace(/["`$\\]/g, '') + '"', { cwd: __dirname });
     if (!rCommit.ok) return { reply: "Le commit GitHub a échoué, Isaac : " + rCommit.out.slice(0, 160) };
   }
   const rPush = await lancer('git -c http.version=HTTP/1.1 push', { cwd: __dirname });
@@ -5933,7 +6005,7 @@ async function handleCommand(rawText, image, opts) {
   // Phrases réelles d'Isaac (console 2026-09-29) : « installe l'environnement Kali dans cyber_training »,
   // « deploie les outils de cybersécurité dans cyber_training », « cree un dossier cyber_training ».
   if (/cyber[_ ]?training/.test(text) && /\b(?:install\w*|deploy\w*|deplo\w*|finalis\w*|configur\w*|prepare\w*|realis\w*|met\w*|cre\w*|fait\w*|mont\w*)\b/.test(text)) {
-    const dossierCyber = path.join(process.env.USERPROFILE + '\\Documents', 'cyber_training');
+    const dossierCyber = path.join((process.env.USERPROFILE || 'C:') + '\\Documents', 'cyber_training');
     if (ESSAI) return { reply: '[ESSAI] environnement cyber deploye dans Documents\\cyber_training.', source: 'essai' };
     try { fs.mkdirSync(dossierCyber, { recursive: true }); } catch (e) { return { reply: "Impossible d'écrire dans vos Documents, Isaac : " + e.message, source: 'system' }; }
     const EOL = '\r\n';
@@ -7057,7 +7129,12 @@ async function handleCommand(rawText, image, opts) {
     if (!ssid) return { reply: "Aucun reseau sans fil connecte, Isaac.", source: 'system' };
     const nom = ssid.trim();
     if (!veutCle) return { reply: `Vous etes connecte au reseau « ${nom} », Isaac.`, source: 'system' };
-    const cle = await shellOut(`netsh wlan show profiles name="${nom}" key=clear`);
+    // Correctif 2026-10-09 (audit C1) : le SSID vient du RESEAU (point d'accès
+    // potentiellement hostile), pas d'Isaac. Un SSID contenant `"` cassait la
+    // citation et permettait une injection de commande. On neutralise les
+    // guillemets avant interpolation.
+    const nomSur = nom.replace(/"/g, '');
+    const cle = await shellOut(`netsh wlan show profiles name="${nomSur}" key=clear`);
     const pass = (cle.match(/(?:Key Content|Contenu de la c)\s*: *(.+)/i) || [])[1];
     if (!pass) return { reply: `Le reseau est « ${nom} », mais je ne peux pas lire sa cle, Isaac (il faut les droits administrateur).`, source: 'system' };
     return { reply: `Le nom du reseau est « ${nom} ». La cle Wi-Fi s'affiche a l'ecran, Isaac — ne la partagez pas.`, source: 'system', code: pass.trim() };
@@ -7137,7 +7214,7 @@ async function handleCommand(rawText, image, opts) {
       const fichiers = out.split(/\r?\n/).map(x => x.trim()).filter(x => x && /[A-Z]:\\/.test(x));
       if (!fichiers.length) return { reply: `Aucun fichier ne contient « ${quoi} » sur votre PC, Isaac.`, source: 'system' };
       if (/^ouvre/.test(text) || /^montre moi/.test(text)) {
-        run(`start "" "${fichiers[0]}"`);
+        ouvrirChemin(fichiers[0]);
         return { reply: `J'ouvre ${path.basename(fichiers[0])}, Isaac.`, source: 'system' };
       }
       return { reply: `J'ai trouve ${fichiers.length} fichier(s) pour « ${quoi} », Isaac : ${fichiers.map(f => path.basename(f)).join(' ; ')}. Dites « ouvre ${path.basename(fichiers[0]).split('.')[0]} » pour le premier.`, source: 'system', code: fichiers.join('\n') };
@@ -7147,7 +7224,7 @@ async function handleCommand(rawText, image, opts) {
   if (mm && !/raccourci/.test(text)) {
     const nom = nettoieCible(mm[1]).replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, '_').trim();
     if (nom && nom.length >= 2) {
-      const racine = /bureau/.test(text) ? (process.env.USERPROFILE + '\\Desktop') : (process.env.USERPROFILE + '\\Documents');
+      const racine = /bureau/.test(text) ? ((process.env.USERPROFILE || 'C:') + '\\Desktop') : ((process.env.USERPROFILE || 'C:') + '\\Documents');
       // « crée un FICHIER ... », « crée une liste ... » : un VRAI fichier texte, pas un dossier — et il s'ouvre
       const veutFichier = /\b(?:fichier|document|liste|note|texte|brouillon)\b/.test(text) && !/\bdossier\b/.test(text);
       if (veutFichier) {
@@ -7174,7 +7251,7 @@ async function handleCommand(rawText, image, opts) {
     const requete = String(mm[1]);
     const part = requete.split(/\s+(?:avec|pour avoir|:\s*)\s*/);
     const mots = part[0].split(/\s+/).filter(w => w.length >= 3 && !/^(?:fichier|document|liste|notes?|carnet|dans|exemple|exemples|imaginaire|imaginaires)$/.test(w));
-    const DOC = process.env.USERPROFILE + '\\Documents';
+    const DOC = (process.env.USERPROFILE || 'C:') + '\\Documents';
     let txts = [];
     try { txts = fs.readdirSync(DOC).filter(f => /\.txt$/i.test(f)); } catch (e) {}
     let trouve = txts.find(f => { const nf = normalize(f); return mots.length > 0 && mots.every(w => nf.includes(normalize(w))); })
@@ -7230,7 +7307,9 @@ async function handleCommand(rawText, image, opts) {
     }
     if (!cible) return { reply: "Dites-moi ce que le raccourci doit ouvrir, Isaac : « cre un raccourci pour mon site ».", source: 'system' };
     const bureau = path.join(process.env.USERPROFILE || 'C:', 'Desktop', nom.replace(/[^a-z0-9_-]/g, '_') + '.lnk');
-    await shellOut(`powershell -NoProfile -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('${bureau}'); $s.TargetPath='${cible}'; $s.Save()"`);
+    // Correctif 2026-10-09 (audit m3) : `cible` vient d'un nom de fichier sur le
+    // disque (ex. `l'atelier.html`) — un `'` cassait la commande PowerShell.
+    await shellOut(`powershell -NoProfile -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('${psSafe(bureau)}'); $s.TargetPath='${psSafe(cible)}'; $s.Save()"`);
     return { reply: `Raccourci « ${nom} » depose sur votre Bureau, Isaac.`, source: 'system' };
   }
 
@@ -7451,17 +7530,17 @@ async function handleCommand(rawText, image, opts) {
              open: 'https://www.google.com/search?q=' + encodeURIComponent(m[1]) };
   }
 
-  // --- Joue sur YouTube ---
+  // --- Joue sur YouTube : ouvre le lecteur intégré qui DÉMARRE la lecture ---
   m = text.match(/^(?:joue|jouer|lance la video|mets|met|ecoute)\s+(.+)/);
   if (m) {
     let query = m[1].trim().replace(/^(?:de la|des|du|un peu de|de|la|le)\s+/, '').trim() || m[1].trim();
     // Demande générale de musique → les hits du moment plutôt qu'une recherche littérale
     if (/^(?:musique|musiques|chansons?|hits?|tube|tubes|playlist|radio)$/.test(query)) {
-      return { reply: "Je vous ouvre les plus grands tubes du moment sur YouTube, Isaac. Installez-vous bien.", source: 'system',
-               open: 'https://www.youtube.com/results?search_query=' + encodeURIComponent('top hits 2026 best music playlist') };
+      return { reply: "Je lance les plus grands tubes du moment, Isaac. Installez-vous bien.", source: 'system',
+               open: '/player.html?q=' + encodeURIComponent('top hits 2026 best music playlist') };
     }
-    return { reply: `Je cherche « ${m[1]} » sur YouTube, Isaac. Bon visionnage.`, source: 'system',
-             open: 'https://www.youtube.com/results?search_query=' + encodeURIComponent(m[1]) };
+    return { reply: `Je lance « ${m[1]} » pour vous, Isaac. Bonne écoute.`, source: 'system',
+             open: '/player.html?q=' + encodeURIComponent(query) };
   }
 
   // --- Récupérer le DERNIER code écrit : l'ouvrir dans VS Code + le copier au presse-papiers ---
@@ -7602,7 +7681,7 @@ async function handleCommand(rawText, image, opts) {
           ? pages.filter(f => classe(f) > 0).sort((a, b) => classe(b) - classe(a) || ages(b) - ages(a))[0]
           : pages.sort((a, b) => ages(b) - ages(a))[0];
         if (choix) {
-          run(`start "" "${path.join(CODE_DIR, choix)}"`);
+          ouvrirChemin(path.join(CODE_DIR, choix));
           return { reply: `J'ouvre votre page « ${choix} », Isaac.`, source: 'system' };
         }
       }
@@ -7771,7 +7850,9 @@ async function handleCommand(rawText, image, opts) {
   if (/capture (l |d )?(ecran|image|d ecran)|screenshot|faire une capture/.test(text)) {
     if (!IS_LOCAL) return { reply: "La capture d'écran n'est possible que lorsque je tourne sur votre PC, Isaac.", source: 'system' };
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const out = path.join(process.env.USERPROFILE || 'C:', 'Pictures', 'isaac-capture-' + stamp + '.png');
+    // Correctif 2026-10-09 (audit m2) : USERPROFILE passe par psSafe, comme
+    // l'exige la règle maison (« tout texte → psSafe avant PowerShell »).
+    const out = path.join(psSafe(process.env.USERPROFILE) || 'C:', 'Pictures', 'isaac-capture-' + stamp + '.png');
     const ps = 'Add-Type -AssemblyName System.Windows.Forms,System.Drawing;' +
       '$b=[System.Windows.Forms.SystemInformation]::VirtualScreen;' +
       '$bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height;' +
@@ -7788,7 +7869,9 @@ async function handleCommand(rawText, image, opts) {
   m = text.match(/^(?:calcule|calcul|combien font|combien fait)\s+(.+)/);
   if (m) {
     const expr = m[1].replace(/x/gi, '*').replace(/fois/g, '*').replace(/divise par/g, '/').replace(/moins/g, '-').replace(/plus/g, '+').replace(/,/g, '.');
-    if (/^[0-9+\-*/(). ]+$/.test(expr)) {
+    // Correctif 2026-10-09 (audit m1) : borne de taille — une expression de
+    // plusieurs Mo ou `9**9**9…` figeait le thread (DoS local bénin).
+    if (expr.length <= 200 && /^[0-9+\-*/(). ]+$/.test(expr)) {
       try {
         const result = Function('"use strict"; return (' + expr + ')')();
         return { reply: `Le résultat est ${result}, Isaac.`, source: 'local' };
@@ -7940,7 +8023,10 @@ function hoteNormalise(h) {
 }
 
 function politiqueAcces(req, u, hote) {
-  if (req.method !== 'POST') return null;                       // GET = lecture, même logique maison
+  // Correctif 2026-10-09 (audit m6) : couvrir toutes les méthodes d'écriture,
+  // pas seulement POST — sinon un futur handler PUT/DELETE échapperait à la
+  // politique d'origine. GET/HEAD/OPTIONS restent des lectures.
+  if (['GET', 'HEAD', 'OPTIONS'].indexOf(req.method) >= 0) return null;
   if (API_ECRITURE.indexOf(u.pathname) < 0) return null;        // route hors de la liste fermée : ses propres gardes
   // Le cerveau fermé sur 127.0.0.1 ne se commande QUE sous une adresse de boucle. Sans cette ligne,
   // une page dont le domaine pointe sur 127.0.0.1 (DNS rebinding) enverrait Origin == Host et passerait.
@@ -8649,7 +8735,8 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/api/prompts') {
     if (req.method === 'POST') {
       let corps = '';
-      req.on('data', c => { corps += c; if (corps.length > 400000) req.destroy(); });
+      // Durcissement 2026-10-08 : on répond 413 avant de couper — sinon le client reste en attente.
+      req.on('data', c => { corps += c; if (corps.length > 400000) { try { res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ ok: false, erreur: 'corps trop lourd (max 400 ko)' })); } catch (e) {} req.destroy(); } });
       req.on('end', () => {
         try {
           const recu = JSON.parse(corps || '{}');
@@ -8680,7 +8767,8 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/api/evolution') {
     if (req.method === 'POST') {
       let corps = '';
-      req.on('data', c => { corps += c; if (corps.length > 200000) req.destroy(); });
+      // Durcissement 2026-10-08 : on répond 413 avant de couper — sinon le client reste en attente.
+      req.on('data', c => { corps += c; if (corps.length > 200000) { try { res.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ ok: false, erreur: 'corps trop lourd (max 200 ko)' })); } catch (e) {} req.destroy(); } });
       req.on('end', async () => {
         let rep = {}, code = 200;
         try {
@@ -9249,6 +9337,29 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {}
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ notif }));
+    return;
+  }
+
+  // ---------- YOUTUBE : premier résultat d'une recherche (correctif 2026-10-09) ----------
+  // Le lecteur intégré utilisait `listType=search` dans l'embed YouTube — paramètre
+  // retiré par YouTube en novembre 2020 : le lecteur restait vide. Désormais le
+  // serveur résout la recherche en vrai ID de vidéo (page de résultats lue côté
+  // serveur, premier videoId extrait), et player.html intègre CETTE vidéo.
+  // GET /api/youtube/premier?q=mots -> {ok:true, videoId, url} ou {ok:false, repli}
+  if (u.pathname === '/api/youtube/premier') {
+    const q = (u.searchParams.get('q') || '').trim().slice(0, 120);
+    const urlRecherche = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q || 'musique');
+    let videoId = null;
+    try {
+      const html = await fetchText(urlRecherche, 12000, 1500000);
+      if (html) {
+        const m = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
+        if (m) videoId = m[1];
+      }
+    } catch (e) {}
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    if (videoId) res.end(JSON.stringify({ ok: true, videoId, url: 'https://www.youtube.com/watch?v=' + videoId }));
+    else res.end(JSON.stringify({ ok: false, repli: urlRecherche }));
     return;
   }
 
