@@ -7168,10 +7168,13 @@ async function handleCommand(rawText, image, opts) {
     // On construit le libellé en RETIRANT le verbe de commande puis TOUTE la clause d'échéance
     // (chiffres OU lettres), et ce qui reste est vraiment ce qu'il faut se rappeler.
     let propre = ' ' + String(text).toLowerCase() + ' ';
-    propre = propre.replace(/(?:rappelle moi|rappele moi|rappelle toi|reveille moi|il est l heure de|ne pas oublier de|n oublie pas de|pense a|thought a faire|thought a|message vocal|mon rappe?l)/g, ' ');
+    propre = propre.replace(/(?:rappelle[- ]moi|rappele[- ]moi|rappelle[- ]toi|reveille[- ]moi|il est l heure de|ne pas oublier de|n oublie pas de|pense a|thought a faire|thought a|message vocal|mon rappe?l)/g, ' ');
     // échéances relatives et absolues, en lettres comme en chiffres. \b obligatoire autour des
     // petits connecteurs (« a », « de ») sinon ils mangent une lettre à l'intérieur d'un mot.
-    propre = propre.replace(/\b(?:toutes?\s+les|dans|vers|a|compter du|compter de|demain|aujourd\s*hui|ce\s+soir|ce\s+matin)\b[\s,]+[\w'\- ]*?\b(?:\d+|une|un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dixsept|dixhuit|dixneuf|vingt|trente|quarante|cinquante|soixante|demi|demie|quart|tiers)\b[\w'\- ]*?\b(?:secondes?|minutes?|heures?|jours?|semaines?|h\b|matin|soir|midi|d\s*heures?)?/g, ' ');
+    // Correctif 2026-10-09 (audit M4b) : « quatre-vingt-dix » doit être mangé ENTIER par
+    // l'alternative — avant, le moteur s'arrêtait à « quatre » (quantifieur paresseux)
+    // et laissait « -vingt-dix » dans le libellé (« rappelle vingt dix »).
+    propre = propre.replace(/\b(?:toutes?\s+les|dans|vers|a|compter du|compter de|demain|aujourd\s*hui|ce\s+soir|ce\s+matin)\b[\s,]+[\w'\- ]*?\b(?:\d+|une|un|deux|trois|quatre-vingt-dix|quatre-vingts|quatre-vingt|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|dixsept|dixhuit|dixneuf|vingt|trente|quarante|cinquante|soixante|demi|demie|quart|tiers)\b[\w'\- ]*?\b(?:secondes?|minutes?|heures?|jours?|semaines?|h\b|matin|soir|midi|d\s*heures?)?/g, ' ');
     propre = propre.replace(/\b\d{1,2}\s*(?:h\b|heures?|minutes?)/g, ' ').replace(/\b\d{1,2}[:.]\d{2}\b/g, ' ');
     propre = propre.replace(/\b(?:heure|heures|minute|minutes|seconde|secondes|jour|jours|semaine|semaines|demain|matin|soir|midi|demi|demie|quart|tiers|dheure)\b/g, ' ');
     // petits mots de liaison qui suivaient le verbe de commande (ni « au » ni « pour » : ils portent du sens) :
