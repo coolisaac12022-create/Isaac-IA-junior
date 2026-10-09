@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Isaac IA Juniors — Lecteur</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#05070d; color:#e8f1ff; font-family:'Segoe UI',Arial,sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px 16px; }
+  h1 { font-size:20px; font-weight:600; margin-bottom:6px; text-align:center; }
+  h1 span { color:#58a6ff; }
+  p.hint { opacity:.65; font-size:13px; margin-bottom:18px; text-align:center; max-width:640px; }
+  .frame { width:min(960px,100%); aspect-ratio:16/9; border:1px solid #1c2a44; border-radius:12px; overflow:hidden; box-shadow:0 0 40px rgba(88,166,255,.15); background:#000; position:relative; }
+  .frame iframe { width:100%; height:100%; border:0; }
+  .chargement { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:15px; opacity:.7; }
+  .repli { margin-top:14px; display:none; text-align:center; }
+  .repli a { display:inline-block; margin-top:8px; padding:12px 24px; background:#1c2a44; color:#e8f1ff; border-radius:8px; text-decoration:none; font-size:15px; }
+  .foot { margin-top:16px; font-size:12px; opacity:.5; }
+</style>
+</head>
+<body>
+  <h1>▶ <span id="titre">Lecture en cours</span></h1>
+  <p class="hint" id="astuce">Recherche du meilleur résultat sur YouTube…</p>
+  <div class="frame"><div class="chargement" id="chargement">⏳ Chargement…</div><iframe id="yt" allow="autoplay; encrypted-media; fullscreen" allowfullscreen title="Lecteur" style="display:none"></iframe></div>
+  <div class="repli" id="repli"><p>La lecture automatique n'a pas pu démarrer ici.</p><a id="lienRepli" href="#" target="_blank" rel="noopener">▶ Ouvrir sur YouTube</a></div>
+  <p class="foot">Isaac IA Juniors — DIGITALE BUSINESSE</p>
+<script>
+  (async function () {
+    const q = new URLSearchParams(location.search).get('q') || 'musique';
+    document.getElementById('titre').textContent = q;
+    document.title = '▶ ' + q + ' — Isaac IA Juniors';
+    const urlRecherche = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q);
+    try {
+      const r = await fetch('/api/youtube/premier?q=' + encodeURIComponent(q));
+      const d = await r.json();
+      if (d && d.ok && d.videoId) {
+        const yt = document.getElementById('yt');
+        yt.src = 'https://www.youtube.com/embed/' + d.videoId + '?autoplay=1&rel=0';
+        yt.style.display = 'block';
+        document.getElementById('chargement').style.display = 'none';
+        document.getElementById('astuce').textContent = 'Si la lecture ne démarre pas seule, cliquez sur ▶ dans la vidéo.';
+        return;
+      }
+      throw new Error('sans id');
+    } catch (e) {
+      document.getElementById('chargement').style.display = 'none';
+      document.getElementById('astuce').textContent = 'Recherche YouTube : cliquez ci-dessous pour lancer la lecture.';
+      const repli = document.getElementById('repli');
+      document.getElementById('lienRepli').href = urlRecherche;
+      repli.style.display = 'block';
+    }
+  })();
+</script>
+</body>
+</html>

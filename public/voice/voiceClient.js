@@ -93,7 +93,7 @@
   async function moteurEtat(force) {
     if (!force && MOTEUR && (Date.now() - MOTEUR_LU) < 120000) return MOTEUR;
     try {
-      const r = await fetch('api/voix/etat', { cache: 'no-store' });
+      const r = await fetch('/api/voix/etat', { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       MOTEUR = await r.json();
       MOTEUR_LU = Date.now();
@@ -231,6 +231,11 @@
   let enTrain = false;
   let agentEnTrain = null;
   const abonnesParole = [];
+  // Correctif 2026-10-09 (audit M2) : la promesse de jouerWav ne se résolvait que
+  // sur onended/onerror/watchdog 90s. Un audio.pause() ne déclenche pas onended :
+  // couper() laissait la promesse pendante jusqu'au watchdog, qui écrasait alors
+  // l'état de la NOUVELLE prise de parole. Désormais couper() résout explicitement.
+  let terminerWav = null;
 
   function publierParole() {
     const snap = { parle: enTrain, agent: agentEnTrain };
@@ -240,13 +245,14 @@
   function couper() {
     session++;
     enTrain = false; agentEnTrain = null;
+    if (terminerWav) { try { terminerWav('coupe'); } catch (e) {} terminerWav = null; }
     if (audio) { try { audio.pause(); audio.src = ''; } catch (e) {} audio = null; }
     if ('speechSynthesis' in window) { try { window.speechSynthesis.cancel(); } catch (e) {} }
     publierParole();
   }
 
   async function demanderNeuronal(morceau, agent, p) {
-    const r = await fetch('api/voix', {
+    const r = await fetch('/api/voix', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -280,7 +286,8 @@
       try { a.mozPreservesPitch = false; } catch (e) {}
       try { a.volume = Math.max(0, Math.min(1, Number(p.volume) || 1)); } catch (e) {}
       let fini = false;
-      const terminer = function (pourquoi) { if (fini) return; fini = true; clearTimeout(chien); audio = null; resolve(pourquoi); };
+      const terminer = function (pourquoi) { if (fini) return; fini = true; clearTimeout(chien); audio = null; terminerWav = null; resolve(pourquoi); };
+      terminerWav = terminer;
       const chien = setTimeout(function () { terminer('erreur'); }, 90000);
       a.onended = function () { terminer('fini'); };
       a.onerror = function () { terminer('erreur'); };

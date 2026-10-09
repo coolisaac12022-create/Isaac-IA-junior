@@ -88,10 +88,30 @@ function creerVoiceEngine(depsBruts) {
     try {
       fs.mkdirSync(CACHE_DIR, { recursive: true });
       fs.writeFileSync(cible, wav);
+      purgerCache(500, 30);
       return cle;
     } catch (e) {
       throw new Error('cache vocal inaccessible : ' + e.message);
     }
+  }
+
+  // Correctif 2026-10-09 (audit M3) : le cache n'avait AUCUNE éviction — chaque
+  // phrase unique ajoutait un .wav pour toujours. On garde les 500 plus récents
+  // et on supprime les fichiers de plus de 30 jours, au moment de l'écriture.
+  function purgerCache(maxFichiers, joursMax) {
+    try {
+      const fichiers = fs.readdirSync(CACHE_DIR)
+        .filter(f => /^[a-f0-9]{64}\.wav$/.test(f))
+        .map(f => { try { return { f, t: fs.statSync(path.join(CACHE_DIR, f)).mtimeMs }; } catch (e) { return null; } })
+        .filter(Boolean)
+        .sort((a, b) => b.t - a.t);
+      const limiteAge = Date.now() - joursMax * 86400000;
+      fichiers.forEach((e, i) => {
+        if (i >= maxFichiers || e.t < limiteAge) {
+          try { fs.unlinkSync(path.join(CACHE_DIR, e.f)); } catch (err) {}
+        }
+      });
+    } catch (e) {}
   }
 
   // ---- dire() : l'arbitrage --------------------------------------------------

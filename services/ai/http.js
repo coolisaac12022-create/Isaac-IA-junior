@@ -63,7 +63,7 @@ function postJSON(url, obj, timeoutMs) {
   return new Promise((resolve) => {
     try {
       const body = JSON.stringify(obj);
-      const req = moduleFor(new URL(url)).request(url, {
+      const req = modulePour(new URL(url)).request(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
       }, (res) => {
