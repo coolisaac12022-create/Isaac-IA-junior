@@ -24,9 +24,9 @@ const CODE_DIR = path.join(PUBLIC_DIR, 'isaac-code'); // programmes générés p
 try { fs.mkdirSync(CODE_DIR, { recursive: true }); } catch (e) {}
 const NOTES_FILE = path.join(__dirname, 'notes.txt');
 const MEMORY_FILE = path.join(__dirname, ESSAI ? 'isaac-memory.essai.json' : 'isaac-memory.json');
-// Mode local = sur le PC d'Isaac (Windows) : contrôle total possible.
-// Mode web (hébergé type Bonto) : plus de contrôle du PC, mais dialogue + sites.
-const IS_LOCAL = process.platform === 'win32';
+// Mode local = sur le poste de l'utilisateur (Windows ou macOS) : contrôle du poste possible.
+// Mode web (hébergé) : plus de contrôle du poste, mais dialogue + sites.
+const IS_LOCAL = process.platform === 'win32' || process.platform === 'darwin';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
